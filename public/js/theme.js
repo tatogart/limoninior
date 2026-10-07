@@ -7,3 +7,16 @@
   document.documentElement.dataset.theme = theme;
   document.documentElement.dataset.accent = s.accent || 'lime';
 })();
+
+// Track the real visible height (keyboard, browser bars) for the app container.
+(function () {
+  var vv = window.visualViewport;
+  function fit() {
+    var h = vv ? vv.height : window.innerHeight;
+    document.documentElement.style.setProperty('--app-h', Math.round(h) + 'px');
+    if (vv && vv.offsetTop) window.scrollTo(0, 0);
+  }
+  fit();
+  (vv || window).addEventListener('resize', fit);
+  window.addEventListener('orientationchange', function () { setTimeout(fit, 300); });
+})();

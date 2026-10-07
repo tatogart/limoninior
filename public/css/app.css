@@ -87,7 +87,9 @@ a { color: var(--accent); }
 .muted { color: var(--text-2); }
 .accent { color: var(--accent) !important; }
 
-#app { height: 100vh; height: 100dvh; }
+/* Pin the app to the visible viewport: works even where 100dvh is unsupported or wrong
+   (older Android Chrome, installed PWAs with edge-to-edge display). */
+#app { position: fixed; inset: 0; height: var(--app-h, 100%); overflow: hidden; }
 
 .ic { width: 24px; height: 24px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 

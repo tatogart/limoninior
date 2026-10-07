@@ -1,4 +1,4 @@
-.admin-app { height: auto; min-height: 100dvh; }
+.admin-app { position: static !important; height: auto !important; overflow: visible !important; min-height: 100dvh; }
 body:has(.admin-app) { overflow: auto; background: var(--bg-2); }
 .admin { min-height: 100dvh; }
 .admin-top {
