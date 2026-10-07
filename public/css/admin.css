@@ -69,3 +69,5 @@ body:has(.admin-app) { overflow: auto; background: var(--bg-2); }
 .user-row.requested { background: color-mix(in srgb, #f5a524 10%, transparent); }
 .pill.warn { color: #b26b00; background: color-mix(in srgb, #f5a524 22%, transparent); }
 .row-sub.clip { max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Lock screen fills the whole window (the admin page scrolls, so #app has no fixed height). */
+.admin-app > .login { min-height: 100vh; min-height: 100dvh; height: auto; }
