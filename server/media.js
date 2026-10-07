@@ -84,7 +84,8 @@ export function serveMedia(req, res) {
   if (!m) return res.status(404).end();
   if (m.kind === 'message') {
     const member = q('SELECT 1 FROM chat_members WHERE chat_id = ? AND user_id = ?').get(m.chat_id, req.user.id);
-    if (!member) return res.status(404).end();
+    const isPublic = q("SELECT 1 FROM chats WHERE id = ? AND type = 'channel' AND username IS NOT NULL").get(m.chat_id);
+    if (!member && !isPublic) return res.status(404).end();
   }
   res.set({
     'Content-Type': m.mime,

@@ -50,3 +50,5 @@ export const giftById = (id) => GIFTS.find((g) => g.id === id) || null;
 
 export const DAILY_BONUS = 20;
 export const START_COINS = 100;
+
+export const REACTIONS = ['👍', '❤️', '🔥', '😂', '😮', '😢', '🎉', '🍋', '🤯', '👎'];

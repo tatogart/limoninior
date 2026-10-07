@@ -59,6 +59,9 @@ const ICONS = {
   smile: '<circle cx="12" cy="12" r="8.5"/><path d="M8.5 14c1.8 2.2 5.2 2.2 7 0"/><path d="M9 9.5v.5M15 9.5v.5" stroke-width="2.4"/>',
   gift: '<rect x="3.5" y="8" width="17" height="4" rx="1"/><path d="M5 12v8h14v-8M12 8v12"/><path d="M12 8c-1.5-3.5-5.5-4-5.5-1.5S10 8 12 8zM12 8c1.5-3.5 5.5-4 5.5-1.5S14 8 12 8z"/>',
   eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
+  mute: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="m16 9.5 5 5M21 9.5l-5 5"/>',
+  eyeSmall: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
+  share: '<path d="M14 5l7 7-7 7M21 12H9a6 6 0 0 0-6 6"/>',
   key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 8-8M16 7l3 3M14 9l2 2"/>',
   coin: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v10M9.5 9.5h4a1.8 1.8 0 0 1 0 3.5h-3a1.8 1.8 0 0 0 0 3.5h4"/>',
   megaphone: '<path d="M4 10v4h3l6 4V6L7 10z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11"/>',
@@ -281,7 +284,7 @@ export function closeMenu() {
 /** Context menu at (x, y). items: [{ icon, label, danger, onClick }] */
 export function contextMenu(x, y, items) {
   closeMenu();
-  const menu = h('div', { class: 'ctx-menu', role: 'menu' }, items.filter(Boolean).map((it) => h('button', {
+  const menu = h('div', { class: 'ctx-menu', role: 'menu' }, items.filter(Boolean).map((it) => it.node || h('button', {
     class: `ctx-item ${it.danger ? 'danger' : ''}`,
     role: 'menuitem',
     onclick: () => { closeMenu(); it.onClick(); },

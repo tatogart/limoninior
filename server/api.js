@@ -18,6 +18,14 @@ const MAX_TEXT = 4096;
 const PAGE = 50;
 export const OFFICIAL_SUB = 'system:limoninior';
 
+/** Users and channels share one @username namespace (like Telegram). */
+function usernameOwner(name) {
+  const u = q('SELECT id FROM users WHERE username = ?').get(name);
+  if (u) return { kind: 'user', id: u.id };
+  const c = q('SELECT id FROM chats WHERE username = ?').get(name);
+  return c ? { kind: 'chat', id: c.id } : null;
+}
+
 const clean = (s, max) => String(s ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim().slice(0, max);
 const int = (v) => {
   const n = Number(v);
@@ -57,7 +65,12 @@ export function meUser(u) {
   };
 }
 
-function serializeMessage(m) {
+export function reactionSummary(messageId) {
+  const rows = q('SELECT emoji, COUNT(*) AS n FROM reactions WHERE message_id = ? GROUP BY emoji ORDER BY n DESC, MIN(created_at)').all(messageId);
+  return rows.map((r) => ({ emoji: r.emoji, count: r.n }));
+}
+
+function serializeMessage(m, viewerId = null) {
   if (!m) return null;
   let reply = null;
   if (m.reply_to) {
@@ -77,19 +90,51 @@ function serializeMessage(m) {
     createdAt: m.created_at,
     editedAt: m.edited_at,
     extra: m.extra ? JSON.parse(m.extra) : null,
+    views: m.views,
+    reactions: reactionSummary(m.id),
+    myReaction: viewerId ? q('SELECT emoji FROM reactions WHERE message_id = ? AND user_id = ?').get(m.id, viewerId)?.emoji || null : null,
+  };
+}
+
+/** Public card of a channel (also shown to non-subscribers). */
+export function channelPublic(c) {
+  return {
+    id: c.id,
+    type: 'channel',
+    title: c.title,
+    avatar: mediaUrl(c.avatar),
+    username: c.username,
+    description: c.description,
+    verified: !!c.verified,
+    membersCount: q('SELECT COUNT(*) AS n FROM chat_members WHERE chat_id = ?').get(c.id).n,
   };
 }
 
 function chatForUser(chatId, userId) {
-  const c = q(`SELECT c.*, cm.last_read_id, cm.role FROM chats c
+  const c = q(`SELECT c.*, cm.last_read_id, cm.role, cm.muted FROM chats c
                JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = ?
                WHERE c.id = ?`).get(userId, chatId);
   if (!c) return null;
-  const others = q(`SELECT u.*, cm.last_read_id AS read_id FROM chat_members cm JOIN users u ON u.id = cm.user_id
-                    WHERE cm.chat_id = ? AND cm.user_id != ?`).all(chatId, userId);
   const last = c.last_msg_id ? q('SELECT * FROM messages WHERE id = ?').get(c.last_msg_id) : null;
   const unread = q('SELECT COUNT(*) AS n FROM messages WHERE chat_id = ? AND id > ? AND (sender_id IS NULL OR sender_id != ?)')
     .get(chatId, c.last_read_id, userId).n;
+  if (c.type === 'channel') {
+    return {
+      ...channelPublic(c),
+      role: c.role,
+      ownerId: c.owner_id,
+      canPost: c.role === 'owner' || c.role === 'admin',
+      verifyRequested: c.role === 'owner' ? !!c.verify_requested : undefined,
+      muted: !!c.muted,
+      lastMessage: serializeMessage(last),
+      unread,
+      lastReadId: c.last_read_id,
+      peerReadId: 0,
+      createdAt: c.created_at,
+    };
+  }
+  const others = q(`SELECT u.*, cm.last_read_id AS read_id FROM chat_members cm JOIN users u ON u.id = cm.user_id
+                    WHERE cm.chat_id = ? AND cm.user_id != ?`).all(chatId, userId);
   const peer = c.type === 'private' ? others[0] : null;
   return {
     id: c.id,
@@ -100,6 +145,8 @@ function chatForUser(chatId, userId) {
     membersCount: others.length + 1,
     role: c.role,
     ownerId: c.owner_id,
+    canPost: true,
+    muted: !!c.muted,
     lastMessage: serializeMessage(last),
     unread,
     lastReadId: c.last_read_id,
@@ -113,7 +160,7 @@ function isMember(chatId, userId) {
 }
 
 /** Push fresh chat state to every member (each gets their own view). */
-function pushChat(chatId) {
+export function pushChat(chatId) {
   for (const uid of memberIds(chatId)) emitToUser(uid, 'chat', chatForUser(chatId, uid));
 }
 
@@ -194,7 +241,7 @@ const failedLogins = new Map(); // username -> { n, until }
 function checkUsername(username) {
   if (!USERNAME_RE.test(username)) return 'bad_username';
   if (RESERVED.has(username.toLowerCase())) return 'username_taken';
-  if (q('SELECT 1 FROM users WHERE username = ?').get(username)) return 'username_taken';
+  if (usernameOwner(username)) return 'username_taken';
   return null;
 }
 const passwordError = (pw) => (typeof pw !== 'string' || pw.length < 8 ? 'weak_password' : pw.length > 128 ? 'bad_password' : null);
@@ -287,8 +334,9 @@ api.get('/username-check', checkLimiter, (req, res) => {
   const u = String(req.query.u || '');
   if (!USERNAME_RE.test(u)) return res.json({ ok: false, reason: 'format' });
   if (RESERVED.has(u.toLowerCase())) return res.json({ ok: false, reason: 'taken' });
-  const owner = q('SELECT id FROM users WHERE username = ?').get(u);
-  const taken = owner && owner.id !== me?.id;
+  const owner = usernameOwner(u);
+  const exceptChat = Number(req.query.chat) || 0;
+  const taken = owner && !(owner.kind === 'user' && owner.id === me?.id) && !(owner.kind === 'chat' && owner.id === exceptChat);
   res.json({ ok: !taken, reason: taken ? 'taken' : null });
 });
 
@@ -301,8 +349,8 @@ api.patch('/me', requireAuth, (req, res) => {
     username = String(b.username).replace(/^@/, '');
     if (!USERNAME_RE.test(username)) return bad(res, 'bad_username');
     if (RESERVED.has(username.toLowerCase())) return bad(res, 'username_taken');
-    const owner = q('SELECT id FROM users WHERE username = ?').get(username);
-    if (owner && owner.id !== req.user.id) return bad(res, 'username_taken');
+    const owner = usernameOwner(username);
+    if (owner && !(owner.kind === 'user' && owner.id === req.user.id)) return bad(res, 'username_taken');
   }
   if (!name) return bad(res, 'bad_name');
   if (!username) return bad(res, 'bad_username');
@@ -476,10 +524,16 @@ api.post('/chats/group', (req, res) => {
   res.json({ chat: chatForUser(chatId, req.user.id) });
 });
 
-function groupAsAdmin(req, res) {
+function canPost(chatId, userId) {
+  const r = q('SELECT c.type, cm.role FROM chats c JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = ? WHERE c.id = ?').get(userId, chatId);
+  return !!r && (r.type !== 'channel' || r.role === 'owner' || r.role === 'admin');
+}
+
+function groupAsAdmin(req, res, types = ['group']) {
   const id = int(req.params.id);
-  const c = id && q("SELECT c.*, cm.role FROM chats c JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = ? WHERE c.id = ? AND c.type = 'group'")
+  const c = id && q("SELECT c.*, cm.role FROM chats c JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = ? WHERE c.id = ?")
     .get(req.user.id, id);
+  if (c && !types.includes(c.type)) { bad(res, 'not_found', 404); return null; }
   if (!c) { bad(res, 'not_found', 404); return null; }
   if (c.role !== 'owner') { bad(res, 'forbidden', 403); return null; }
   return c;
@@ -496,7 +550,7 @@ api.patch('/chats/:id', (req, res) => {
 });
 
 api.post('/chats/:id/avatar', uploadLimiter, upload.single('file'), (req, res) => {
-  const c = groupAsAdmin(req, res);
+  const c = groupAsAdmin(req, res, ['group', 'channel']);
   if (!c) return;
   const img = saveImage(req.file, { ownerId: req.user.id, kind: 'avatar', maxBytes: 5 * 1024 * 1024 });
   q('UPDATE chats SET avatar = ? WHERE id = ?').run(img.name, c.id);
@@ -570,7 +624,7 @@ api.get('/chats/:id/messages', (req, res) => {
   } else {
     rows = q('SELECT * FROM messages WHERE chat_id = ? ORDER BY id DESC LIMIT ?').all(id, PAGE).reverse();
   }
-  res.json({ messages: rows.map(serializeMessage), hasMore: !after && rows.length === PAGE });
+  res.json({ messages: rows.map((m) => serializeMessage(m, req.user.id)), hasMore: !after && rows.length === PAGE });
 });
 
 function validReply(chatId, replyTo) {
@@ -581,6 +635,7 @@ function validReply(chatId, replyTo) {
 api.post('/chats/:id/messages', sendLimiter, (req, res) => {
   const id = int(req.params.id);
   if (!id || !isMember(id, req.user.id)) return bad(res, 'not_found', 404);
+  if (!canPost(id, req.user.id)) return bad(res, 'forbidden', 403);
   const text = clean(req.body?.text, MAX_TEXT + 1);
   if (!text) return bad(res, 'empty');
   if (text.length > MAX_TEXT) return bad(res, 'too_long');
@@ -591,6 +646,7 @@ api.post('/chats/:id/messages', sendLimiter, (req, res) => {
 api.post('/chats/:id/images', uploadLimiter, upload.single('file'), (req, res) => {
   const id = int(req.params.id);
   if (!id || !isMember(id, req.user.id)) return bad(res, 'not_found', 404);
+  if (!canPost(id, req.user.id)) return bad(res, 'forbidden', 403);
   const img = saveImage(req.file, { ownerId: req.user.id, kind: 'message', chatId: id });
   const msg = insertMessage(id, req.user.id, {
     kind: 'image', text: clean(req.body?.text, MAX_TEXT), file: img.name, width: img.w, height: img.h,
@@ -602,6 +658,7 @@ api.post('/chats/:id/images', uploadLimiter, upload.single('file'), (req, res) =
 api.post('/chats/:id/stickers', sendLimiter, (req, res) => {
   const id = int(req.params.id);
   if (!id || !isMember(id, req.user.id)) return bad(res, 'not_found', 404);
+  if (!canPost(id, req.user.id)) return bad(res, 'forbidden', 403);
   const sticker = String(req.body?.sticker || '');
   if (!isValidSticker(sticker)) return bad(res, 'bad_sticker');
   res.json({ message: postMessage(id, req.user.id, { kind: 'sticker', text: sticker, replyTo: validReply(id, req.body?.replyTo) }) });
@@ -658,7 +715,7 @@ api.delete('/messages/:id', (req, res) => {
   const m = id && q('SELECT * FROM messages WHERE id = ?').get(id);
   if (!m || !isMember(m.chat_id, req.user.id)) return bad(res, 'not_found', 404);
   const chat = q('SELECT * FROM chats WHERE id = ?').get(m.chat_id);
-  const canDelete = m.sender_id === req.user.id || (chat.type === 'group' && chat.owner_id === req.user.id);
+  const canDelete = m.sender_id === req.user.id || ((chat.type === 'group' || chat.type === 'channel') && chat.owner_id === req.user.id);
   if (!canDelete) return bad(res, 'forbidden', 403);
   q('DELETE FROM messages WHERE id = ?').run(id);
   if (m.file) deleteMediaFile(m.file);
@@ -681,9 +738,198 @@ api.post('/chats/:id/read', (req, res) => {
   const r = q('UPDATE chat_members SET last_read_id = ? WHERE chat_id = ? AND user_id = ? AND last_read_id < ?')
     .run(target, id, req.user.id, target);
   if (r.changes) {
+    const type = q('SELECT type FROM chats WHERE id = ?').get(id).type;
     emitToUser(req.user.id, 'chat', chatForUser(id, req.user.id));
-    emitToChat(id, 'read', { chatId: id, userId: req.user.id, messageId: target }, req.user.id);
+    if (type !== 'channel') {
+      emitToChat(id, 'read', { chatId: id, userId: req.user.id, messageId: target }, req.user.id);
+    }
   }
+  res.json({ ok: true });
+});
+
+// ---------- reactions & mute ----------
+
+export const REACTIONS = ['👍', '❤️', '🔥', '😂', '😮', '😢', '🎉', '🍋', '🤯', '👎'];
+
+api.post('/messages/:id/react', sendLimiter, (req, res) => {
+  const id = int(req.params.id);
+  const m = id && q('SELECT * FROM messages WHERE id = ?').get(id);
+  if (!m || m.kind === 'system' || !isMember(m.chat_id, req.user.id)) return bad(res, 'not_found', 404);
+  const emoji = req.body?.emoji ?? null;
+  if (emoji !== null && !REACTIONS.includes(emoji)) return bad(res, 'bad_reaction');
+  if (emoji) {
+    q(`INSERT INTO reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(message_id, user_id) DO UPDATE SET emoji = excluded.emoji, created_at = excluded.created_at`).run(id, req.user.id, emoji, now());
+  } else {
+    q('DELETE FROM reactions WHERE message_id = ? AND user_id = ?').run(id, req.user.id);
+  }
+  const payload = { chatId: m.chat_id, messageId: id, reactions: reactionSummary(id), userId: req.user.id, emoji };
+  emitToChat(m.chat_id, 'message:reactions', payload);
+  res.json(payload);
+});
+
+api.post('/chats/:id/mute', (req, res) => {
+  const id = int(req.params.id);
+  if (!id || !isMember(id, req.user.id)) return bad(res, 'not_found', 404);
+  q('UPDATE chat_members SET muted = ? WHERE chat_id = ? AND user_id = ?').run(req.body?.muted ? 1 : 0, id, req.user.id);
+  const chat = chatForUser(id, req.user.id);
+  emitToUser(req.user.id, 'chat', chat);
+  res.json({ chat });
+});
+
+// ---------- search & resolve ----------
+
+api.get('/search', searchLimiter, (req, res) => {
+  const raw = clean(req.query.q, 64).replace(/^@/, '');
+  if (raw.length < 2) return res.json({ users: [], channels: [] });
+  const like = raw.replace(/[\\%_]/g, (c) => `\\${c}`);
+  const users = q(`SELECT * FROM users
+                   WHERE banned = 0 AND username IS NOT NULL AND id != ?
+                     AND (username LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\')
+                   ORDER BY (username = ?) DESC, verified DESC, (username LIKE ? ESCAPE '\\') DESC, username
+                   LIMIT 15`).all(req.user.id, `${like}%`, `%${like}%`, raw, `${like}%`);
+  const channels = q(`SELECT c.*, (SELECT COUNT(*) FROM chat_members WHERE chat_id = c.id) AS subs FROM chats c
+                      WHERE c.type = 'channel' AND c.username IS NOT NULL
+                        AND (c.username LIKE ? ESCAPE '\\' OR c.title LIKE ? ESCAPE '\\')
+                      ORDER BY (c.username = ?) DESC, c.verified DESC, subs DESC LIMIT 15`).all(`${like}%`, `%${like}%`, raw);
+  res.json({ users: users.map(publicUser), channels: channels.map(channelPublic) });
+});
+
+api.get('/resolve/:username', (req, res) => {
+  const name = String(req.params.username).replace(/^@/, '');
+  if (!USERNAME_RE.test(name)) return bad(res, 'not_found', 404);
+  const u = q('SELECT * FROM users WHERE username = ? AND banned = 0').get(name);
+  if (u) return res.json({ type: 'user', user: publicUser(u) });
+  const c = q("SELECT * FROM chats WHERE username = ? AND type = 'channel'").get(name);
+  if (c) return res.json({ type: 'channel', channel: channelPublic(c), chat: chatForUser(c.id, req.user.id) });
+  bad(res, 'not_found', 404);
+});
+
+// ---------- channels ----------
+
+const channelLimiter = rateLimit({
+  windowMs: 60 * 60_000, limit: 10, standardHeaders: 'draft-7', legacyHeaders: false,
+  keyGenerator: (req) => `u${req.user?.id}`,
+});
+
+function publicChannel(id) {
+  return id ? q("SELECT * FROM chats WHERE id = ? AND type = 'channel' AND username IS NOT NULL").get(id) : null;
+}
+
+api.get('/channels/popular', (req, res) => {
+  const rows = q(`SELECT c.*, (SELECT COUNT(*) FROM chat_members WHERE chat_id = c.id) AS subs FROM chats c
+                  WHERE c.type = 'channel' AND c.username IS NOT NULL
+                  ORDER BY c.verified DESC, subs DESC, c.last_msg_id DESC LIMIT 20`).all();
+  res.json({ channels: rows.map(channelPublic) });
+});
+
+api.post('/channels', channelLimiter, (req, res) => {
+  const title = clean(req.body?.title, 64);
+  const description = clean(req.body?.description, 255);
+  const username = String(req.body?.username || '').replace(/^@/, '');
+  if (!title) return bad(res, 'bad_title');
+  const err = checkUsername(username);
+  if (err) return bad(res, err);
+  const id = tx(() => {
+    const r = q("INSERT INTO chats (type, title, description, username, owner_id, created_at) VALUES ('channel', ?, ?, ?, ?, ?)")
+      .run(title, description, username, req.user.id, now());
+    const cid = Number(r.lastInsertRowid);
+    q("INSERT INTO chat_members (chat_id, user_id, role, joined_at) VALUES (?, ?, 'owner', ?)").run(cid, req.user.id, now());
+    return cid;
+  });
+  systemMessage(id, `Канал «${title}» создан`);
+  audit(req.user.id, req.ip, 'channel_create', { chatId: id, username });
+  res.json({ chat: chatForUser(id, req.user.id) });
+});
+
+api.get('/channels/:id', (req, res) => {
+  const c = publicChannel(int(req.params.id));
+  if (!c) return bad(res, 'not_found', 404);
+  res.json({ channel: channelPublic(c), chat: chatForUser(c.id, req.user.id) });
+});
+
+// Read-only preview for people who haven't subscribed yet.
+api.get('/channels/:id/messages', (req, res) => {
+  const c = publicChannel(int(req.params.id));
+  if (!c) return bad(res, 'not_found', 404);
+  const before = int(req.query.before);
+  const rows = (before
+    ? q('SELECT * FROM messages WHERE chat_id = ? AND id < ? ORDER BY id DESC LIMIT ?').all(c.id, before, PAGE)
+    : q('SELECT * FROM messages WHERE chat_id = ? ORDER BY id DESC LIMIT ?').all(c.id, PAGE)).reverse();
+  res.json({ messages: rows.map((m) => serializeMessage(m, req.user.id)), hasMore: rows.length === PAGE });
+});
+
+// Unique views: every person who actually saw a post counts once (subscribers and preview readers).
+api.post('/channels/:id/views', (req, res) => {
+  const c = publicChannel(int(req.params.id)) || (isMember(int(req.params.id), req.user.id) && q("SELECT * FROM chats WHERE id = ? AND type = 'channel'").get(int(req.params.id)));
+  if (!c) return bad(res, 'not_found', 404);
+  const ids = (Array.isArray(req.body?.ids) ? req.body.ids : []).map(int).filter(Boolean).slice(0, 100);
+  const ins = q('INSERT OR IGNORE INTO post_views (message_id, user_id) SELECT id, ? FROM messages WHERE id = ? AND chat_id = ? AND kind != \'system\'');
+  const inc = q('UPDATE messages SET views = views + 1 WHERE id = ?');
+  tx(() => { for (const mid of ids) if (ins.run(req.user.id, mid, c.id).changes) inc.run(mid); });
+  res.json({ ok: true });
+});
+
+api.post('/channels/:id/join', channelLimiter, (req, res) => {
+  const c = publicChannel(int(req.params.id));
+  if (!c) return bad(res, 'not_found', 404);
+  q('INSERT OR IGNORE INTO chat_members (chat_id, user_id, joined_at, last_read_id) VALUES (?, ?, ?, ?)').run(c.id, req.user.id, now(), c.last_msg_id);
+  res.json({ chat: chatForUser(c.id, req.user.id) });
+});
+
+api.post('/channels/:id/leave', (req, res) => {
+  const id = int(req.params.id);
+  const m = id && q("SELECT cm.role FROM chat_members cm JOIN chats c ON c.id = cm.chat_id WHERE cm.chat_id = ? AND cm.user_id = ? AND c.type = 'channel'").get(id, req.user.id);
+  if (!m) return bad(res, 'not_found', 404);
+  if (m.role === 'owner') return bad(res, 'owner_cannot_leave');
+  q('DELETE FROM chat_members WHERE chat_id = ? AND user_id = ?').run(id, req.user.id);
+  emitToUser(req.user.id, 'chat:removed', { chatId: id });
+  res.json({ ok: true });
+});
+
+api.patch('/channels/:id', (req, res) => {
+  const c = groupAsAdmin(req, res, ['channel']);
+  if (!c) return;
+  const title = req.body?.title !== undefined ? clean(req.body.title, 64) : c.title;
+  const description = req.body?.description !== undefined ? clean(req.body.description, 255) : c.description;
+  let username = c.username;
+  if (req.body?.username !== undefined) {
+    username = String(req.body.username).replace(/^@/, '');
+    if (username.toLowerCase() !== String(c.username).toLowerCase()) {
+      const err = checkUsername(username);
+      if (err) return bad(res, err);
+    }
+  }
+  if (!title) return bad(res, 'bad_title');
+  q('UPDATE chats SET title = ?, description = ?, username = ? WHERE id = ?').run(title, description, username, c.id);
+  pushChat(c.id);
+  res.json({ chat: chatForUser(c.id, req.user.id) });
+});
+
+api.post('/channels/:id/verify-request', (req, res) => {
+  const c = groupAsAdmin(req, res, ['channel']);
+  if (!c) return;
+  if (c.verified) return bad(res, 'already_verified');
+  q('UPDATE chats SET verify_requested = ? WHERE id = ?').run(now(), c.id);
+  audit(req.user.id, req.ip, 'channel_verify_request', { chatId: c.id, username: c.username });
+  res.json({ chat: chatForUser(c.id, req.user.id) });
+});
+
+export function deleteChat(chatId) {
+  const c = q('SELECT * FROM chats WHERE id = ?').get(chatId);
+  if (!c) return;
+  const members = memberIds(chatId);
+  deleteMediaFile(c.avatar);
+  for (const m of q('SELECT name FROM media WHERE chat_id = ?').all(chatId)) deleteMediaFile(m.name);
+  q('DELETE FROM chats WHERE id = ?').run(chatId);
+  emitToUsers(members, 'chat:removed', { chatId });
+}
+
+api.delete('/channels/:id', (req, res) => {
+  const c = groupAsAdmin(req, res, ['channel']);
+  if (!c) return;
+  deleteChat(c.id);
+  audit(req.user.id, req.ip, 'channel_delete', { chatId: c.id, username: c.username });
   res.json({ ok: true });
 });
 

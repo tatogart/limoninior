@@ -66,3 +66,6 @@ body:has(.admin-app) { overflow: auto; background: var(--bg-2); }
 .card-foot { display: flex; justify-content: flex-end; margin-top: 10px; }
 .quick { display: flex; gap: 6px; flex-wrap: wrap; }
 .user-row .verified { width: 16px; height: 16px; }
+.user-row.requested { background: color-mix(in srgb, #f5a524 10%, transparent); }
+.pill.warn { color: #b26b00; background: color-mix(in srgb, #f5a524 22%, transparent); }
+.row-sub.clip { max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

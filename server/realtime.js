@@ -80,7 +80,9 @@ export function initRealtime(httpServer) {
       const t = Date.now();
       if (!Number.isInteger(chatId) || t - lastTyping < 1500) return;
       lastTyping = t;
-      if (!q('SELECT 1 FROM chat_members WHERE chat_id = ? AND user_id = ?').get(chatId, userId)) return;
+      const ok = q(`SELECT 1 FROM chat_members cm JOIN chats c ON c.id = cm.chat_id
+                    WHERE cm.chat_id = ? AND cm.user_id = ? AND c.type != 'channel'`).get(chatId, userId);
+      if (!ok) return;
       emitToChat(chatId, 'typing', { chatId, userId }, userId);
     });
 

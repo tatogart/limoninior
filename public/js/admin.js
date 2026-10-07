@@ -95,6 +95,10 @@ function dashboard() {
   const updateBtn = h('button', { class: 'btn btn-sm btn-primary', onclick: requestUpdate }, icon('refresh'), 'Обновить сейчас');
   const bcText = h('textarea', { class: 'input', rows: 3, maxLength: 4096, placeholder: 'Текст объявления — придёт всем пользователям от официального аккаунта Limoninior ✓' });
   const usersBody = h('div', { class: 'users-list' });
+  const channelsBody = h('div', { class: 'users-list' });
+  const chSearch = h('input', { class: 'input', type: 'search', placeholder: 'Поиск каналов' });
+  let ct = null;
+  chSearch.addEventListener('input', () => { clearTimeout(ct); ct = setTimeout(() => loadChannels(chSearch.value), 250); });
   const auditBody = h('div', { class: 'audit-list' });
   const search = h('input', { class: 'input', type: 'search', placeholder: 'Поиск: имя, @юзернейм, email' });
   let t = null;
@@ -117,6 +121,9 @@ function dashboard() {
         bcText,
         h('div', { class: 'card-foot' }, h('button', { class: 'btn btn-primary', onclick: broadcast }, icon('megaphone'), 'Отправить всем'))),
       h('section', { class: 'admin-card' },
+        h('div', { class: 'card-head' }, h('h2', {}, 'Каналы и верификация'), chSearch),
+        channelsBody),
+      h('section', { class: 'admin-card' },
         h('div', { class: 'card-head' }, h('h2', {}, 'Пользователи'), search),
         usersBody),
       h('section', { class: 'admin-card' },
@@ -136,6 +143,7 @@ function dashboard() {
         card('Активны за сутки', s.activeToday, `${s.banned} заблокировано`, 'bell'),
         card('Сообщения', s.messages, `+${s.messagesToday} за сутки`, 'chat'),
         card('Чаты', s.chats, `${s.groups} групп`, 'group'),
+        card('Каналы', s.channels, s.verifyRequests ? `${s.verifyRequests} заявок на галочку` : 'заявок нет', 'megaphone'),
         card('Медиа', bytes(s.mediaBytes), 'на диске', 'camera'),
         card('Сеансы', s.sessions, null, 'devices'));
       const max = Math.max(1, ...s.perDay.map((d) => d.n));
@@ -194,7 +202,9 @@ function dashboard() {
         admin_ban: 'Бан', admin_unban: 'Разбан', admin_logout_user: 'Завершены сеансы', admin_reset_username: 'Сброс юзернейма',
         admin_vacuum: 'Очистка БД', csrf_block: 'Заблокирован CSRF',
         register: 'Регистрация', password_set: 'Смена пароля', gift: 'Подарок', admin_verify: 'Выдана галочка',
-        admin_unverify: 'Снята галочка', admin_coins: 'Начислены лимоны', admin_broadcast: 'Рассылка', admin_update_request: 'Запрос обновления',
+        admin_unverify: 'Снята галочка', channel_create: 'Создан канал', channel_delete: 'Удалён канал',
+        channel_verify_request: 'Заявка на галочку', admin_channel_verify: 'Канал верифицирован',
+        admin_channel_unverify: 'Снята галочка канала', admin_channel_reject: 'Заявка отклонена', admin_channel_delete: 'Админ удалил канал', admin_coins: 'Начислены лимоны', admin_broadcast: 'Рассылка', admin_update_request: 'Запрос обновления',
       };
       const alarm = new Set(['login_failed', 'admin_unlock_failed', 'admin_denied', 'admin_totp_ratelimited', 'csrf_block', 'login_banned']);
       auditBody.replaceChildren(...(entries.length ? entries.map((a) => h('div', { class: `audit-row ${alarm.has(a.action) ? 'alarm' : ''}` },
@@ -261,6 +271,38 @@ function dashboard() {
     try { await api.post('/admin/update'); toast('Обновление запрошено — займёт 1–3 минуты'); loadServer(); } catch (e) { handle(e); }
   }
 
+  async function loadChannels(qs = '') {
+    try {
+      const { channels } = await api.get(`/admin/channels?q=${encodeURIComponent(qs)}`);
+      channelsBody.replaceChildren(...(channels.length ? channels.map(channelRow) : [h('div', { class: 'list-note' }, 'Каналов нет')]));
+    } catch (e) { handle(e); }
+  }
+
+  function channelRow(c) {
+    const act = (label, fn, cls = 'btn-ghost') => h('button', { class: `btn btn-sm ${cls}`, onclick: fn }, label);
+    const call = async (method, path, body, confirmText, danger) => {
+      if (confirmText && !(await confirmDialog(confirmText, { ok: 'Да', danger }))) return;
+      try {
+        await (method === 'del' ? api.del(path) : api.post(path, body));
+        toast('Готово');
+        loadChannels(chSearch.value); loadAudit(); loadStats();
+      } catch (e) { handle(e); }
+    };
+    return h('div', { class: `user-row ${c.verifyRequested ? 'requested' : ''}` },
+      avatar({ id: c.id, name: c.title, src: c.avatar }, 44),
+      h('div', { class: 'user-info' },
+        h('div', { class: 'row-main' }, nameWithBadge(c.title, c), c.verifyRequested ? h('span', { class: 'pill warn' }, 'заявка на галочку') : null),
+        h('div', { class: 'row-sub' }, `@${c.username} · владелец ${c.owner}`),
+        h('div', { class: 'row-sub' }, `${c.subscribers} подписчиков · ${c.posts} постов · создан ${dayLabel(c.createdAt)}`),
+        c.description ? h('div', { class: 'row-sub clip' }, c.description) : null),
+      h('div', { class: 'user-actions' },
+        c.verified
+          ? act('Снять галочку', () => call('post', `/admin/channels/${c.id}/verify`, { verified: false }, `Снять галочку с «${c.title}»?`))
+          : act('✓ Верифицировать', () => call('post', `/admin/channels/${c.id}/verify`, { verified: true }), 'btn-primary'),
+        c.verifyRequested ? act('Отклонить', () => call('post', `/admin/channels/${c.id}/reject`, {})) : null,
+        act('Удалить', () => call('del', `/admin/channels/${c.id}`, null, `Удалить канал «${c.title}» со всеми постами?`, true), 'btn-danger-ghost')));
+  }
+
   async function vacuum() {
     if (!(await confirmDialog('Удалить истёкшие сеансы и записи журнала старше 180 дней?', { ok: 'Очистить' }))) return;
     try { await api.post('/admin/vacuum'); toast('Готово'); loadStats(); loadAudit(); } catch (e) { handle(e); }
@@ -271,6 +313,7 @@ function dashboard() {
   clearInterval(serverTimer);
   serverTimer = setInterval(loadServer, 15_000);
   loadUsers();
+  loadChannels();
   loadAudit();
 }
 

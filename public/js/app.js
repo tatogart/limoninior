@@ -4,7 +4,7 @@ import {
   h, icon, avatar, timeHM, listTime, dayLabel, lastSeenText, plural, richText, emojiCount,
   toast, openModal, closeTopModal, confirmDialog, contextMenu, closeMenu, isTouch, badge, nameWithBadge,
 } from './ui.js';
-import { STICKER_PACKS, stickerInfo, GIFTS, giftById, DAILY_BONUS } from './catalog.js';
+import { STICKER_PACKS, stickerInfo, GIFTS, giftById, DAILY_BONUS, REACTIONS } from './catalog.js';
 import { EMOJI } from './emoji.js';
 
 // ============================================================ state
@@ -55,6 +55,8 @@ const app = document.getElementById('app');
 // ============================================================ helpers
 
 const isGroup = (c) => c?.type === 'group';
+const isChannel = (c) => c?.type === 'channel';
+const subsText = (n) => `${n} ${plural(n, 'подписчик', 'подписчика', 'подписчиков')}`;
 const curChat = () => S.chats.get(S.current);
 
 function mergeUser(u) {
@@ -92,8 +94,10 @@ function userAvatar(u, size, withOnline = false) {
 }
 /** Chat title with the verified badge for private chats. */
 function chatTitleNodes(c) {
-  return c.type === 'private' ? nameWithBadge(chatTitle(c), peerOf(c)) : [chatTitle(c)];
+  return c.type === 'private' ? nameWithBadge(chatTitle(c), peerOf(c)) : nameWithBadge(chatTitle(c), c);
 }
+/** Is the chat/peer verified (for the badge next to the title)? */
+const chatVerified = (c) => (c.type === 'private' ? !!peerOf(c)?.verified : !!c.verified);
 function chatTitle(c) {
   if (c.type === 'private') return peerOf(c)?.name || c.title;
   return c.title;
@@ -124,7 +128,7 @@ const typingDots = () => h('span', { class: 'typing-dots' }, h('i'), h('i'), h('
 
 function totalUnread() {
   let n = 0;
-  for (const c of S.chats.values()) n += c.unread;
+  for (const c of S.chats.values()) if (!c.muted && !c.preview) n += c.unread;
   return n;
 }
 function updateBadge() {
@@ -381,6 +385,7 @@ function startApp() {
   connectSocket();
   loadChats().then(handleDeepLink);
   setInterval(() => { if (S.current) renderHeaderStatus(); }, 30_000);
+  setInterval(refreshChannelStats, 20_000);
   history.replaceState({ root: true }, '', location.pathname.startsWith('/@') ? location.pathname : '/');
 }
 
@@ -414,8 +419,10 @@ function emptyPane() {
 
 function onFab(e) {
   const r = e.currentTarget.getBoundingClientRect();
-  contextMenu(r.left - 150, r.top - 110, [
+  contextMenu(r.left - 170, r.top - 200, [
     { icon: 'group', label: 'Новая группа', onClick: newGroupModal },
+    { icon: 'megaphone', label: 'Новый канал', onClick: newChannelModal },
+    { icon: 'search', label: 'Популярные каналы', onClick: popularChannelsModal },
     { icon: 'at', label: 'Найти по юзернейму', onClick: () => { V.search.focus(); toast('Введите @юзернейм в поиске'); } },
     { icon: 'bookmark', label: 'Избранное', onClick: openSaved },
   ]);
@@ -450,12 +457,11 @@ async function handleDeepLink() {
   history.replaceState({ root: true }, '', '/');
   if (!m) return;
   try {
-    const { users } = await api.get(`/users/search?q=${encodeURIComponent(m[1])}`);
-    const u = users.find((x) => x.username.toLowerCase() === m[1].toLowerCase());
-    if (u) startPrivate(u.id);
-    else if (m[1].toLowerCase() === S.me.username.toLowerCase()) openSaved();
-    else toast('Пользователь не найден');
-  } catch { /* ignore */ }
+    if (m[1].toLowerCase() === S.me.username.toLowerCase()) return openSaved();
+    const r = await api.get(`/resolve/${encodeURIComponent(m[1])}`);
+    if (r.type === 'user') startPrivate(r.user.id);
+    else openChannel(r.channel);
+  } catch { toast('Ничего не найдено по этой ссылке'); }
 }
 
 // ============================================================ socket
@@ -520,8 +526,9 @@ function connectSocket() {
     upsertChat(c);
     renderChatList();
     updateBadge();
-    if (c.id === S.current) renderHeader();
+    if (c.id === S.current) { renderHeader(); renderComposerMode(); }
   });
+  s.on('message:reactions', applyReactions);
   s.on('chat:removed', ({ chatId }) => {
     S.chats.delete(chatId);
     S.msgs.delete(chatId);
@@ -596,8 +603,9 @@ async function resync() {
 
 async function notify(chat, m) {
   if (m.chatId === S.current && !document.hidden) return;
+  if (chat.muted) return;
   if (!S.settings.notify || !('Notification' in window) || Notification.permission !== 'granted' || !document.hidden) return;
-  const title = isGroup(chat) ? chat.title : userName(m.senderId);
+  const title = isGroup(chat) || isChannel(chat) ? chat.title : userName(m.senderId);
   const body = `${isGroup(chat) ? `${userName(m.senderId)}: ` : ''}${messagePreview(m)}`.slice(0, 140);
   try {
     const reg = await navigator.serviceWorker?.getRegistration();
@@ -612,13 +620,14 @@ async function notify(chat, m) {
 function renderChatList() {
   if (!V.list) return;
   if (S.searchQuery) return renderSearch();
-  const chats = [...S.chats.values()].sort((a, b) => (b.lastMessage?.id || 0) - (a.lastMessage?.id || 0) || b.id - a.id);
+  const chats = [...S.chats.values()].filter((c) => !c.preview).sort((a, b) => (b.lastMessage?.id || 0) - (a.lastMessage?.id || 0) || b.id - a.id);
   if (!chats.length) {
     V.list.replaceChildren(h('div', { class: 'list-empty' },
       h('div', { class: 'list-empty-emoji' }, '👋'),
       h('div', { class: 'list-empty-title' }, 'Пока нет чатов'),
-      h('div', {}, 'Найдите друга по @юзернейму в поиске или создайте группу.'),
-      h('button', { class: 'btn btn-primary', onclick: () => V.search.focus() }, 'Найти людей')));
+      h('div', {}, 'Найдите друга по @юзернейму, создайте группу или подпишитесь на каналы.'),
+      h('button', { class: 'btn btn-primary', onclick: () => V.search.focus() }, 'Найти людей'),
+      h('button', { class: 'btn', onclick: popularChannelsModal }, icon('megaphone'), 'Популярные каналы')));
     return;
   }
   V.list.replaceChildren(...chats.map(chatItem));
@@ -635,10 +644,10 @@ function chatItem(c) {
   } else if (lm.kind === 'system') {
     preview = h('span', { class: 'muted' }, lm.text);
   } else {
-    const who = lm.senderId === S.me.id && c.type !== 'saved' ? 'Вы' : isGroup(c) ? userName(lm.senderId).split(' ')[0] : null;
+    const who = isChannel(c) ? null : lm.senderId === S.me.id && c.type !== 'saved' ? 'Вы' : isGroup(c) ? userName(lm.senderId).split(' ')[0] : null;
     preview = [who ? h('span', { class: 'preview-who' }, `${who}: `) : null, messagePreview(lm)];
   }
-  const mine = lm && lm.senderId === S.me.id && c.type !== 'saved';
+  const mine = lm && lm.senderId === S.me.id && c.type !== 'saved' && !isChannel(c);
   const read = mine && lm.id <= c.peerReadId;
   return h('button', {
     class: `chat-item ${c.id === S.current ? 'active' : ''}`,
@@ -647,18 +656,21 @@ function chatItem(c) {
       e.preventDefault();
       contextMenu(e.clientX, e.clientY, [
         { icon: 'info', label: 'Информация', onClick: () => openInfo(c) },
+        c.type !== 'saved' ? { icon: 'bell', label: c.muted ? 'Включить уведомления' : 'Выключить уведомления', onClick: () => toggleMute(c) } : null,
         isGroup(c) ? { icon: 'leave', label: 'Покинуть группу', danger: true, onClick: () => leaveGroup(c) } : null,
+        isChannel(c) && c.role !== 'owner' ? { icon: 'leave', label: 'Отписаться', danger: true, onClick: () => leaveChannel(c) } : null,
       ]);
     },
   },
   chatAvatar(c, 54),
   h('div', { class: 'chat-item-body' },
     h('div', { class: 'chat-item-top' },
-      h('span', { class: 'chat-item-title' }, isGroup(c) ? icon('group', 'title-ic') : null, h('span', { class: 'ellipsis' }, chatTitle(c)), c.type === 'private' && peerOf(c)?.verified ? badge() : null),
+      h('span', { class: 'chat-item-title' }, isGroup(c) ? icon('group', 'title-ic') : isChannel(c) ? icon('megaphone', 'title-ic') : null,
+        h('span', { class: 'ellipsis' }, chatTitle(c)), chatVerified(c) ? badge() : null, c.muted ? icon('mute', 'mute-ic') : null),
       h('span', { class: 'chat-item-time' }, mine ? icon(read ? 'checks' : 'check', 'tick') : null, lm ? listTime(lm.createdAt) : '')),
     h('div', { class: 'chat-item-bottom' },
       h('span', { class: 'chat-item-preview' }, preview),
-      c.unread ? h('span', { class: 'badge' }, c.unread > 999 ? '999+' : c.unread) : null)));
+      c.unread ? h('span', { class: `badge ${c.muted ? 'muted-badge' : ''}` }, c.unread > 999 ? '999+' : c.unread) : null)));
 }
 
 let searchTimer = null;
@@ -672,10 +684,11 @@ function onSearchInput() {
   const q = S.searchQuery;
   searchTimer = setTimeout(async () => {
     try {
-      const { users } = await api.get(`/users/search?q=${encodeURIComponent(q)}`);
+      const { users, channels } = await api.get(`/search?q=${encodeURIComponent(q)}`);
       if (q !== S.searchQuery) return;
       users.forEach(mergeUser);
       S.searchResults = users;
+      S.searchChannels = channels;
       renderChatList();
     } catch { /* ignore */ }
   }, 250);
@@ -691,13 +704,16 @@ function clearSearch() {
 
 function renderSearch() {
   const q = S.searchQuery.replace(/^@/, '').toLowerCase();
-  const local = [...S.chats.values()].filter((c) => chatTitle(c).toLowerCase().includes(q)
-    || peerOf(c)?.username?.toLowerCase().includes(q));
+  const local = [...S.chats.values()].filter((c) => !c.preview && (chatTitle(c).toLowerCase().includes(q)
+    || peerOf(c)?.username?.toLowerCase().includes(q) || c.username?.toLowerCase().includes(q)));
   const localPeerIds = new Set(local.map((c) => peerOf(c)?.id).filter(Boolean));
+  const localChatIds = new Set(local.map((c) => c.id));
   const global = (S.searchResults || []).filter((u) => !localPeerIds.has(u.id));
+  const channels = (S.searchChannels || []).filter((c) => !localChatIds.has(c.id));
   const nodes = [];
   if (local.length) nodes.push(h('div', { class: 'list-section' }, 'Чаты'), ...local.map(chatItem));
-  nodes.push(h('div', { class: 'list-section' }, 'Глобальный поиск'));
+  if (channels.length) nodes.push(h('div', { class: 'list-section' }, 'Каналы'), ...channels.map((ch) => channelCard(ch)));
+  nodes.push(h('div', { class: 'list-section' }, 'Люди'));
   if (S.searchResults === null && q.length >= 2) nodes.push(h('div', { class: 'list-loading' }, h('span', { class: 'spinner' })));
   else if (q.length < 2) nodes.push(h('div', { class: 'list-note' }, 'Введите минимум 2 символа'));
   else if (!global.length) nodes.push(h('div', { class: 'list-note' }, 'Никого не нашли 🤷'));
@@ -709,6 +725,72 @@ function renderSearch() {
         h('div', { class: 'chat-item-bottom' }, h('span', { class: 'chat-item-preview accent' }, `@${u.username}`)))));
   }
   V.list.replaceChildren(...nodes);
+}
+
+/** Search/catalog row for a public channel. */
+function channelCard(ch, after) {
+  return h('button', { class: 'chat-item', onclick: () => { clearSearch(); if (typeof after === 'function') after(); openChannel(ch); } },
+    avatar({ id: ch.id, name: ch.title, src: ch.avatar }, 54),
+    h('div', { class: 'chat-item-body' },
+      h('div', { class: 'chat-item-top' }, h('span', { class: 'chat-item-title' }, icon('megaphone', 'title-ic'),
+        h('span', { class: 'ellipsis' }, ch.title), ch.verified ? badge() : null)),
+      h('div', { class: 'chat-item-bottom' }, h('span', { class: 'chat-item-preview' },
+        h('span', { class: 'accent' }, `@${ch.username}`), ` · ${subsText(ch.membersCount)}`))));
+}
+
+async function popularChannelsModal() {
+  const list = h('div', { class: 'channel-catalog' }, h('div', { class: 'list-loading' }, h('span', { class: 'spinner' })));
+  const m = openModal({ title: 'Популярные каналы', body: h('div', {}, list,
+    h('button', { class: 'btn btn-primary btn-block', onclick: () => { m.close(); newChannelModal(); } }, icon('plus'), 'Создать свой канал')) });
+  try {
+    const { channels } = await api.get('/channels/popular');
+    list.replaceChildren(...(channels.length ? channels.map((ch) => channelCard(ch, () => m.close()))
+      : [h('div', { class: 'list-note' }, 'Каналов пока нет — создайте первый!')]));
+  } catch (e) { list.replaceChildren(h('div', { class: 'list-note' }, errorText(e))); }
+}
+
+/** Open a channel: as a regular chat if subscribed, otherwise as a read-only preview. */
+async function openChannel(ch) {
+  const known = S.chats.get(ch.id);
+  if (known && !known.preview) return openChat(ch.id);
+  try {
+    const r = await api.get(`/channels/${ch.id}`);
+    if (r.chat) { upsertChat(r.chat); renderChatList(); return openChat(r.chat.id); }
+    S.chats.set(ch.id, { ...r.channel, preview: true, canPost: false, unread: 0, lastReadId: 0, peerReadId: 0, lastMessage: null });
+    S.msgs.delete(ch.id);
+    openChat(ch.id);
+  } catch (e) { toast(errorText(e), 'error'); }
+}
+
+async function joinChannel(c) {
+  try {
+    const { chat } = await api.post(`/channels/${c.id}/join`);
+    S.msgs.delete(c.id);
+    upsertChat(chat);
+    renderChatList();
+    openChat(chat.id, { fromHistory: true });
+    toast(`Вы подписались на «${chat.title}» 🎉`);
+    setTimeout(refreshChannelStats, 1500);
+  } catch (e) { toast(errorText(e), 'error'); }
+}
+
+async function leaveChannel(c) {
+  if (!(await confirmDialog(`Отписаться от канала «${c.title}»?`, { ok: 'Отписаться', danger: true }))) return;
+  try {
+    await api.post(`/channels/${c.id}/leave`);
+    while (closeTopModal()) { /* close all */ }
+  } catch (e) { toast(errorText(e), 'error'); }
+}
+
+async function toggleMute(c) {
+  try {
+    const { chat } = await api.post(`/chats/${c.id}/mute`, { muted: !c.muted });
+    upsertChat(chat);
+    renderChatList();
+    updateBadge();
+    if (S.current === c.id) renderComposerMode();
+    toast(chat.muted ? 'Уведомления выключены 🔕' : 'Уведомления включены 🔔');
+  } catch (e) { toast(errorText(e), 'error'); }
 }
 
 async function startPrivate(userId) {
@@ -746,7 +828,44 @@ function openChat(id, { fromHistory = false } = {}) {
     loadMessages(id);
   }
   if (isGroup(c)) loadGroupMembers(id);
-  if (!isTouch()) V.input.focus();
+  if (!isTouch() && c.canPost !== false) V.input.focus();
+}
+
+/** Channels: refresh view counters and reactions of the visible page now and then. */
+async function refreshChannelStats() {
+  const c = curChat();
+  const st = S.msgs.get(S.current);
+  if (!isChannel(c) || !st?.loaded || document.hidden) return;
+  try {
+    const { messages } = await api.get(messagesUrl(c));
+    const fresh = new Map(messages.map((m) => [m.id, m]));
+    let changed = false;
+    for (const m of st.items) {
+      const f = fresh.get(m.id);
+      if (!f) continue;
+      if (f.views !== m.views || JSON.stringify(f.reactions) !== JSON.stringify(m.reactions)) {
+        m.views = f.views; m.reactions = f.reactions; m.myReaction = f.myReaction;
+        changed = true;
+      }
+    }
+    if (changed && S.current === c.id) renderMessages();
+  } catch { /* offline */ }
+}
+
+const messagesUrl = (c) => (c?.preview ? `/channels/${c.id}/messages` : `/chats/${c.id}/messages`);
+
+/** Composer for writers; subscribe / mute bar for channel readers. */
+function renderComposerMode() {
+  const c = curChat();
+  if (!c || !V.composerRow) return;
+  const reader = isChannel(c) && !c.canPost;
+  V.composerRow.classList.toggle('hidden', reader);
+  V.channelBar.classList.toggle('hidden', !reader);
+  V.input.placeholder = isChannel(c) ? 'Опубликовать пост…' : 'Сообщение';
+  if (!reader) return;
+  V.channelBar.replaceChildren(c.preview
+    ? h('button', { class: 'channel-bar-btn primary', onclick: () => joinChannel(c) }, icon('plus'), 'Подписаться')
+    : h('button', { class: 'channel-bar-btn', onclick: () => toggleMute(c) }, icon(c.muted ? 'bell' : 'mute'), c.muted ? 'Включить уведомления' : 'Выключить уведомления'));
 }
 
 function closeChat({ fromHistory = false } = {}) {
@@ -807,11 +926,12 @@ function buildChatView(c) {
   const composer = h('div', { class: 'composer' },
     V.panel,
     V.bar,
-    h('div', { class: 'composer-row' },
+    V.composerRow = h('div', { class: 'composer-row' },
       h('div', { class: 'composer-box' },
         h('button', { class: 'icon-btn attach-btn', 'aria-label': 'Прикрепить фото', onclick: () => V.file.click() }, icon('attach')),
         V.input, V.panelBtn, V.file),
-      V.sendBtn));
+      V.sendBtn),
+    V.channelBar = h('div', { class: 'channel-bar hidden' }));
 
   const view = h('div', { class: 'chat-view' }, header, h('div', { class: 'messages-wrap' }, V.scroller, V.downBtn), composer);
   view.addEventListener('dragover', (e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); view.classList.add('drag'); } });
@@ -823,6 +943,7 @@ function buildChatView(c) {
   });
   V.pane.replaceChildren(view);
   renderHeader();
+  renderComposerMode();
   autosize();
   updateSendBtn();
 }
@@ -831,7 +952,7 @@ function renderHeader() {
   const c = curChat();
   if (!c || !V.headerTitle) return;
   V.headerAvatar.replaceChildren(chatAvatar(c, 42));
-  V.headerTitle.replaceChildren(...[h('span', { class: 'ellipsis' }, chatTitle(c)), c.type === 'private' && peerOf(c)?.verified ? badge() : null].filter(Boolean));
+  V.headerTitle.replaceChildren(...[h('span', { class: 'ellipsis' }, chatTitle(c)), chatVerified(c) ? badge() : null].filter(Boolean));
   renderHeaderStatus();
 }
 
@@ -849,6 +970,8 @@ function renderHeaderStatus() {
     if (p?.online) V.headerStatus.classList.add('accent');
   } else if (c.type === 'group') {
     V.headerStatus.textContent = `${c.membersCount} ${plural(c.membersCount, 'участник', 'участника', 'участников')}`;
+  } else if (isChannel(c)) {
+    V.headerStatus.textContent = `${c.preview ? 'канал · ' : ''}${subsText(c.membersCount)}`;
   } else {
     V.headerStatus.textContent = 'заметки для себя';
   }
@@ -861,7 +984,7 @@ async function loadMessages(id) {
   st.loading = true;
   V.msgInner.replaceChildren(h('div', { class: 'msgs-loading' }, h('span', { class: 'spinner' })));
   try {
-    const r = await api.get(`/chats/${id}/messages`);
+    const r = await api.get(messagesUrl(S.chats.get(id)));
     st.items = r.messages;
     st.hasMore = r.hasMore;
     st.loaded = true;
@@ -884,7 +1007,7 @@ async function loadOlder() {
   if (!first) return;
   st.loading = true;
   try {
-    const r = await api.get(`/chats/${id}/messages?before=${first.id}`);
+    const r = await api.get(`${messagesUrl(S.chats.get(id))}?before=${first.id}`);
     const known = new Set(st.items.map((m) => m.id));
     st.items = [...r.messages.filter((m) => !known.has(m.id)), ...st.items];
     st.hasMore = r.hasMore;
@@ -945,7 +1068,7 @@ function renderMessages({ stick = false, keepOffset = false } = {}) {
     used.add(key);
     const sender = S.users.get(m.senderId);
     const read = m.senderId === S.me.id && typeof m.id === 'number' && m.id <= c.peerReadId;
-    const sig = [m.editedAt, m.text, first, last, read, m.pending, sender?.name, sender?.avatar,
+    const sig = [m.editedAt, m.text, first, last, read, m.pending, m.views, m.myReaction, JSON.stringify(m.reactions || []), sender?.name, sender?.avatar,
       m.replyTo?.id, m.replyTo && userName(m.replyTo.senderId)].join('|');
     let cached = nodeCache.get(key);
     if (!cached || cached.sig !== sig) {
@@ -955,11 +1078,34 @@ function renderMessages({ stick = false, keepOffset = false } = {}) {
     nodes.push(cached.el);
   });
   for (const k of nodeCache.keys()) if (!used.has(k)) nodeCache.delete(k);
+  if (!document.hidden) reportViews(c, st.items);
   V.msgInner.replaceChildren(...nodes);
 
   if (atBottom) scrollToBottom();
   else if (keepOffset) V.scroller.scrollTop = V.scroller.scrollHeight - fromBottom;
   updateDownBtn();
+}
+
+const reportedViews = new Set();
+const pendingViews = new Map(); // chatId -> Set(messageId)
+let viewsTimer = null;
+/** Report channel posts on screen as viewed (each once per session; the server dedupes per user). */
+function reportViews(c, items) {
+  if (!isChannel(c)) return;
+  const ids = items.filter((m) => typeof m.id === 'number' && m.kind !== 'system' && !reportedViews.has(m.id)).map((m) => m.id);
+  if (!ids.length) return;
+  let set = pendingViews.get(c.id);
+  if (!set) pendingViews.set(c.id, (set = new Set()));
+  ids.forEach((id) => { reportedViews.add(id); set.add(id); });
+  clearTimeout(viewsTimer);
+  viewsTimer = setTimeout(() => {
+    for (const [chatId, pending] of pendingViews) {
+      const all = [...pending];
+      for (let i = 0; i < all.length; i += 100) api.post(`/channels/${chatId}/views`, { ids: all.slice(i, i + 100) }).catch(() => {});
+    }
+    pendingViews.clear();
+    setTimeout(refreshChannelStats, 800);
+  }, 600);
 }
 
 function emptyChatHint(c) {
@@ -972,14 +1118,18 @@ function emptyChatHint(c) {
     h('b', {}, 'Здесь пока пусто'), h('span', {}, 'Напишите что-нибудь или нажмите на эмодзи, чтобы поздороваться.'));
 }
 
+const fmtCount = (n) => (n < 1000 ? String(n) : n < 1e6 ? `${(n / 1000).toFixed(1).replace(/\.0$/, '')}K` : `${(n / 1e6).toFixed(1).replace(/\.0$/, '')}M`);
+
 function messageEl(c, m, first, last, read) {
-  const mine = m.senderId === S.me.id;
+  const channel = isChannel(c);
+  const mine = m.senderId === S.me.id && !channel;
   const group = isGroup(c);
   const emoji = m.kind === 'text' && !m.replyTo ? emojiCount(m.text) : 0;
   const bigEmoji = emoji > 0 && emoji <= 3;
   const imageOnly = m.kind === 'image' && !m.text;
 
   const meta = h('span', { class: 'meta' },
+    channel && typeof m.id === 'number' ? h('span', { class: 'views' }, icon('eyeSmall'), fmtCount(m.views || 0)) : null,
     m.editedAt ? h('span', { class: 'edited' }, 'изм.') : null,
     timeHM(m.createdAt),
     mine && m.pending ? h('span', { class: 'clock' }) : null,
@@ -1044,7 +1194,50 @@ function stickerNode(id, cls = '') {
   return h('div', { class: `${cls} anim-emoji anim-${info.anim}` }, info.emoji);
 }
 
+function reactionsEl(c, m) {
+  if (!m.reactions?.length) return null;
+  return h('div', { class: 'reactions' }, m.reactions.map((r) => h('button', {
+    class: `reaction ${m.myReaction === r.emoji ? 'mine' : ''}`,
+    onclick: (e) => { e.stopPropagation(); react(m, m.myReaction === r.emoji ? null : r.emoji); },
+  }, h('span', { class: 'r-emoji' }, r.emoji), h('span', { class: 'r-count' }, fmtCount(r.count)))));
+}
+
+async function react(m, emoji) {
+  const c = S.chats.get(m.chatId);
+  if (c?.preview) return toast('Подпишитесь на канал, чтобы ставить реакции');
+  // Optimistic update.
+  const prev = { reactions: m.reactions, myReaction: m.myReaction };
+  const map = new Map((m.reactions || []).map((r) => [r.emoji, r.count]));
+  if (m.myReaction) map.set(m.myReaction, (map.get(m.myReaction) || 1) - 1);
+  if (emoji) map.set(emoji, (map.get(emoji) || 0) + 1);
+  m.reactions = [...map].filter(([, n]) => n > 0).map(([e, n]) => ({ emoji: e, count: n }));
+  m.myReaction = emoji;
+  if (S.current === m.chatId) renderMessages();
+  try {
+    applyReactions(await api.post(`/messages/${m.id}/react`, { emoji }));
+  } catch (e) {
+    Object.assign(m, prev);
+    if (S.current === m.chatId) renderMessages();
+    toast(errorText(e), 'error');
+  }
+}
+
+function applyReactions({ chatId, messageId, reactions, userId, emoji }) {
+  const m = S.msgs.get(chatId)?.items.find((x) => x.id === messageId);
+  if (!m) return;
+  m.reactions = reactions;
+  if (userId === S.me.id) m.myReaction = emoji;
+  if (S.current === chatId) renderMessages();
+}
+
 function finishRow(c, m, bubble, { mine, group, first, last }) {
+  const rx = reactionsEl(c, m);
+  if (rx) {
+    bubble.classList.add('has-reactions');
+    const meta = bubble.querySelector(':scope > .meta');
+    meta ? bubble.insertBefore(rx, meta) : bubble.append(rx);
+  }
+  if (isChannel(c)) bubble.classList.add('post');
   const row = h('div', {
     class: `msg-row ${mine ? 'mine' : 'theirs'} ${first ? 'first' : ''} ${last ? 'last' : ''} ${group && !mine ? 'with-avatar' : ''}`,
     dataset: { id: String(m.id) },
@@ -1099,7 +1292,7 @@ function markRead() {
   readTimer = setTimeout(() => {
     const c = curChat();
     const st = S.msgs.get(S.current);
-    if (!c || !st?.loaded || document.hidden || !isViewingBottom()) return;
+    if (!c || c.preview || !st?.loaded || document.hidden || !isViewingBottom()) return;
     const lastId = st.items.filter((m) => typeof m.id === 'number').at(-1)?.id || 0;
     if (lastId > c.lastReadId || c.unread) {
       c.lastReadId = Math.max(c.lastReadId, lastId);
@@ -1151,9 +1344,17 @@ function attachMessageMenu(row, bubble, m) {
 function showMessageMenu(m, x, y) {
   const c = curChat();
   const mine = m.senderId === S.me.id;
-  const canDelete = mine || (isGroup(c) && c.ownerId === S.me.id);
+  const canDelete = mine || ((isGroup(c) || isChannel(c)) && c.ownerId === S.me.id);
+  const reactRow = c.preview ? null : {
+    node: h('div', { class: 'ctx-reactions' }, REACTIONS.map((e) => h('button', {
+      class: `ctx-react ${m.myReaction === e ? 'on' : ''}`,
+      onclick: () => { closeMenu(); react(m, m.myReaction === e ? null : e); },
+    }, e))),
+  };
   contextMenu(x, y, [
-    { icon: 'reply', label: 'Ответить', onClick: () => startReply(m) },
+    reactRow,
+    c.canPost !== false ? { icon: 'reply', label: 'Ответить', onClick: () => startReply(m) } : null,
+    isChannel(c) && c.username ? { icon: 'share', label: 'Ссылка на канал', onClick: () => copyText(`${location.origin}/@${c.username}`) } : null,
     m.text && m.kind !== 'sticker' ? { icon: 'copy', label: 'Копировать', onClick: () => copyText(m.text) } : null,
     m.kind === 'image' ? { icon: 'download', label: 'Открыть фото', onClick: () => openViewer(m) } : null,
     mine && (m.kind === 'text' || m.kind === 'image') ? { icon: 'edit', label: 'Изменить', onClick: () => startEdit(m) } : null,
@@ -1602,6 +1803,166 @@ document.addEventListener('mousedown', (e) => {
   togglePanel(false);
 });
 
+// ============================================================ channels
+
+function channelUsernameField(initial = '', chatId = 0) {
+  const f = usernameField(initial);
+  const hint = f.wrap.querySelector('.field-hint');
+  f.wrap.querySelector('.field-label').textContent = 'Публичная ссылка';
+  hint.textContent = initial ? `${location.host}/@${initial}` : 'Латиница, цифры и _, от 5 символов';
+  if (chatId) {
+    // Re-check excluding this channel's own name.
+    f.input.addEventListener('input', () => setTimeout(async () => {
+      const v = f.input.value;
+      if (v.toLowerCase() !== initial.toLowerCase()) return;
+      hint.textContent = `${location.host}/@${v}`;
+      hint.className = 'field-hint good';
+    }, 400));
+  }
+  return f;
+}
+
+function newChannelModal() {
+  const title = h('input', { class: 'input', placeholder: 'Название канала', maxLength: 64 });
+  const uname = channelUsernameField('');
+  const desc = h('textarea', { class: 'input', rows: 3, maxLength: 255, placeholder: 'Описание (необязательно)' });
+  openModal({
+    title: 'Новый канал',
+    body: h('div', { class: 'group-form' },
+      h('div', { class: 'channel-intro' }, h('div', { class: 'group-ic' }, icon('megaphone')),
+        h('div', { class: 'muted small' }, 'Каналы — для публикаций на широкую аудиторию. Писать может только автор, остальные подписываются, читают и ставят реакции.')),
+      h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Название'), title),
+      uname.wrap,
+      h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Описание'), desc)),
+    actions: [
+      { label: 'Отмена', onClick: (c) => c() },
+      { label: 'Создать канал', primary: true, onClick: async (close) => {
+        if (!title.value.trim()) { title.focus(); return toast('Укажите название', 'error'); }
+        try {
+          const { chat } = await api.post('/channels', { title: title.value, username: uname.input.value, description: desc.value });
+          upsertChat(chat);
+          close();
+          renderChatList();
+          openChat(chat.id);
+          toast('Канал создан! Поделитесь ссылкой 🚀');
+        } catch (e) { toast(errorText(e), 'error'); }
+      } },
+    ],
+  });
+  setTimeout(() => title.focus(), 50);
+}
+
+async function channelInfoModal(c) {
+  let ch = c;
+  if (!c.preview) {
+    try { ch = { ...c, ...(await api.get(`/channels/${c.id}`)).channel }; } catch { /* use cached */ }
+  }
+  const owner = c.role === 'owner';
+  const link = `${location.origin}/@${ch.username}`;
+  const avWrap = h('div', { class: owner ? 'avatar-edit' : '' }, avatar({ id: ch.id, name: ch.title, src: ch.avatar }, 110),
+    owner ? h('span', { class: 'avatar-edit-overlay' }, icon('camera')) : null);
+  const fileIn = h('input', { type: 'file', accept: 'image/*', class: 'hidden' });
+  if (owner) {
+    avWrap.addEventListener('click', () => fileIn.click());
+    fileIn.addEventListener('change', async () => {
+      const f = fileIn.files[0];
+      fileIn.value = '';
+      if (!f) return;
+      try {
+        const fd = new FormData();
+        fd.append('file', await prepareImage(f, 640, true), 'avatar');
+        const { chat } = await api.post(`/chats/${c.id}/avatar`, fd);
+        upsertChat(chat);
+        avWrap.firstChild.replaceWith(avatar({ id: chat.id, name: chat.title, src: chat.avatar }, 110));
+        renderChatList(); renderHeader();
+      } catch (e) { toast(errorText(e), 'error'); }
+    });
+  }
+  let verifyBlock = null;
+  if (owner) {
+    verifyBlock = ch.verified
+      ? h('div', { class: 'verify-box ok' }, badge(), h('div', {}, h('b', {}, 'Канал верифицирован'), h('div', { class: 'small' }, 'Галочка видна всем подписчикам и в поиске')))
+      : c.verifyRequested
+        ? h('div', { class: 'verify-box wait' }, icon('shield'), h('div', {}, h('b', {}, 'Заявка на верификацию отправлена'), h('div', { class: 'small' }, 'Администрация рассмотрит её и пришлёт ответ в чат Limoninior')))
+        : h('button', { class: 'verify-box', onclick: () => requestVerification(c) }, icon('shield'),
+          h('div', {}, h('b', {}, 'Получить галочку'), h('div', { class: 'small' }, 'Подать заявку на верификацию канала')));
+  }
+  openModal({
+    title: 'Канал',
+    className: 'modal-profile',
+    body: h('div', { class: 'profile' },
+      h('div', { class: 'profile-hero' }, avWrap, fileIn,
+        h('div', { class: 'profile-name' }, nameWithBadge(ch.title, ch)),
+        h('div', { class: 'profile-status' }, subsText(ch.membersCount))),
+      h('div', { class: 'profile-rows' },
+        ch.description ? h('div', { class: 'profile-row' }, icon('info'), h('div', {}, h('div', { class: 'row-main pre' }, richText(ch.description)), h('div', { class: 'row-sub' }, 'Описание'))) : null,
+        h('button', { class: 'profile-row', onclick: () => copyText(link) }, icon('at'),
+          h('div', {}, h('div', { class: 'row-main accent' }, `${location.host}/@${ch.username}`), h('div', { class: 'row-sub' }, 'Ссылка · нажмите, чтобы скопировать')))),
+      c.preview
+        ? h('button', { class: 'btn btn-primary btn-block', onclick: () => { closeTopModal(); joinChannel(c); } }, icon('plus'), 'Подписаться')
+        : h('div', { class: 'profile-actions' },
+          h('button', { class: 'btn btn-ghost', onclick: () => { closeTopModal(); toggleMute(c); } }, icon(c.muted ? 'bell' : 'mute'), c.muted ? 'Включить звук' : 'Без звука'),
+          h('button', { class: 'btn btn-ghost', onclick: () => shareLink(link, ch.title) }, icon('share'), 'Поделиться')),
+      verifyBlock,
+      owner ? h('div', { class: 'profile-actions' },
+        h('button', { class: 'btn btn-ghost', onclick: () => editChannelModal(c, ch) }, icon('edit'), 'Изменить'),
+        h('button', { class: 'btn btn-danger-ghost', onclick: () => deleteChannel(c) }, icon('trash'), 'Удалить')) : null,
+      !owner && !c.preview ? h('button', { class: 'btn btn-danger-ghost btn-block', onclick: () => leaveChannel(c) }, icon('leave'), 'Отписаться') : null),
+  });
+}
+
+async function shareLink(url, title) {
+  if (navigator.share) {
+    try { await navigator.share({ title, url }); return; } catch { /* cancelled */ }
+  }
+  copyText(url);
+}
+
+async function requestVerification(c) {
+  if (!(await confirmDialog('Отправить заявку на верификацию? Администрация проверит канал и выдаст галочку, если он подлинный и активный.', { ok: 'Отправить' }))) return;
+  try {
+    const { chat } = await api.post(`/channels/${c.id}/verify-request`);
+    upsertChat(chat);
+    closeTopModal();
+    toast('Заявка отправлена ✅');
+  } catch (e) { toast(errorText(e), 'error'); }
+}
+
+function editChannelModal(c, ch) {
+  const title = h('input', { class: 'input', value: ch.title, maxLength: 64 });
+  const uname = channelUsernameField(ch.username, c.id);
+  const desc = h('textarea', { class: 'input', rows: 3, maxLength: 255 });
+  desc.value = ch.description || '';
+  openModal({
+    title: 'Настройки канала',
+    body: h('div', { class: 'group-form' },
+      h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Название'), title),
+      uname.wrap,
+      h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Описание'), desc)),
+    actions: [
+      { label: 'Отмена', onClick: (close) => close() },
+      { label: 'Сохранить', primary: true, onClick: async (close) => {
+        try {
+          const { chat } = await api.patch(`/channels/${c.id}`, { title: title.value, username: uname.input.value, description: desc.value });
+          upsertChat(chat);
+          renderChatList(); renderHeader();
+          while (closeTopModal()) { /* close all */ }
+          toast('Сохранено');
+        } catch (e) { toast(errorText(e), 'error'); }
+      } },
+    ],
+  });
+}
+
+async function deleteChannel(c) {
+  if (!(await confirmDialog(`Удалить канал «${c.title}» навсегда? Все посты будут удалены у всех подписчиков.`, { ok: 'Удалить', danger: true }))) return;
+  try {
+    await api.del(`/channels/${c.id}`);
+    while (closeTopModal()) { /* close all */ }
+    toast('Канал удалён');
+  } catch (e) { toast(errorText(e), 'error'); }
+}
+
 // ============================================================ drawer & modals
 
 function openDrawer() {
@@ -1636,6 +1997,8 @@ function openDrawer() {
       item('user', 'Мой профиль', editProfileModal),
       item('gift', 'Подарки и лимоны', myGiftsModal),
       item('group', 'Создать группу', newGroupModal),
+      item('megaphone', 'Создать канал', newChannelModal),
+      item('search', 'Каталог каналов', popularChannelsModal),
       item('bookmark', 'Избранное', openSaved),
       item('settings', 'Настройки', settingsModal),
       item('devices', 'Активные сеансы', sessionsModal),
@@ -1654,6 +2017,7 @@ function openInfo(c) {
   if (!c) return;
   if (c.type === 'private') return openUserProfile(peerOf(c)?.id);
   if (c.type === 'group') return groupInfoModal(c);
+  if (c.type === 'channel') return channelInfoModal(c);
   return openUserProfile(S.me.id);
 }
 

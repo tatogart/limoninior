@@ -58,6 +58,9 @@ export const ERRORS = {
   bad_gift: 'Неизвестный подарок',
   bad_amount: 'Неверное количество',
   empty: 'Пустое сообщение',
+  owner_cannot_leave: 'Владелец не может отписаться — канал можно только удалить',
+  already_verified: 'Канал уже верифицирован',
+  bad_reaction: 'Такая реакция недоступна',
 };
 
 export const errorText = (e) => ERRORS[e?.code] || (e?.status === 429 ? 'Слишком часто, подождите немного' : 'Что-то пошло не так');

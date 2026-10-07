@@ -38,14 +38,18 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
 
   CREATE TABLE IF NOT EXISTS chats (
-    id          INTEGER PRIMARY KEY,
-    type        TEXT NOT NULL CHECK (type IN ('private', 'group', 'saved')),
-    pair_key    TEXT UNIQUE,
-    title       TEXT NOT NULL DEFAULT '',
-    avatar      TEXT,
-    owner_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    created_at  INTEGER NOT NULL,
-    last_msg_id INTEGER NOT NULL DEFAULT 0
+    id               INTEGER PRIMARY KEY,
+    type             TEXT NOT NULL CHECK (type IN ('private', 'group', 'saved', 'channel')),
+    pair_key         TEXT UNIQUE,
+    title            TEXT NOT NULL DEFAULT '',
+    avatar           TEXT,
+    owner_id         INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at       INTEGER NOT NULL,
+    last_msg_id      INTEGER NOT NULL DEFAULT 0,
+    username         TEXT UNIQUE COLLATE NOCASE,
+    description      TEXT NOT NULL DEFAULT '',
+    verified         INTEGER NOT NULL DEFAULT 0,
+    verify_requested INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS chat_members (
@@ -143,6 +147,53 @@ if (!msgSql.includes("'gift'")) {
   db.exec('COMMIT');
   db.exec('PRAGMA foreign_keys = ON');
 }
+
+// Channels: widen chats.type CHECK and add channel columns (rebuild, same reason as above).
+const chatsSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'chats'").get()?.sql || '';
+if (!chatsSql.includes("'channel'")) {
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN');
+  db.exec(`
+    CREATE TABLE chats_new (
+    id               INTEGER PRIMARY KEY,
+    type             TEXT NOT NULL CHECK (type IN ('private', 'group', 'saved', 'channel')),
+    pair_key         TEXT UNIQUE,
+    title            TEXT NOT NULL DEFAULT '',
+    avatar           TEXT,
+    owner_id         INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at       INTEGER NOT NULL,
+    last_msg_id      INTEGER NOT NULL DEFAULT 0,
+    username         TEXT UNIQUE COLLATE NOCASE,
+    description      TEXT NOT NULL DEFAULT '',
+    verified         INTEGER NOT NULL DEFAULT 0,
+    verify_requested INTEGER NOT NULL DEFAULT 0
+    );
+    INSERT INTO chats_new (id, type, pair_key, title, avatar, owner_id, created_at, last_msg_id)
+      SELECT id, type, pair_key, title, avatar, owner_id, created_at, last_msg_id FROM chats;
+    DROP TABLE chats;
+    ALTER TABLE chats_new RENAME TO chats;
+  `);
+  db.exec('COMMIT');
+  db.exec('PRAGMA foreign_keys = ON');
+}
+addColumn('chat_members', 'muted', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('messages', 'views', 'INTEGER NOT NULL DEFAULT 0');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS reactions (
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    emoji      TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (message_id, user_id)
+  );
+  CREATE INDEX IF NOT EXISTS reactions_msg ON reactions(message_id);
+  CREATE TABLE IF NOT EXISTS post_views (
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (message_id, user_id)
+  ) WITHOUT ROWID;
+`);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS user_gifts (

@@ -7,7 +7,7 @@ import { db, q, now, audit, kvGet, kvSet } from './db.js';
 import { requireAuth, isAdminUser } from './auth.js';
 import { verifyTotp } from './totp.js';
 import { isOnline, disconnectUser } from './realtime.js';
-import { ensurePrivateChat, postMessage, pushMe, OFFICIAL_SUB } from './api.js';
+import { ensurePrivateChat, postMessage, pushMe, pushChat, deleteChat, OFFICIAL_SUB } from './api.js';
 
 /**
  * Admin panel API. Layers of protection:
@@ -86,6 +86,8 @@ admin.get('/stats', (req, res) => {
     banned: one('SELECT COUNT(*) AS n FROM users WHERE banned = 1'),
     chats: one('SELECT COUNT(*) AS n FROM chats'),
     groups: one("SELECT COUNT(*) AS n FROM chats WHERE type = 'group'"),
+    channels: one("SELECT COUNT(*) AS n FROM chats WHERE type = 'channel'"),
+    verifyRequests: one("SELECT COUNT(*) AS n FROM chats WHERE type = 'channel' AND verify_requested > 0 AND verified = 0"),
     messages: one('SELECT COUNT(*) AS n FROM messages'),
     messagesToday: one('SELECT COUNT(*) AS n FROM messages WHERE created_at > ?', day),
     mediaBytes: q('SELECT COALESCE(SUM(size), 0) AS n FROM media').get().n,
@@ -236,6 +238,67 @@ admin.post('/update', (req, res) => {
   audit(req.user.id, req.ip, 'admin_update_request');
   res.json({ ok: true });
 });
+
+admin.get('/channels', (req, res) => {
+  const search = String(req.query.q || '').trim().slice(0, 64);
+  const like = `%${search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+  const rows = q(`SELECT c.*, u.username AS owner_username, u.name AS owner_name,
+                    (SELECT COUNT(*) FROM chat_members WHERE chat_id = c.id) AS subs,
+                    (SELECT COUNT(*) FROM messages WHERE chat_id = c.id AND kind != 'system') AS posts
+                  FROM chats c LEFT JOIN users u ON u.id = c.owner_id
+                  WHERE c.type = 'channel' AND (? = '' OR c.username LIKE ? ESCAPE '\\' OR c.title LIKE ? ESCAPE '\\')
+                  ORDER BY (c.verify_requested > 0 AND c.verified = 0) DESC, c.verify_requested DESC, subs DESC LIMIT 100`).all(search, like, like);
+  res.json({
+    channels: rows.map((c) => ({
+      id: c.id, title: c.title, username: c.username, description: c.description, verified: !!c.verified,
+      verifyRequested: c.verify_requested && !c.verified ? c.verify_requested : 0, subscribers: c.subs, posts: c.posts,
+      owner: c.owner_username ? `@${c.owner_username}` : c.owner_name || '—', createdAt: c.created_at,
+      avatar: c.avatar ? `/media/${c.avatar}` : null,
+    })),
+  });
+});
+
+function anyChannel(req, res) {
+  const id = Number(req.params.id);
+  const c = Number.isSafeInteger(id) && q("SELECT * FROM chats WHERE id = ? AND type = 'channel'").get(id);
+  if (!c) res.status(404).json({ error: 'not_found' });
+  return c || null;
+}
+
+admin.post('/channels/:id/verify', (req, res) => {
+  const c = anyChannel(req, res);
+  if (!c) return;
+  const v = req.body?.verified ? 1 : 0;
+  q('UPDATE chats SET verified = ?, verify_requested = 0 WHERE id = ?').run(v, c.id);
+  audit(req.user.id, req.ip, v ? 'admin_channel_verify' : 'admin_channel_unverify', { chatId: c.id, username: c.username });
+  pushChat(c.id);
+  if (v && c.owner_id) notifyOwner(c.owner_id, `✅ Ваш канал «${c.title}» прошёл верификацию и получил галочку!`);
+  res.json({ ok: true });
+});
+
+admin.post('/channels/:id/reject', (req, res) => {
+  const c = anyChannel(req, res);
+  if (!c) return;
+  q('UPDATE chats SET verify_requested = 0 WHERE id = ?').run(c.id);
+  audit(req.user.id, req.ip, 'admin_channel_reject', { chatId: c.id, username: c.username });
+  pushChat(c.id);
+  if (c.owner_id) notifyOwner(c.owner_id, `Заявка на верификацию канала «${c.title}» отклонена. Вы можете подать её позже.`);
+  res.json({ ok: true });
+});
+
+admin.delete('/channels/:id', (req, res) => {
+  const c = anyChannel(req, res);
+  if (!c) return;
+  deleteChat(c.id);
+  audit(req.user.id, req.ip, 'admin_channel_delete', { chatId: c.id, username: c.username });
+  res.json({ ok: true });
+});
+
+/** Personal note from the official account. */
+function notifyOwner(userId, text) {
+  const off = officialUser();
+  postMessage(ensurePrivateChat(off.id, userId), off.id, { kind: 'text', text });
+}
 
 admin.get('/audit', (req, res) => {
   const rows = q(`SELECT a.*, u.username FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
