@@ -1,0 +1,59 @@
+.admin-app { height: auto; min-height: 100dvh; }
+body:has(.admin-app) { overflow: auto; background: var(--bg-2); }
+.admin { min-height: 100dvh; }
+.admin-top {
+  position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 10px;
+  padding: calc(8px + env(safe-area-inset-top)) 16px 8px 8px;
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); border-bottom: 1px solid var(--border);
+}
+.admin-title { flex: 1; display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 17px; }
+.admin-title .ic { color: var(--accent); }
+.admin-timer { font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.admin-main { max-width: 1100px; margin: 0 auto; padding: 18px 16px 40px; display: grid; gap: 16px; }
+.admin-card { background: var(--bg); border-radius: 20px; padding: 18px; box-shadow: var(--shadow-sm); min-width: 0; }
+.card-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.card-head h2 { flex: 1; margin: 0; font-size: 17px; min-width: 160px; }
+.card-head .input { max-width: 340px; height: 40px; }
+
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+.stat { display: flex; align-items: center; gap: 14px; background: var(--bg); border-radius: 18px; padding: 16px; box-shadow: var(--shadow-sm); }
+.stat-ic { width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; flex-shrink: 0; color: #fff; background: linear-gradient(140deg, var(--accent-2), var(--accent)); }
+.stat-value { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; }
+.stat-label { font-size: 13.5px; color: var(--text-2); }
+.stat-sub { font-size: 12.5px; color: var(--accent); font-weight: 600; margin-top: 2px; }
+
+.bars { display: flex; align-items: flex-end; gap: 6px; height: 170px; padding-top: 18px; }
+.bar { flex: 1; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; min-width: 0; }
+.bar i { width: 100%; max-width: 36px; border-radius: 8px 8px 3px 3px; background: linear-gradient(180deg, var(--accent-2), var(--accent)); }
+.bar-n { font-size: 11px; color: var(--text-2); }
+.bar-d { font-size: 11px; color: var(--text-2); }
+
+.users-list, .audit-list { display: grid; gap: 2px; }
+.user-row { display: flex; align-items: center; gap: 12px; padding: 10px 8px; border-radius: 14px; flex-wrap: wrap; }
+.user-row:hover { background: var(--hover); }
+.user-row.banned { opacity: 0.65; }
+.user-info { flex: 1; min-width: 200px; }
+.user-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.pill.danger { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+
+.audit-row { display: grid; grid-template-columns: 130px 210px 140px 1fr; gap: 10px; padding: 7px 8px; border-radius: 10px; font-size: 13.5px; align-items: baseline; }
+.audit-row:nth-child(odd) { background: var(--bg-2); }
+.audit-row.alarm .audit-action { color: var(--danger); font-weight: 600; }
+.audit-time, .audit-ip { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.audit-details { grid-column: 1 / -1; color: var(--text-2); font-family: ui-monospace, monospace; font-size: 12px; overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+  .audit-row { grid-template-columns: 1fr 1fr; }
+}
+
+.lock-ic { width: 84px; height: 84px; margin: 0 auto; border-radius: 26px; display: grid; place-items: center; color: #fff; background: linear-gradient(140deg, var(--accent-2), var(--accent)); box-shadow: 0 10px 26px color-mix(in srgb, var(--accent) 40%, transparent); }
+.lock-ic .ic { width: 44px; height: 44px; }
+.otp { display: flex; justify-content: center; gap: 8px; margin: 24px 0 6px; }
+.otp-cell {
+  width: 46px; height: 56px; border-radius: 14px; border: 1.5px solid var(--border-strong); background: var(--bg);
+  text-align: center; font-size: 24px; font-weight: 700; outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+}
+.otp-cell:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.otp.shake { animation: shake 0.4s; }
+@keyframes shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+@media (max-width: 380px) { .otp-cell { width: 40px; height: 50px; } }

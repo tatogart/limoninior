@@ -1,0 +1,53 @@
+export class ApiError extends Error {
+  constructor(status, code) {
+    super(code);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+async function request(method, url, body) {
+  const opts = { method, credentials: 'same-origin', headers: {} };
+  if (body instanceof FormData) {
+    opts.body = body;
+  } else if (body !== undefined) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  let res;
+  try {
+    res = await fetch(url, opts);
+  } catch {
+    throw new ApiError(0, 'network');
+  }
+  let data = null;
+  try { data = await res.json(); } catch { /* empty body */ }
+  if (!res.ok) throw new ApiError(res.status, data?.error || 'error');
+  return data;
+}
+
+export const api = {
+  get: (url) => request('GET', `/api${url}`),
+  post: (url, body = {}) => request('POST', `/api${url}`, body),
+  patch: (url, body = {}) => request('PATCH', `/api${url}`, body),
+  del: (url) => request('DELETE', `/api${url}`),
+};
+
+export const ERRORS = {
+  network: 'Нет соединения с сервером',
+  bad_username: 'Юзернейм: 5–32 символа, латиница, цифры и _, начинается с буквы',
+  username_taken: 'Этот юзернейм уже занят',
+  bad_name: 'Укажите имя',
+  file_too_large: 'Файл слишком большой (максимум 10 МБ)',
+  unsupported_image: 'Поддерживаются только JPG, PNG, WebP и GIF',
+  too_long: 'Сообщение слишком длинное',
+  banned: 'Аккаунт заблокирован',
+  bad_credential: 'Не удалось войти через Google',
+  forbidden: 'Недостаточно прав',
+  not_found: 'Не найдено',
+  bad_title: 'Укажите название',
+  too_many_attempts: 'Слишком много попыток, подождите',
+  bad_code: 'Неверный код',
+};
+
+export const errorText = (e) => ERRORS[e?.code] || (e?.status === 429 ? 'Слишком часто, подождите немного' : 'Что-то пошло не так');
