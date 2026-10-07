@@ -207,7 +207,7 @@ function renderLogin() {
   if (!isStandalone()) {
     card.append(h('button', { class: 'link-btn', 'data-install': '', onclick: installApp }, icon('download'), 'Установить приложение'));
   }
-  card.append(h('p', { class: 'login-foot' }, 'Вход защищён через Google. Мы не видим ваш пароль.'));
+  card.append(h('p', { class: 'login-foot' }, 'Вход защищён через Google. Мы не видим ваш пароль. ', h('a', { href: '/privacy' }, 'Конфиденциальность')));
   app.replaceChildren(h('div', { class: 'login' }, h('div', { class: 'blob b1' }), h('div', { class: 'blob b2' }), h('div', { class: 'blob b3' }), card));
 
   if (!S.config.googleClientId) {

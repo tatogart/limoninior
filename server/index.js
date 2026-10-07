@@ -76,6 +76,7 @@ app.get('/admin', (req, res) => {
   res.sendFile(path.join(pub, 'index.html'));
 });
 app.get('/admin.html', (req, res) => res.redirect('/admin'));
+app.get('/privacy', (req, res) => res.sendFile(path.join(pub, 'privacy.html')));
 
 app.use(express.static(pub, {
   index: 'index.html',
