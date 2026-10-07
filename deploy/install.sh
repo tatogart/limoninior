@@ -62,6 +62,14 @@ TRUST_PROXY=1
 EOF
   NEW_SECRET=$SECRET
 fi
+# Подставляем Google Client ID из deploy/google-client-id.txt, если в .env он пустой.
+if [[ -f deploy/google-client-id.txt ]] && grep -q '^GOOGLE_CLIENT_ID=$' .env; then
+  CID=$(tr -d '[:space:]' < deploy/google-client-id.txt)
+  if [[ "$CID" =~ ^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$ ]]; then
+    sed -i "s|^GOOGLE_CLIENT_ID=$|GOOGLE_CLIENT_ID=$CID|" .env
+    echo "==> Google Client ID подставлен"
+  fi
+fi
 chown -R limoninior:limoninior "$APP_DIR/data"
 chown root:limoninior .env && chmod 640 .env
 chmod 700 "$APP_DIR/data"
