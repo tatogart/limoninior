@@ -4,8 +4,9 @@ import { config } from './config.js';
 import { q, tx, now, audit } from './db.js';
 import {
   verifyGoogleCredential, upsertUser, createSession, destroySession,
-  requireAuth, requireProfile, isAdminUser,
+  requireAuth, requireProfile, isAdminUser, hashPassword, verifyPassword, createLocalUser, sessionFromCookie,
 } from './auth.js';
+import { isValidSticker, giftById, DAILY_BONUS } from '../public/js/catalog.js';
 import { upload, saveImage, deleteMediaFile } from './media.js';
 import { isOnline, emitToUser, emitToUsers, emitToChat, memberIds, disconnectSession } from './realtime.js';
 
@@ -15,6 +16,7 @@ const USERNAME_RE = /^[a-zA-Z][a-zA-Z0-9_]{4,31}$/;
 const RESERVED = new Set(['admin', 'administrator', 'support', 'limoninior', 'system', 'root', 'moderator', 'official', 'settings']);
 const MAX_TEXT = 4096;
 const PAGE = 50;
+export const OFFICIAL_SUB = 'system:limoninior';
 
 const clean = (s, max) => String(s ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim().slice(0, max);
 const int = (v) => {
@@ -36,11 +38,23 @@ export function publicUser(u) {
     avatar: mediaUrl(u.avatar),
     online: isOnline(u.id),
     lastSeen: u.last_seen,
+    verified: !!u.verified,
+    official: u.google_sub === OFFICIAL_SUB,
+    giftsCount: q('SELECT COUNT(*) AS n FROM user_gifts WHERE to_id = ?').get(u.id).n,
   };
 }
 
-function meUser(u) {
-  return { ...publicUser(u), email: u.email, isAdmin: isAdminUser(u), needsProfile: !u.username };
+export function meUser(u) {
+  return {
+    ...publicUser(u),
+    email: u.email,
+    isAdmin: isAdminUser(u),
+    needsProfile: !u.username,
+    coins: u.coins,
+    nextBonusAt: u.last_bonus + 864e5,
+    hasPassword: !!u.password_hash,
+    hasGoogle: !String(u.google_sub).startsWith('local:'),
+  };
 }
 
 function serializeMessage(m) {
@@ -62,6 +76,7 @@ function serializeMessage(m) {
     replyTo: reply,
     createdAt: m.created_at,
     editedAt: m.edited_at,
+    extra: m.extra ? JSON.parse(m.extra) : null,
   };
 }
 
@@ -104,10 +119,10 @@ function pushChat(chatId) {
 
 function insertMessage(chatId, senderId, fields) {
   const t = now();
-  const r = q(`INSERT INTO messages (chat_id, sender_id, kind, text, file, width, height, reply_to, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+  const r = q(`INSERT INTO messages (chat_id, sender_id, kind, text, file, width, height, reply_to, created_at, extra)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(chatId, senderId, fields.kind || 'text', fields.text || '', fields.file || null,
-      fields.width || null, fields.height || null, fields.replyTo || null, t);
+      fields.width || null, fields.height || null, fields.replyTo || null, t, fields.extra ? JSON.stringify(fields.extra) : null);
   const id = Number(r.lastInsertRowid);
   q('UPDATE chats SET last_msg_id = ? WHERE id = ?').run(id, chatId);
   if (senderId) q('UPDATE chat_members SET last_read_id = ? WHERE chat_id = ? AND user_id = ?').run(id, chatId, senderId);
@@ -123,6 +138,31 @@ function broadcastNewMessage(chatId, msg) {
 }
 
 const systemMessage = (chatId, text) => broadcastNewMessage(chatId, insertMessage(chatId, null, { kind: 'system', text }));
+
+/** Get or create the private chat between two users (or "saved" when a === b). */
+export function ensurePrivateChat(a, b) {
+  const saved = a === b;
+  const key = saved ? `saved:${a}` : `${Math.min(a, b)}:${Math.max(a, b)}`;
+  const c = q('SELECT id FROM chats WHERE pair_key = ?').get(key);
+  if (c) return c.id;
+  return tx(() => {
+    const r = q('INSERT INTO chats (type, pair_key, created_at) VALUES (?, ?, ?)').run(saved ? 'saved' : 'private', key, now());
+    const id = Number(r.lastInsertRowid);
+    q("INSERT INTO chat_members (chat_id, user_id, role, joined_at) VALUES (?, ?, 'owner', ?)").run(id, a, now());
+    if (!saved) q('INSERT INTO chat_members (chat_id, user_id, joined_at) VALUES (?, ?, ?)').run(id, b, now());
+    return id;
+  });
+}
+
+/** Insert a message from `senderId` into `chatId` and push it to every member. */
+export function postMessage(chatId, senderId, fields) {
+  return broadcastNewMessage(chatId, insertMessage(chatId, senderId, fields));
+}
+
+export function pushMe(userId) {
+  const u = q('SELECT * FROM users WHERE id = ?').get(userId);
+  if (u) emitToUser(userId, 'me', meUser(u));
+}
 
 // ---------- rate limits ----------
 
@@ -143,7 +183,59 @@ const searchLimiter = rateLimit({
 // ---------- auth ----------
 
 api.get('/config', (req, res) => {
-  res.json({ googleClientId: config.googleClientId, devLogin: config.devLogin });
+  res.json({ googleClientId: config.googleClientId, devLogin: config.devLogin, passwordLogin: true, version: config.version });
+});
+
+// ---------- username + password accounts ----------
+
+const registerLimiter = rateLimit({ windowMs: 60 * 60_000, limit: 10, standardHeaders: 'draft-7', legacyHeaders: false });
+const failedLogins = new Map(); // username -> { n, until }
+
+function checkUsername(username) {
+  if (!USERNAME_RE.test(username)) return 'bad_username';
+  if (RESERVED.has(username.toLowerCase())) return 'username_taken';
+  if (q('SELECT 1 FROM users WHERE username = ?').get(username)) return 'username_taken';
+  return null;
+}
+const passwordError = (pw) => (typeof pw !== 'string' || pw.length < 8 ? 'weak_password' : pw.length > 128 ? 'bad_password' : null);
+
+api.post('/auth/register', registerLimiter, async (req, res) => {
+  const username = String(req.body?.username || '').replace(/^@/, '');
+  const name = clean(req.body?.name, 64);
+  const password = req.body?.password;
+  const err = checkUsername(username) || (!name && 'bad_name') || passwordError(password);
+  if (err) return bad(res, err);
+  const passwordHash = await hashPassword(password);
+  let user;
+  try {
+    user = createLocalUser({ username, name, passwordHash });
+  } catch {
+    return bad(res, 'username_taken');
+  }
+  createSession(res, req, user.id);
+  audit(user.id, req.ip, 'register');
+  res.json({ user: meUser(user) });
+});
+
+api.post('/auth/login', authLimiter, async (req, res) => {
+  const username = String(req.body?.username || '').replace(/^@/, '').slice(0, 32);
+  const password = String(req.body?.password || '').slice(0, 128);
+  const key = username.toLowerCase();
+  const f = failedLogins.get(key);
+  if (f && f.until > now()) return bad(res, 'too_many_attempts', 429);
+  const user = username ? q('SELECT * FROM users WHERE username = ?').get(username) : null;
+  const ok = await verifyPassword(password, user?.password_hash);
+  if (!ok || !user) {
+    const n = (f?.until > now() ? 0 : f?.n || 0) + 1;
+    failedLogins.set(key, { n, until: n >= 8 ? now() + 15 * 60_000 : 0 });
+    audit(user?.id, req.ip, 'login_failed', `password @${username}`);
+    return bad(res, 'bad_login', 401);
+  }
+  failedLogins.delete(key);
+  if (user.banned) return bad(res, 'banned', 403);
+  createSession(res, req, user.id);
+  audit(user.id, req.ip, 'login', 'password');
+  res.json({ user: meUser(user) });
 });
 
 api.post('/auth/google', authLimiter, async (req, res) => {
@@ -188,12 +280,16 @@ api.post('/auth/logout', requireAuth, (req, res) => {
 
 api.get('/me', requireAuth, (req, res) => res.json({ user: meUser(req.user) }));
 
-api.get('/username-check', requireAuth, searchLimiter, (req, res) => {
+const checkLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-7', legacyHeaders: false });
+// Works signed-out too (registration form).
+api.get('/username-check', checkLimiter, (req, res) => {
+  const me = sessionFromCookie(req.headers.cookie)?.user;
   const u = String(req.query.u || '');
   if (!USERNAME_RE.test(u)) return res.json({ ok: false, reason: 'format' });
   if (RESERVED.has(u.toLowerCase())) return res.json({ ok: false, reason: 'taken' });
   const owner = q('SELECT id FROM users WHERE username = ?').get(u);
-  res.json({ ok: !owner || owner.id === req.user.id, reason: owner && owner.id !== req.user.id ? 'taken' : null });
+  const taken = owner && owner.id !== me?.id;
+  res.json({ ok: !taken, reason: taken ? 'taken' : null });
 });
 
 api.patch('/me', requireAuth, (req, res) => {
@@ -218,6 +314,27 @@ api.patch('/me', requireAuth, (req, res) => {
   const user = q('SELECT * FROM users WHERE id = ?').get(req.user.id);
   broadcastProfile(user);
   res.json({ user: meUser(user) });
+});
+
+api.post('/me/password', requireAuth, authLimiter, async (req, res) => {
+  const { current, password } = req.body || {};
+  if (req.user.password_hash && !(await verifyPassword(String(current || ''), req.user.password_hash))) return bad(res, 'bad_current_password');
+  const err = passwordError(password);
+  if (err) return bad(res, err);
+  q('UPDATE users SET password_hash = ? WHERE id = ?').run(await hashPassword(password), req.user.id);
+  // Sign out every other device after a password change.
+  const others = q('SELECT id FROM sessions WHERE user_id = ? AND id != ?').all(req.user.id, req.session.id);
+  q('DELETE FROM sessions WHERE user_id = ? AND id != ?').run(req.user.id, req.session.id);
+  others.forEach((s) => disconnectSession(s.id));
+  audit(req.user.id, req.ip, 'password_set');
+  res.json({ user: meUser(q('SELECT * FROM users WHERE id = ?').get(req.user.id)) });
+});
+
+api.post('/me/bonus', requireAuth, (req, res) => {
+  const r = q('UPDATE users SET coins = coins + ?, last_bonus = ? WHERE id = ? AND last_bonus <= ?')
+    .run(DAILY_BONUS, now(), req.user.id, now() - 864e5);
+  if (!r.changes) return bad(res, 'bonus_not_ready');
+  res.json({ user: meUser(q('SELECT * FROM users WHERE id = ?').get(req.user.id)), bonus: DAILY_BONUS });
 });
 
 function broadcastProfile(user) {
@@ -482,10 +599,51 @@ api.post('/chats/:id/images', uploadLimiter, upload.single('file'), (req, res) =
   res.json({ message: broadcastNewMessage(id, msg) });
 });
 
+api.post('/chats/:id/stickers', sendLimiter, (req, res) => {
+  const id = int(req.params.id);
+  if (!id || !isMember(id, req.user.id)) return bad(res, 'not_found', 404);
+  const sticker = String(req.body?.sticker || '');
+  if (!isValidSticker(sticker)) return bad(res, 'bad_sticker');
+  res.json({ message: postMessage(id, req.user.id, { kind: 'sticker', text: sticker, replyTo: validReply(id, req.body?.replyTo) }) });
+});
+
+// ---------- gifts ----------
+
+api.post('/chats/:id/gift', sendLimiter, (req, res) => {
+  const id = int(req.params.id);
+  const chat = id && q("SELECT * FROM chats WHERE id = ? AND type = 'private'").get(id);
+  if (!chat || !isMember(id, req.user.id)) return bad(res, 'not_found', 404);
+  const gift = giftById(req.body?.giftId);
+  if (!gift) return bad(res, 'bad_gift');
+  const toId = q('SELECT user_id FROM chat_members WHERE chat_id = ? AND user_id != ?').get(id, req.user.id)?.user_id;
+  if (!toId) return bad(res, 'not_found', 404);
+  const note = clean(req.body?.note, 140);
+  const ok = tx(() => {
+    const r = q('UPDATE users SET coins = coins - ? WHERE id = ? AND coins >= ?').run(gift.price, req.user.id, gift.price);
+    if (!r.changes) return false;
+    q('INSERT INTO user_gifts (gift_id, from_id, to_id, note, price, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(gift.id, req.user.id, toId, note, gift.price, now());
+    return true;
+  });
+  if (!ok) return bad(res, 'not_enough_coins');
+  const message = postMessage(id, req.user.id, { kind: 'gift', text: note, extra: { giftId: gift.id, toId, price: gift.price } });
+  pushMe(req.user.id);
+  audit(req.user.id, req.ip, 'gift', { giftId: gift.id, toId });
+  res.json({ message, user: meUser(q('SELECT * FROM users WHERE id = ?').get(req.user.id)) });
+});
+
+api.get('/users/:id/gifts', (req, res) => {
+  const id = int(req.params.id);
+  if (!id) return bad(res, 'not_found', 404);
+  const rows = q(`SELECT g.*, u.name AS from_name FROM user_gifts g LEFT JOIN users u ON u.id = g.from_id
+                  WHERE g.to_id = ? ORDER BY g.id DESC LIMIT 200`).all(id);
+  res.json({ gifts: rows.map((g) => ({ id: g.id, giftId: g.gift_id, fromId: g.from_id, fromName: g.from_name, note: g.note, price: g.price, createdAt: g.created_at })) });
+});
+
 api.patch('/messages/:id', sendLimiter, (req, res) => {
   const id = int(req.params.id);
   const m = id && q('SELECT * FROM messages WHERE id = ?').get(id);
-  if (!m || m.sender_id !== req.user.id || m.kind === 'system') return bad(res, 'not_found', 404);
+  if (!m || m.sender_id !== req.user.id || !['text', 'image'].includes(m.kind)) return bad(res, 'not_found', 404);
   const text = clean(req.body?.text, MAX_TEXT + 1);
   if (text.length > MAX_TEXT) return bad(res, 'too_long');
   if (!text && m.kind === 'text') return bad(res, 'empty');

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0.6" y2="1"><stop offset="0" stop-color="#fff59a"/><stop offset=".55" stop-color="#ffe03a"/><stop offset="1" stop-color="#f2b705"/></linearGradient>
+    <filter id="s" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000" flood-opacity=".22"/></filter>
+  </defs>
+  
+  <g transform="translate(256 282) scale(1.08) rotate(-8) translate(-256 -270)">
+    <g filter="url(#s)"><path d="M96 300c-14-30-6-64 14-86 34-60 106-96 178-90 54 4 104 30 134 70 20 8 34 26 32 46-2 16-12 28-26 34-12 62-66 112-138 124-74 12-146-14-182-62-16-4-26-16-24-30 0-4 2-6 12-6z" fill="#fff" stroke="#fff" stroke-width="28" stroke-linejoin="round"/></g>
+    <path d="M96 300c-14-30-6-64 14-86 34-60 106-96 178-90 54 4 104 30 134 70 20 8 34 26 32 46-2 16-12 28-26 34-12 62-66 112-138 124-74 12-146-14-182-62-16-4-26-16-24-30 0-4 2-6 12-6z" fill="url(#g)" stroke="#e3a600" stroke-width="5"/>
+    <path d="M384 128c16-34 50-50 82-44-6 34-36 58-74 56z" fill="#5cc45a" stroke="#fff" stroke-width="7" stroke-linejoin="round"/>
+    <path d="M392 134c18-18 38-30 64-40" stroke="#3a9a3a" stroke-width="4" fill="none" stroke-linecap="round"/>
+    <ellipse cx="190" cy="176" rx="56" ry="24" fill="#fff" opacity=".5" transform="rotate(-22 190 176)"/>
+    
+    
+    <ellipse cx="200" cy="268" rx="13" ry="17" fill="#4a3200"/><ellipse cx="312" cy="268" rx="13" ry="17" fill="#4a3200"/>
+        <path d="M176 236l40-14M336 236l-40-14" stroke="#4a3200" stroke-width="9" stroke-linecap="round"/>
+    <path d="M226 330q30-30 60 0" fill="none" stroke="#4a3200" stroke-width="10" stroke-linecap="round"/>
+  </g>
+  <path d="M196 284v80M316 284v80" stroke="#5ac8fa" stroke-width="16" stroke-linecap="round" opacity=".9"/><path transform="translate(190 392) scale(1)" d="M0-22c10 14 16 22 16 30a16 16 0 0 1-32 0c0-8 6-16 16-30z" fill="#5ac8fa" stroke="#fff" stroke-width="4"/><path transform="translate(322 392) scale(1)" d="M0-22c10 14 16 22 16 30a16 16 0 0 1-32 0c0-8 6-16 16-30z" fill="#5ac8fa" stroke="#fff" stroke-width="4"/>
+  
+</svg>

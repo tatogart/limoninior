@@ -56,10 +56,32 @@ const ICONS = {
   down: '<path d="m6 9.5 6 6 6-6"/>',
   palette: '<path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.3 0 1.8-.8 1.8-1.7 0-1.3-1.2-1.6-1.2-2.8 0-1 .8-1.6 1.8-1.6h2.2a3.9 3.9 0 0 0 3.9-3.9c0-4.1-3.8-7-8.5-7z"/><circle cx="7.7" cy="11" r="1.1"/><circle cx="10.5" cy="7.5" r="1.1"/><circle cx="15" cy="7.8" r="1.1"/>',
   leave: '<path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4"/><path d="m15 8 4 4-4 4M19 12H9"/>',
+  smile: '<circle cx="12" cy="12" r="8.5"/><path d="M8.5 14c1.8 2.2 5.2 2.2 7 0"/><path d="M9 9.5v.5M15 9.5v.5" stroke-width="2.4"/>',
+  gift: '<rect x="3.5" y="8" width="17" height="4" rx="1"/><path d="M5 12v8h14v-8M12 8v12"/><path d="M12 8c-1.5-3.5-5.5-4-5.5-1.5S10 8 12 8zM12 8c1.5-3.5 5.5-4 5.5-1.5S14 8 12 8z"/>',
+  eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
+  key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 8-8M16 7l3 3M14 9l2 2"/>',
+  coin: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v10M9.5 9.5h4a1.8 1.8 0 0 1 0 3.5h-3a1.8 1.8 0 0 0 0 3.5h4"/>',
+  megaphone: '<path d="M4 10v4h3l6 4V6L7 10z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11"/>',
+  refresh: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4"/>',
   at: '<circle cx="12" cy="12" r="3.6"/><path d="M15.6 12v1.3a2.4 2.4 0 0 0 4.8 0V12a8.4 8.4 0 1 0-3.3 6.7"/>',
 };
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** Verified "галочка" badge. */
+export function badge() {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', 'verified');
+  svg.setAttribute('aria-label', 'Подтверждённый аккаунт');
+  svg.innerHTML = '<path d="M12 1.8l2.4 1.9 3-.3 1.1 2.8 2.8 1.1-.3 3 1.9 2.4-1.9 2.4.3 3-2.8 1.1-1.1 2.8-3-.3L12 22.2l-2.4-1.9-3 .3-1.1-2.8-2.8-1.1.3-3L1.1 12l1.9-2.4-.3-3 2.8-1.1L6.6 2.7l3 .3z" fill="currentColor"/><path d="m7.8 12.3 2.8 2.8 5.6-5.8" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>';
+  return svg;
+}
+
+/** Name followed by the verified badge when applicable. */
+export function nameWithBadge(name, user) {
+  return user?.verified ? [name, badge()] : [name];
+}
 export function icon(name, cls = '') {
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
@@ -82,10 +104,13 @@ export function initials(name) {
   return chars.map((p) => Array.from(p)[0]).join('').toUpperCase();
 }
 
-export function avatar({ id = 0, name = '', src = null, saved = false, online = false }, size = 48) {
+export function avatar({ id = 0, name = '', src = null, saved = false, online = false, official = false }, size = 48) {
   const [a, b] = GRADIENTS[Math.abs(Number(id) || 0) % GRADIENTS.length];
   const el = h('div', { class: 'avatar', style: { width: `${size}px`, height: `${size}px`, fontSize: `${Math.round(size * 0.38)}px` } });
-  if (saved) {
+  if (official) {
+    el.classList.add('official');
+    el.append(h('img', { src: '/icons/icon-192.png', alt: '', draggable: false }));
+  } else if (saved) {
     el.style.background = 'linear-gradient(160deg, var(--accent-2), var(--accent))';
     el.append(icon('bookmarkFill', 'avatar-ic'));
   } else if (src) {

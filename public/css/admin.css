@@ -57,3 +57,12 @@ body:has(.admin-app) { overflow: auto; background: var(--bg-2); }
 .otp.shake { animation: shake 0.4s; }
 @keyframes shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
 @media (max-width: 380px) { .otp-cell { width: 40px; height: 50px; } }
+
+.server-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.srv { padding: 12px 14px; border-radius: 14px; background: var(--bg-2); }
+.srv-label { font-size: 12.5px; color: var(--text-2); font-weight: 600; }
+.srv-value { font-size: 16px; font-weight: 700; margin-top: 2px; }
+.srv-sub { font-size: 12.5px; color: var(--text-2); margin-top: 2px; }
+.card-foot { display: flex; justify-content: flex-end; margin-top: 10px; }
+.quick { display: flex; gap: 6px; flex-wrap: wrap; }
+.user-row .verified { width: 16px; height: 16px; }

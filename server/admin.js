@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import os from 'node:os';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import { config } from './config.js';
@@ -5,6 +7,7 @@ import { db, q, now, audit, kvGet, kvSet } from './db.js';
 import { requireAuth, isAdminUser } from './auth.js';
 import { verifyTotp } from './totp.js';
 import { isOnline, disconnectUser } from './realtime.js';
+import { ensurePrivateChat, postMessage, pushMe, OFFICIAL_SUB } from './api.js';
 
 /**
  * Admin panel API. Layers of protection:
@@ -104,6 +107,8 @@ admin.get('/users', (req, res) => {
       id: u.id, username: u.username, name: u.name, email: u.email, banned: !!u.banned,
       createdAt: u.created_at, lastSeen: u.last_seen, online: isOnline(u.id), messages: u.msg_count,
       avatar: u.avatar ? `/media/${u.avatar}` : null, isAdmin: isAdminUser(u),
+      verified: !!u.verified, coins: u.coins, hasGoogle: !String(u.google_sub).startsWith('local:'),
+      official: u.google_sub === OFFICIAL_SUB,
     })),
   });
 });
@@ -149,6 +154,86 @@ admin.post('/users/:id/reset-username', (req, res) => {
   q('UPDATE users SET username = NULL WHERE id = ?').run(u.id);
   disconnectUser(u.id);
   audit(req.user.id, req.ip, 'admin_reset_username', { userId: u.id, username: u.username });
+  res.json({ ok: true });
+});
+
+function anyUser(req, res) {
+  const id = Number(req.params.id);
+  const u = Number.isSafeInteger(id) && q('SELECT * FROM users WHERE id = ?').get(id);
+  if (!u) res.status(404).json({ error: 'not_found' });
+  return u || null;
+}
+
+admin.post('/users/:id/verify', (req, res) => {
+  const u = anyUser(req, res);
+  if (!u) return;
+  const v = req.body?.verified ? 1 : 0;
+  q('UPDATE users SET verified = ? WHERE id = ?').run(v, u.id);
+  audit(req.user.id, req.ip, v ? 'admin_verify' : 'admin_unverify', { userId: u.id, username: u.username });
+  pushMe(u.id);
+  res.json({ ok: true });
+});
+
+admin.post('/users/:id/coins', (req, res) => {
+  const u = anyUser(req, res);
+  if (!u) return;
+  const amount = Math.trunc(Number(req.body?.amount));
+  if (!Number.isFinite(amount) || amount === 0 || Math.abs(amount) > 1_000_000) return res.status(400).json({ error: 'bad_amount' });
+  q('UPDATE users SET coins = MAX(0, coins + ?) WHERE id = ?').run(amount, u.id);
+  audit(req.user.id, req.ip, 'admin_coins', { userId: u.id, username: u.username, amount });
+  pushMe(u.id);
+  res.json({ ok: true });
+});
+
+/** The official "Limoninior" account used for announcements. */
+function officialUser() {
+  let u = q('SELECT * FROM users WHERE google_sub = ?').get(OFFICIAL_SUB);
+  if (!u) {
+    const t = now();
+    const taken = q("SELECT 1 FROM users WHERE username = 'limoninior'").get();
+    q(`INSERT INTO users (google_sub, email, username, name, bio, verified, created_at, last_seen)
+       VALUES (?, '', ?, 'Limoninior', 'Официальный аккаунт мессенджера', 1, ?, ?)`)
+      .run(OFFICIAL_SUB, taken ? null : 'limoninior', t, t);
+    u = q('SELECT * FROM users WHERE google_sub = ?').get(OFFICIAL_SUB);
+  }
+  return u;
+}
+
+admin.post('/broadcast', (req, res) => {
+  const text = String(req.body?.text || '').trim().slice(0, 4096);
+  if (!text) return res.status(400).json({ error: 'empty' });
+  const off = officialUser();
+  const users = q("SELECT id FROM users WHERE banned = 0 AND username IS NOT NULL AND id != ?").all(off.id);
+  for (const u of users) postMessage(ensurePrivateChat(off.id, u.id), off.id, { kind: 'text', text });
+  audit(req.user.id, req.ip, 'admin_broadcast', { recipients: users.length, text: text.slice(0, 120) });
+  res.json({ ok: true, recipients: users.length });
+});
+
+function readJson(file) {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+}
+
+admin.get('/server', (req, res) => {
+  let disk = null;
+  try {
+    const st = fs.statfsSync(config.dataDir);
+    disk = { total: st.blocks * st.bsize, free: st.bavail * st.bsize };
+  } catch { /* unsupported */ }
+  res.json({
+    version: config.version,
+    node: process.version,
+    uptime: Math.round(process.uptime()),
+    load: os.loadavg()[0],
+    memory: { total: os.totalmem(), free: os.freemem(), rss: process.memoryUsage().rss },
+    disk,
+    update: readJson(`${config.dataDir}/update-status.json`),
+    updateRequested: fs.existsSync(config.updateFlag),
+  });
+});
+
+admin.post('/update', (req, res) => {
+  fs.writeFileSync(config.updateFlag, String(now()));
+  audit(req.user.id, req.ip, 'admin_update_request');
   res.json({ ok: true });
 });
 

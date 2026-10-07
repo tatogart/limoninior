@@ -1,8 +1,9 @@
 import { api, errorText } from './api.js';
-import { h, icon, avatar, timeHM, dayLabel, lastSeenText, bytes, toast, confirmDialog } from './ui.js';
+import { h, icon, avatar, timeHM, dayLabel, lastSeenText, bytes, toast, confirmDialog, openModal, nameWithBadge } from './ui.js';
 
 const app = document.getElementById('app');
 let lockTimer = null;
+let serverTimer = null;
 let until = 0;
 
 async function boot() {
@@ -90,6 +91,9 @@ function dashboard() {
 
   const stats = h('section', { class: 'stats-grid' }, h('div', { class: 'spinner' }));
   const chart = h('section', { class: 'admin-card' });
+  const serverBody = h('div', { class: 'server-grid' }, h('div', { class: 'spinner' }));
+  const updateBtn = h('button', { class: 'btn btn-sm btn-primary', onclick: requestUpdate }, icon('refresh'), 'Обновить сейчас');
+  const bcText = h('textarea', { class: 'input', rows: 3, maxLength: 4096, placeholder: 'Текст объявления — придёт всем пользователям от официального аккаунта Limoninior ✓' });
   const usersBody = h('div', { class: 'users-list' });
   const auditBody = h('div', { class: 'audit-list' });
   const search = h('input', { class: 'input', type: 'search', placeholder: 'Поиск: имя, @юзернейм, email' });
@@ -104,7 +108,14 @@ function dashboard() {
       h('button', { class: 'btn btn-sm btn-ghost', onclick: async () => { await api.post('/admin/lock').catch(() => {}); lockScreen(); } }, 'Заблокировать')),
     h('main', { class: 'admin-main' },
       stats,
+      h('section', { class: 'admin-card' },
+        h('div', { class: 'card-head' }, h('h2', {}, 'Сервер и обновления'), updateBtn),
+        serverBody),
       chart,
+      h('section', { class: 'admin-card' },
+        h('div', { class: 'card-head' }, h('h2', {}, 'Рассылка всем')),
+        bcText,
+        h('div', { class: 'card-foot' }, h('button', { class: 'btn btn-primary', onclick: broadcast }, icon('megaphone'), 'Отправить всем'))),
       h('section', { class: 'admin-card' },
         h('div', { class: 'card-head' }, h('h2', {}, 'Пользователи'), search),
         usersBody),
@@ -153,13 +164,22 @@ function dashboard() {
         try { await api.post(`/admin/users/${u.id}/${path}`); toast('Готово'); loadUsers(search.value); loadAudit(); } catch (e) { handle(e); }
       },
     }, label);
+    const post = async (path, body) => {
+      try { await api.post(`/admin/users/${u.id}/${path}`, body); toast('Готово'); loadUsers(search.value); loadAudit(); } catch (e) { handle(e); }
+    };
+    const always = [
+      h('button', { class: `btn btn-sm ${u.verified ? 'btn-ghost' : 'btn-primary'}`, onclick: () => post('verify', { verified: !u.verified }) },
+        u.verified ? 'Снять галочку' : '✓ Галочка'),
+      h('button', { class: 'btn btn-sm btn-ghost', onclick: () => coinsDialog(u, post) }, '🍋 Лимоны'),
+    ];
     return h('div', { class: `user-row ${u.banned ? 'banned' : ''}` },
-      avatar({ id: u.id, name: u.name, src: u.avatar, online: u.online }, 44),
+      avatar({ id: u.id, name: u.name, src: u.avatar, online: u.online, official: u.official }, 44),
       h('div', { class: 'user-info' },
-        h('div', { class: 'row-main' }, u.name, u.isAdmin ? h('span', { class: 'pill' }, 'админ') : null, u.banned ? h('span', { class: 'pill danger' }, 'бан') : null),
-        h('div', { class: 'row-sub' }, `${u.username ? `@${u.username}` : 'без юзернейма'} · ${u.email}`),
-        h('div', { class: 'row-sub' }, `${u.messages} сообщ. · рег. ${dayLabel(u.createdAt)} · ${lastSeenText(u)}`)),
-      u.isAdmin ? null : h('div', { class: 'user-actions' },
+        h('div', { class: 'row-main' }, nameWithBadge(u.name, u), u.isAdmin ? h('span', { class: 'pill' }, 'админ') : null,
+          u.official ? h('span', { class: 'pill' }, 'официальный') : null, u.banned ? h('span', { class: 'pill danger' }, 'бан') : null),
+        h('div', { class: 'row-sub' }, `${u.username ? `@${u.username}` : 'без юзернейма'} · ${u.email || (u.hasGoogle ? '' : 'вход по паролю')}`),
+        h('div', { class: 'row-sub' }, `🍋 ${u.coins} · ${u.messages} сообщ. · рег. ${dayLabel(u.createdAt)} · ${lastSeenText(u)}`)),
+      u.official ? null : u.isAdmin ? h('div', { class: 'user-actions' }, always) : h('div', { class: 'user-actions' }, always,
         u.banned ? act('Разбанить', 'unban') : act('Забанить', 'ban', `Заблокировать ${u.name}? Все его сеансы будут завершены.`, true),
         act('Выкинуть', 'logout', `Завершить все сеансы ${u.name}?`),
         u.username ? act('Сбросить @', 'reset-username', `Сбросить юзернейм @${u.username}? Пользователю придётся выбрать новый.`) : null));
@@ -173,6 +193,8 @@ function dashboard() {
         admin_unlock_failed: 'Неверный код админки', admin_denied: 'Попытка доступа к админке', admin_totp_ratelimited: 'Лимит попыток кода',
         admin_ban: 'Бан', admin_unban: 'Разбан', admin_logout_user: 'Завершены сеансы', admin_reset_username: 'Сброс юзернейма',
         admin_vacuum: 'Очистка БД', csrf_block: 'Заблокирован CSRF',
+        register: 'Регистрация', password_set: 'Смена пароля', gift: 'Подарок', admin_verify: 'Выдана галочка',
+        admin_unverify: 'Снята галочка', admin_coins: 'Начислены лимоны', admin_broadcast: 'Рассылка', admin_update_request: 'Запрос обновления',
       };
       const alarm = new Set(['login_failed', 'admin_unlock_failed', 'admin_denied', 'admin_totp_ratelimited', 'csrf_block', 'login_banned']);
       auditBody.replaceChildren(...(entries.length ? entries.map((a) => h('div', { class: `audit-row ${alarm.has(a.action) ? 'alarm' : ''}` },
@@ -184,12 +206,70 @@ function dashboard() {
     } catch (e) { handle(e); }
   }
 
+  function coinsDialog(u, post) {
+    const inp = h('input', { class: 'input', type: 'number', placeholder: 'Например 500 или -100', step: 1 });
+    openModal({
+      title: `Лимоны для ${u.name}`,
+      className: 'modal-small',
+      body: h('div', { class: 'stack' }, h('p', { class: 'muted small' }, `Сейчас: 🍋 ${u.coins}. Положительное число — начислить, отрицательное — списать.`), inp,
+        h('div', { class: 'quick' }, [100, 500, 1000, 5000].map((n) => h('button', { class: 'btn btn-sm btn-ghost', onclick: () => { inp.value = n; } }, `+${n}`)))),
+      actions: [
+        { label: 'Отмена', onClick: (c) => c() },
+        { label: 'Применить', primary: true, onClick: async (close) => { await post('coins', { amount: Number(inp.value) }); close(); } },
+      ],
+    });
+    setTimeout(() => inp.focus(), 50);
+  }
+
+  async function broadcast() {
+    const text = bcText.value.trim();
+    if (!text) return toast('Введите текст', 'error');
+    if (!(await confirmDialog('Отправить это сообщение всем пользователям?', { ok: 'Отправить' }))) return;
+    try {
+      const r = await api.post('/admin/broadcast', { text });
+      bcText.value = '';
+      toast(`Отправлено: ${r.recipients}`);
+      loadAudit();
+    } catch (e) { handle(e); }
+  }
+
+  const fmtUptime = (sec) => {
+    const d = Math.floor(sec / 86400), hh = Math.floor((sec % 86400) / 3600), mm = Math.floor((sec % 3600) / 60);
+    return d ? `${d} д ${hh} ч` : hh ? `${hh} ч ${mm} мин` : `${mm} мин`;
+  };
+
+  async function loadServer() {
+    try {
+      const sv = await api.get('/admin/server');
+      const cell = (label, value, sub) => h('div', { class: 'srv' }, h('div', { class: 'srv-label' }, label), h('div', { class: 'srv-value' }, value), sub ? h('div', { class: 'srv-sub' }, sub) : null);
+      const up = sv.update;
+      serverBody.replaceChildren(...[
+        cell('Версия', sv.version || 'dev', sv.node),
+        cell('Работает', fmtUptime(sv.uptime), `нагрузка ${sv.load.toFixed(2)}`),
+        cell('Память', `${bytes(sv.memory.total - sv.memory.free)} / ${bytes(sv.memory.total)}`, `приложение ${bytes(sv.memory.rss)}`),
+        sv.disk ? cell('Диск', `${bytes(sv.disk.free)} свободно`, `из ${bytes(sv.disk.total)}`) : null,
+        cell('Автообновление', up ? (up.ok ? 'включено ✓' : 'ошибка ✗') : 'не настроено',
+          sv.updateRequested ? 'обновление запрошено, начнётся в течение 2 минут…'
+            : up ? `${up.ok ? 'последняя проверка' : up.message} · ${dayLabel(up.at)} ${timeHM(up.at)}` : 'запустите install.sh ещё раз'),
+      ].filter(Boolean));
+      updateBtn.disabled = sv.updateRequested;
+    } catch (e) { handle(e); }
+  }
+
+  async function requestUpdate() {
+    if (!(await confirmDialog('Скачать последнюю версию с GitHub и перезапустить сервер? Пользователи переподключатся автоматически.', { ok: 'Обновить' }))) return;
+    try { await api.post('/admin/update'); toast('Обновление запрошено — займёт 1–3 минуты'); loadServer(); } catch (e) { handle(e); }
+  }
+
   async function vacuum() {
     if (!(await confirmDialog('Удалить истёкшие сеансы и записи журнала старше 180 дней?', { ok: 'Очистить' }))) return;
     try { await api.post('/admin/vacuum'); toast('Готово'); loadStats(); loadAudit(); } catch (e) { handle(e); }
   }
 
   loadStats();
+  loadServer();
+  clearInterval(serverTimer);
+  serverTimer = setInterval(loadServer, 15_000);
   loadUsers();
   loadAudit();
 }

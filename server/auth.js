@@ -79,7 +79,41 @@ export function sessionFromCookie(cookieHeader) {
 }
 
 export function isAdminUser(user) {
-  return !!user && config.adminEmails.includes(String(user.email).toLowerCase());
+  if (!user) return false;
+  if (user.email && config.adminEmails.includes(String(user.email).toLowerCase())) return true;
+  return !!user.username && config.adminUsernames.includes(String(user.username).toLowerCase());
+}
+
+// ---------- passwords (scrypt, per-user salt) ----------
+
+const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
+const scryptAsync = (pw, salt) => new Promise((resolve, reject) =>
+  crypto.scrypt(pw.normalize('NFKC'), salt, 64, SCRYPT, (err, key) => (err ? reject(err) : resolve(key))));
+
+export async function hashPassword(pw) {
+  const salt = crypto.randomBytes(16);
+  const key = await scryptAsync(pw, salt);
+  return `scrypt$${salt.toString('base64')}$${key.toString('base64')}`;
+}
+
+// Used to keep timing the same whether or not the account exists.
+const DUMMY_HASH = `scrypt$${crypto.randomBytes(16).toString('base64')}$${crypto.randomBytes(64).toString('base64')}`;
+
+export async function verifyPassword(pw, stored) {
+  const [alg, saltB64, keyB64] = String(stored || DUMMY_HASH).split('$');
+  if (alg !== 'scrypt' || !saltB64 || !keyB64) return false;
+  const key = await scryptAsync(pw, Buffer.from(saltB64, 'base64'));
+  const expected = Buffer.from(keyB64, 'base64');
+  return key.length === expected.length && crypto.timingSafeEqual(key, expected) && !!stored;
+}
+
+/** Create a password (non-Google) account. google_sub gets a unique placeholder. */
+export function createLocalUser({ username, name, passwordHash }) {
+  const t = now();
+  const r = q(`INSERT INTO users (google_sub, email, username, name, password_hash, created_at, last_seen)
+               VALUES (?, '', ?, ?, ?, ?, ?)`)
+    .run(`local:${crypto.randomBytes(12).toString('hex')}`, username, name, passwordHash, t, t);
+  return q('SELECT * FROM users WHERE id = ?').get(r.lastInsertRowid);
 }
 
 /** Express middleware: require a valid session. */

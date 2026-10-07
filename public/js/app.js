@@ -2,8 +2,10 @@ import { io } from '/vendor/socket.io.esm.min.js';
 import { api, errorText } from './api.js';
 import {
   h, icon, avatar, timeHM, listTime, dayLabel, lastSeenText, plural, richText, emojiCount,
-  toast, openModal, closeTopModal, confirmDialog, contextMenu, closeMenu, isTouch,
+  toast, openModal, closeTopModal, confirmDialog, contextMenu, closeMenu, isTouch, badge, nameWithBadge,
 } from './ui.js';
+import { STICKER_PACKS, stickerInfo, GIFTS, giftById, DAILY_BONUS } from './catalog.js';
+import { EMOJI } from './emoji.js';
 
 // ============================================================ state
 
@@ -81,9 +83,16 @@ function chatAvatar(c, size) {
   if (c.type === 'saved') return avatar({ saved: true }, size);
   if (c.type === 'private') {
     const p = peerOf(c);
-    return avatar({ id: p?.id, name: p?.name || '?', src: p?.avatar, online: p?.online }, size);
+    return avatar({ id: p?.id, name: p?.name || '?', src: p?.avatar, online: p?.online, official: p?.official }, size);
   }
   return avatar({ id: c.id, name: c.title, src: c.avatar }, size);
+}
+function userAvatar(u, size, withOnline = false) {
+  return avatar({ id: u?.id, name: u?.name || '?', src: u?.avatar, online: withOnline && u?.online, official: u?.official }, size);
+}
+/** Chat title with the verified badge for private chats. */
+function chatTitleNodes(c) {
+  return c.type === 'private' ? nameWithBadge(chatTitle(c), peerOf(c)) : [chatTitle(c)];
 }
 function chatTitle(c) {
   if (c.type === 'private') return peerOf(c)?.name || c.title;
@@ -95,6 +104,8 @@ const nameColor = (id) => NAME_COLORS[Math.abs(id) % NAME_COLORS.length];
 function messagePreview(m) {
   if (!m) return '';
   if (m.kind === 'image') return m.text ? `🖼 ${m.text}` : '🖼 Фото';
+  if (m.kind === 'sticker') return `${stickerInfo(m.text)?.emoji || '🍋'} Стикер`;
+  if (m.kind === 'gift') return `🎁 Подарок: ${giftById(m.extra?.giftId)?.name || ''}`;
   return m.text.replace(/\s+/g, ' ');
 }
 
@@ -186,10 +197,72 @@ async function installApp() {
 
 function renderLogin() {
   const gbtn = h('div', { class: 'gbtn' });
+  let mode = 'login';
+  const nameIn = h('input', { class: 'input', placeholder: 'Как вас зовут', maxLength: 64, autocomplete: 'name' });
+  const userIn = h('input', { class: 'input', placeholder: 'username', maxLength: 32, autocapitalize: 'off', autocomplete: 'username', spellcheck: false });
+  const passIn = h('input', { class: 'input', type: 'password', placeholder: 'Пароль', maxLength: 128, autocomplete: 'current-password' });
+  const eye = h('button', { type: 'button', class: 'pass-eye', 'aria-label': 'Показать пароль', onclick: () => { passIn.type = passIn.type === 'password' ? 'text' : 'password'; } }, icon('eye'));
+  const userHint = h('div', { class: 'field-hint' });
+  const nameField = h('label', { class: 'field hidden' }, nameIn);
+  const submit = h('button', { class: 'btn btn-primary btn-block btn-lg', type: 'submit' }, 'Войти');
+  const seg = h('div', { class: 'segmented login-tabs' });
+  const setMode = (m) => {
+    mode = m;
+    seg.replaceChildren(
+      h('button', { type: 'button', class: m === 'login' ? 'on' : '', onclick: () => setMode('login') }, 'Вход'),
+      h('button', { type: 'button', class: m === 'register' ? 'on' : '', onclick: () => setMode('register') }, 'Регистрация'));
+    nameField.classList.toggle('hidden', m === 'login');
+    submit.textContent = m === 'login' ? 'Войти' : 'Создать аккаунт';
+    passIn.placeholder = m === 'login' ? 'Пароль' : 'Пароль (минимум 8 символов)';
+    passIn.autocomplete = m === 'login' ? 'current-password' : 'new-password';
+    userHint.textContent = m === 'register' ? 'Латиница, цифры и _, от 5 символов — по нему вас найдут' : '';
+    userHint.className = 'field-hint';
+  };
+  let checkTimer = null;
+  userIn.addEventListener('input', () => {
+    userIn.value = userIn.value.replace(/[^a-zA-Z0-9_]/g, '');
+    if (mode !== 'register') return;
+    clearTimeout(checkTimer);
+    const v = userIn.value;
+    userHint.className = 'field-hint';
+    if (v.length < 5 || !/^[a-zA-Z]/.test(v)) { userHint.textContent = 'Латиница, цифры и _, от 5 символов, начинается с буквы'; return; }
+    checkTimer = setTimeout(async () => {
+      try {
+        const r = await api.get(`/username-check?u=${encodeURIComponent(v)}`);
+        if (userIn.value !== v) return;
+        userHint.textContent = r.ok ? `@${v} свободен` : 'Этот юзернейм занят';
+        userHint.classList.add(r.ok ? 'good' : 'bad');
+      } catch { /* ignore */ }
+    }, 350);
+  });
+  const form = h('form', {
+    class: 'login-form',
+    onsubmit: async (e) => {
+      e.preventDefault();
+      submit.disabled = true;
+      try {
+        const body = { username: userIn.value, password: passIn.value };
+        if (mode === 'register') body.name = nameIn.value;
+        S.me = (await api.post(mode === 'login' ? '/auth/login' : '/auth/register', body)).user;
+        S.me.needsProfile ? renderOnboarding() : startApp();
+      } catch (err) {
+        toast(errorText(err), 'error');
+      } finally {
+        submit.disabled = false;
+      }
+    },
+  }, seg, nameField,
+  h('label', { class: 'field' }, h('div', { class: 'input-prefix' }, h('span', {}, '@'), userIn), userHint),
+  h('label', { class: 'field pass-field' }, passIn, eye),
+  submit);
+  setMode('login');
+
   const card = h('div', { class: 'login-card' },
-    h('img', { class: 'login-logo', src: '/icons/icon.svg', alt: '', width: 112, height: 112 }),
+    h('img', { class: 'login-logo', src: '/icons/icon.svg', alt: '', width: 96, height: 96 }),
     h('h1', {}, 'Limoninior'),
-    h('p', { class: 'login-sub' }, 'Быстрый, красивый и безопасный мессенджер.', h('br'), 'Войдите, чтобы начать общение.'),
+    h('p', { class: 'login-sub' }, 'Быстрый, красивый и безопасный мессенджер'),
+    form,
+    S.config.googleClientId ? h('div', { class: 'or' }, h('span', {}, 'или')) : null,
     gbtn,
   );
   if (S.config.devLogin) {
@@ -207,13 +280,10 @@ function renderLogin() {
   if (!isStandalone()) {
     card.append(h('button', { class: 'link-btn', 'data-install': '', onclick: installApp }, icon('download'), 'Установить приложение'));
   }
-  card.append(h('p', { class: 'login-foot' }, 'Вход защищён через Google. Мы не видим ваш пароль. ', h('a', { href: '/privacy' }, 'Конфиденциальность')));
+  card.append(h('p', { class: 'login-foot' }, 'Пароли хранятся только в зашифрованном виде. ', h('a', { href: '/privacy' }, 'Конфиденциальность')));
   app.replaceChildren(h('div', { class: 'login' }, h('div', { class: 'blob b1' }), h('div', { class: 'blob b2' }), h('div', { class: 'blob b3' }), card));
 
-  if (!S.config.googleClientId) {
-    gbtn.append(h('div', { class: 'hint-box' }, 'Вход через Google не настроен: укажите GOOGLE_CLIENT_ID на сервере.'));
-    return;
-  }
+  if (!S.config.googleClientId) return;
   const mountButton = () => {
     window.google.accounts.id.initialize({
       client_id: S.config.googleClientId,
@@ -397,8 +467,14 @@ function connectSocket() {
   s.on('connect', () => {
     S.connected = true;
     V.conn.classList.add('hidden');
-    if (wasConnected) resync();
+    if (wasConnected) { checkVersion(); resync(); }
     wasConnected = true;
+  });
+  s.on('me', (u) => {
+    S.me = { ...S.me, ...u };
+    mergeUser(u);
+    renderChatList();
+    if (S.current) renderHeader();
   });
   s.on('disconnect', () => {
     S.connected = false;
@@ -478,6 +554,17 @@ function connectSocket() {
     renderChatList();
     if (S.current) { renderHeader(); renderMessages(); }
   });
+}
+
+/** After a server update the socket reconnects — reload to pick up the new client. */
+async function checkVersion() {
+  try {
+    const cfg = await api.get('/config');
+    if (cfg.version === S.config.version) return;
+    const busy = (V.input && V.input.value.trim()) || document.querySelector('.modal-backdrop');
+    if (!busy) return location.reload();
+    toast('Вышло обновление — оно применится после перезагрузки страницы');
+  } catch { /* offline */ }
 }
 
 function clearTyping(chatId, userId) {
@@ -567,7 +654,7 @@ function chatItem(c) {
   chatAvatar(c, 54),
   h('div', { class: 'chat-item-body' },
     h('div', { class: 'chat-item-top' },
-      h('span', { class: 'chat-item-title' }, isGroup(c) ? icon('group', 'title-ic') : null, chatTitle(c)),
+      h('span', { class: 'chat-item-title' }, isGroup(c) ? icon('group', 'title-ic') : null, h('span', { class: 'ellipsis' }, chatTitle(c)), c.type === 'private' && peerOf(c)?.verified ? badge() : null),
       h('span', { class: 'chat-item-time' }, mine ? icon(read ? 'checks' : 'check', 'tick') : null, lm ? listTime(lm.createdAt) : '')),
     h('div', { class: 'chat-item-bottom' },
       h('span', { class: 'chat-item-preview' }, preview),
@@ -616,9 +703,9 @@ function renderSearch() {
   else if (!global.length) nodes.push(h('div', { class: 'list-note' }, 'Никого не нашли 🤷'));
   for (const u of global) {
     nodes.push(h('button', { class: 'chat-item', onclick: () => { clearSearch(); startPrivate(u.id); } },
-      avatar({ id: u.id, name: u.name, src: u.avatar, online: u.online }, 54),
+      userAvatar(u, 54, true),
       h('div', { class: 'chat-item-body' },
-        h('div', { class: 'chat-item-top' }, h('span', { class: 'chat-item-title' }, u.name)),
+        h('div', { class: 'chat-item-top' }, h('span', { class: 'chat-item-title' }, h('span', { class: 'ellipsis' }, u.name), u.verified ? badge() : null)),
         h('div', { class: 'chat-item-bottom' }, h('span', { class: 'chat-item-preview accent' }, `@${u.username}`)))));
   }
   V.list.replaceChildren(...nodes);
@@ -715,12 +802,15 @@ function buildChatView(c) {
   V.input.addEventListener('paste', onPaste);
   V.file = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp,image/gif', class: 'hidden', onchange: (e) => { if (e.target.files[0]) imageSendModal(e.target.files[0]); e.target.value = ''; } });
   V.sendBtn = h('button', { class: 'send-btn', 'aria-label': 'Отправить', onclick: submitComposer }, icon('send'));
+  V.panel = h('div', { class: 'emoji-panel hidden' });
+  V.panelBtn = h('button', { class: 'icon-btn smile-btn', 'aria-label': 'Эмодзи, стикеры и подарки', onclick: () => togglePanel() }, icon('smile'));
   const composer = h('div', { class: 'composer' },
+    V.panel,
     V.bar,
     h('div', { class: 'composer-row' },
       h('div', { class: 'composer-box' },
         h('button', { class: 'icon-btn attach-btn', 'aria-label': 'Прикрепить фото', onclick: () => V.file.click() }, icon('attach')),
-        V.input, V.file),
+        V.input, V.panelBtn, V.file),
       V.sendBtn));
 
   const view = h('div', { class: 'chat-view' }, header, h('div', { class: 'messages-wrap' }, V.scroller, V.downBtn), composer);
@@ -741,7 +831,7 @@ function renderHeader() {
   const c = curChat();
   if (!c || !V.headerTitle) return;
   V.headerAvatar.replaceChildren(chatAvatar(c, 42));
-  V.headerTitle.textContent = chatTitle(c);
+  V.headerTitle.replaceChildren(...[h('span', { class: 'ellipsis' }, chatTitle(c)), c.type === 'private' && peerOf(c)?.verified ? badge() : null].filter(Boolean));
   renderHeaderStatus();
 }
 
@@ -895,16 +985,37 @@ function messageEl(c, m, first, last, read) {
     mine && m.pending ? h('span', { class: 'clock' }) : null,
     mine && !m.pending && c.type !== 'saved' ? icon(read ? 'checks' : 'check', `tick ${read ? 'read' : ''}`) : null);
 
-  const bubble = h('div', { class: `bubble ${bigEmoji ? 'big-emoji' : ''} ${imageOnly ? 'image-only' : ''} ${m.kind === 'image' ? 'has-image' : ''}` });
-  if (group && !mine && first && !bigEmoji) {
-    bubble.append(h('div', { class: 'sender-name', style: { color: nameColor(m.senderId) } }, userName(m.senderId)));
+  const special = m.kind === 'sticker' ? 'sticker' : m.kind === 'gift' ? 'gift-bubble' : '';
+  const bubble = h('div', { class: `bubble ${bigEmoji ? 'big-emoji' : ''} ${imageOnly ? 'image-only' : ''} ${m.kind === 'image' ? 'has-image' : ''} ${special}` });
+  if (group && !mine && first && !bigEmoji && m.kind !== 'sticker') {
+    bubble.append(h('div', { class: 'sender-name', style: { color: nameColor(m.senderId) } }, userName(m.senderId), S.users.get(m.senderId)?.verified ? badge() : null));
     ensureUser(m.senderId);
   }
   if (m.replyTo) {
     const r = m.replyTo;
     bubble.append(h('button', { class: 'reply-quote', onclick: (e) => { e.stopPropagation(); jumpTo(r.id); } },
       h('b', {}, r.deleted ? 'Удалённое сообщение' : userName(r.senderId)),
-      h('span', {}, r.deleted ? '' : r.kind === 'image' ? `🖼 ${r.text || 'Фото'}` : r.text)));
+      h('span', {}, r.deleted ? '' : r.kind === 'image' ? `🖼 ${r.text || 'Фото'}` : r.kind === 'sticker' ? 'Стикер' : r.kind === 'gift' ? '🎁 Подарок' : r.text)));
+  }
+  if (m.kind === 'sticker') {
+    bubble.append(stickerNode(m.text, 'msg-sticker'), meta);
+    return finishRow(c, m, bubble, { mine, group, first, last });
+  }
+  if (m.kind === 'gift') {
+    const g = giftById(m.extra?.giftId) || GIFTS[0];
+    const toMe = m.extra?.toId === S.me.id;
+    bubble.append(h('button', {
+      class: 'gift-card',
+      style: { background: `linear-gradient(150deg, ${g.colors[0]}, ${g.colors[1]})` },
+      onclick: () => openUserProfile(m.extra?.toId, { tab: 'gifts' }),
+    },
+    h('div', { class: 'gift-shine' }),
+    h('div', { class: 'gift-emoji' }, g.emoji),
+    h('div', { class: 'gift-title' }, mine ? 'Вы отправили подарок' : toMe ? 'Вам подарок!' : 'Подарок'),
+    h('div', { class: 'gift-name' }, g.name),
+    h('div', { class: 'gift-price' }, `🍋 ${g.price}`),
+    m.text ? h('div', { class: 'gift-note' }, `«${m.text}»`) : null), meta);
+    return finishRow(c, m, bubble, { mine, group, first, last });
   }
   if (m.kind === 'image') {
     const ratio = m.width && m.height ? m.width / m.height : 4 / 3;
@@ -922,6 +1033,18 @@ function messageEl(c, m, first, last, read) {
     bubble.append(h('div', { class: 'text' }, richText(m.text), h('span', { class: 'meta-spacer' })), meta);
   }
 
+  return finishRow(c, m, bubble, { mine, group, first, last });
+}
+
+/** A sticker as a DOM node (SVG image or animated emoji). */
+function stickerNode(id, cls = '') {
+  const info = stickerInfo(id);
+  if (!info) return h('div', { class: `${cls} sticker-missing` }, '🍋');
+  if (info.type === 'svg') return h('img', { class: cls, src: info.src, alt: 'Стикер', draggable: false, loading: 'lazy' });
+  return h('div', { class: `${cls} anim-emoji anim-${info.anim}` }, info.emoji);
+}
+
+function finishRow(c, m, bubble, { mine, group, first, last }) {
   const row = h('div', {
     class: `msg-row ${mine ? 'mine' : 'theirs'} ${first ? 'first' : ''} ${last ? 'last' : ''} ${group && !mine ? 'with-avatar' : ''}`,
     dataset: { id: String(m.id) },
@@ -929,7 +1052,7 @@ function messageEl(c, m, first, last, read) {
   if (group && !mine) {
     const u = S.users.get(m.senderId);
     row.append(last
-      ? h('button', { class: 'msg-avatar', onclick: () => openUserProfile(m.senderId) }, avatar({ id: m.senderId, name: u?.name || '?', src: u?.avatar }, 34))
+      ? h('button', { class: 'msg-avatar', onclick: () => openUserProfile(m.senderId) }, userAvatar(u || { id: m.senderId }, 34))
       : h('div', { class: 'msg-avatar' }));
   }
   row.append(bubble);
@@ -1031,9 +1154,9 @@ function showMessageMenu(m, x, y) {
   const canDelete = mine || (isGroup(c) && c.ownerId === S.me.id);
   contextMenu(x, y, [
     { icon: 'reply', label: 'Ответить', onClick: () => startReply(m) },
-    m.text ? { icon: 'copy', label: 'Копировать', onClick: () => copyText(m.text) } : null,
+    m.text && m.kind !== 'sticker' ? { icon: 'copy', label: 'Копировать', onClick: () => copyText(m.text) } : null,
     m.kind === 'image' ? { icon: 'download', label: 'Открыть фото', onClick: () => openViewer(m) } : null,
-    mine ? { icon: 'edit', label: 'Изменить', onClick: () => startEdit(m) } : null,
+    mine && (m.kind === 'text' || m.kind === 'image') ? { icon: 'edit', label: 'Изменить', onClick: () => startEdit(m) } : null,
     canDelete ? { icon: 'trash', label: 'Удалить', danger: true, onClick: () => deleteMessage(m) } : null,
   ]);
 }
@@ -1120,7 +1243,7 @@ function onComposerKey(e) {
     cancelBar();
   } else if (e.key === 'ArrowUp' && !V.input.value && !S.editing) {
     const st = S.msgs.get(S.current);
-    const mine = st?.items.filter((m) => m.senderId === S.me.id && typeof m.id === 'number' && m.kind !== 'system').at(-1);
+    const mine = st?.items.filter((m) => m.senderId === S.me.id && typeof m.id === 'number' && m.kind === 'text').at(-1);
     if (mine) { e.preventDefault(); startEdit(mine); }
   }
 }
@@ -1279,6 +1402,206 @@ function openViewer(m) {
   closeFn = close;
 }
 
+// ============================================================ emoji / stickers / gifts panel
+
+const RECENT_KEY = 'limoninior.recentEmoji';
+let panelTab = 'emoji';
+
+function recentEmoji() {
+  try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch { return []; }
+}
+function pushRecent(e) {
+  const r = [e, ...recentEmoji().filter((x) => x !== e)].slice(0, 32);
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(r)); } catch { /* ignore */ }
+}
+
+function canGift(c) {
+  return c?.type === 'private' && !peerOf(c)?.official;
+}
+
+function togglePanel(force) {
+  const open = force ?? V.panel.classList.contains('hidden');
+  V.panel.classList.toggle('hidden', !open);
+  V.panelBtn.classList.toggle('on', open);
+  if (open) renderPanel();
+}
+
+function renderPanel() {
+  const c = curChat();
+  if (!c) return;
+  if (panelTab === 'gifts' && !canGift(c)) panelTab = 'emoji';
+  const tabs = [['emoji', '😀', 'Эмодзи'], ['stickers', '🍋', 'Стикеры'], canGift(c) ? ['gifts', '🎁', 'Подарки'] : null].filter(Boolean);
+  const body = h('div', { class: 'panel-body' });
+  if (panelTab === 'emoji') {
+    const recent = recentEmoji();
+    const groups = recent.length ? [['🕘', 'Недавние', recent.join(' ')], ...EMOJI] : EMOJI;
+    for (const [, title, list] of groups) {
+      body.append(h('div', { class: 'panel-title' }, title),
+        h('div', { class: 'emoji-grid' }, list.split(' ').map((e) => h('button', { class: 'emoji-btn', onclick: () => insertEmoji(e) }, e))));
+    }
+  } else if (panelTab === 'stickers') {
+    for (const pack of STICKER_PACKS) {
+      body.append(h('div', { class: 'panel-title' }, pack.title),
+        h('div', { class: 'sticker-grid' }, pack.stickers.map((st) => {
+          const id = `${pack.id}/${Array.isArray(st) ? st[0] : st}`;
+          return h('button', { class: 'sticker-btn', onclick: () => sendSticker(id) }, stickerNode(id, 'panel-sticker'));
+        })));
+    }
+  } else {
+    body.append(giftShop(c));
+  }
+  V.panel.replaceChildren(
+    h('div', { class: 'panel-tabs' }, tabs.map(([id, e, label]) => h('button', {
+      class: panelTab === id ? 'on' : '', title: label,
+      onclick: () => { panelTab = id; renderPanel(); },
+    }, h('span', { class: 'tab-emoji' }, e), label))),
+    body);
+}
+
+function insertEmoji(e) {
+  const inp = V.input;
+  const start = inp.selectionStart ?? inp.value.length;
+  const end = inp.selectionEnd ?? inp.value.length;
+  inp.value = inp.value.slice(0, start) + e + inp.value.slice(end);
+  const pos = start + e.length;
+  if (!isTouch()) inp.focus();
+  inp.setSelectionRange(pos, pos);
+  pushRecent(e);
+  autosize();
+  updateSendBtn();
+}
+
+async function sendSticker(id) {
+  const chatId = S.current;
+  const reply = S.reply;
+  S.reply = null;
+  renderBar();
+  if (isTouch()) togglePanel(false);
+  try {
+    const { message } = await api.post(`/chats/${chatId}/stickers`, { sticker: id, replyTo: reply?.id });
+    addMessage(message);
+    if (S.current === chatId) renderMessages({ stick: true });
+  } catch (e) { toast(errorText(e), 'error'); }
+}
+
+function coinsLine() {
+  const ready = Date.now() >= (S.me.nextBonusAt || 0);
+  return h('div', { class: 'coins-line' },
+    h('span', { class: 'coins' }, `🍋 ${S.me.coins ?? 0}`),
+    h('span', { class: 'muted' }, 'лимонов'),
+    ready ? h('button', { class: 'btn btn-sm btn-primary', onclick: claimBonus }, `+${DAILY_BONUS} бонус`) : null);
+}
+
+async function claimBonus() {
+  try {
+    const r = await api.post('/me/bonus');
+    S.me = { ...S.me, ...r.user };
+    toast(`+${r.bonus} 🍋 Ежедневный бонус получен!`);
+    if (!V.panel?.classList.contains('hidden')) renderPanel();
+    document.querySelectorAll('[data-coins]').forEach((el) => el.replaceWith(coinsLine()));
+  } catch (e) { toast(errorText(e), 'error'); }
+}
+
+function giftShop(c) {
+  const peer = peerOf(c);
+  return h('div', { class: 'gift-shop' },
+    coinsLine(),
+    h('div', { class: 'panel-title' }, `Подарок для ${peer?.name || 'собеседника'}`),
+    h('div', { class: 'gift-grid' }, GIFTS.map((g) => h('button', {
+      class: 'gift-item', onclick: () => giftConfirm(c, g),
+    },
+    h('div', { class: 'gift-item-art', style: { background: `linear-gradient(150deg, ${g.colors[0]}, ${g.colors[1]})` } }, g.emoji),
+    h('div', { class: 'gift-item-name' }, g.name),
+    h('div', { class: 'gift-item-price' }, `🍋 ${g.price}`)))));
+}
+
+function giftConfirm(c, g) {
+  const peer = peerOf(c);
+  const note = h('input', { class: 'input', placeholder: 'Подпись к подарку (необязательно)', maxLength: 140 });
+  const enough = (S.me.coins ?? 0) >= g.price;
+  openModal({
+    className: 'modal-small',
+    body: h('div', { class: 'gift-confirm' },
+      h('div', { class: 'gift-confirm-art', style: { background: `linear-gradient(150deg, ${g.colors[0]}, ${g.colors[1]})` } }, g.emoji),
+      h('div', { class: 'profile-name' }, g.name),
+      h('div', { class: 'muted' }, `Подарок для ${peer?.name || ''} — появится в профиле получателя`),
+      note,
+      h('div', { class: `gift-balance ${enough ? '' : 'bad'}` }, `Ваш баланс: 🍋 ${S.me.coins ?? 0}`)),
+    actions: [
+      { label: 'Отмена', onClick: (close) => close() },
+      { label: `Подарить за 🍋 ${g.price}`, primary: true, onClick: async (close) => {
+        if (!enough) return toast(errorText({ code: 'not_enough_coins' }), 'error');
+        try {
+          const r = await api.post(`/chats/${c.id}/gift`, { giftId: g.id, note: note.value });
+          S.me = { ...S.me, ...r.user };
+          addMessage(r.message);
+          close();
+          togglePanel(false);
+          if (S.current === c.id) renderMessages({ stick: true });
+          toast(`${g.emoji} Подарок отправлен!`);
+        } catch (e) { toast(errorText(e), 'error'); }
+      } },
+    ],
+  });
+}
+
+async function giftsGrid(userId) {
+  const grid = h('div', { class: 'profile-gifts' }, h('div', { class: 'list-note' }, h('span', { class: 'spinner' })));
+  try {
+    const { gifts } = await api.get(`/users/${userId}/gifts`);
+    grid.replaceChildren(...(gifts.length ? gifts.map((x) => {
+      const g = giftById(x.giftId);
+      if (!g) return null;
+      return h('div', { class: 'pg-item', title: `${g.name} от ${x.fromName || 'пользователя'}${x.note ? ` — «${x.note}»` : ''}` },
+        h('div', { class: 'pg-art', style: { background: `linear-gradient(150deg, ${g.colors[0]}, ${g.colors[1]})` } }, g.emoji),
+        h('div', { class: 'pg-from' }, x.fromName || '—'));
+    }).filter(Boolean) : [h('div', { class: 'list-note' }, 'Подарков пока нет')]));
+  } catch { grid.replaceChildren(h('div', { class: 'list-note' }, 'Не удалось загрузить')); }
+  return grid;
+}
+
+async function myGiftsModal() {
+  const m = openModal({ title: 'Мои подарки', body: h('div', {}, coinsLine(), h('div', { class: 'list-note' }, h('span', { class: 'spinner' }))) });
+  const grid = await giftsGrid(S.me.id);
+  m.dialog.querySelector('.modal-body > div').replaceChildren(
+    h('div', { 'data-coins': '' }, coinsLine()),
+    h('p', { class: 'muted small' }, 'Лимоны можно получать ежедневным бонусом и дарить на них подарки друзьям в личных чатах (кнопка 😊 → 🎁).'),
+    grid);
+}
+
+function passwordModal() {
+  const has = S.me.hasPassword;
+  const cur = h('input', { class: 'input', type: 'password', placeholder: 'Текущий пароль', autocomplete: 'current-password', maxLength: 128 });
+  const pw = h('input', { class: 'input', type: 'password', placeholder: 'Новый пароль (минимум 8 символов)', autocomplete: 'new-password', maxLength: 128 });
+  const pw2 = h('input', { class: 'input', type: 'password', placeholder: 'Повторите пароль', autocomplete: 'new-password', maxLength: 128 });
+  openModal({
+    title: has ? 'Сменить пароль' : 'Пароль для входа',
+    className: 'modal-small',
+    body: h('div', { class: 'stack' },
+      h('p', { class: 'muted small' }, has
+        ? 'После смены пароля все другие устройства выйдут из аккаунта.'
+        : `Задайте пароль, чтобы входить по @${S.me.username} без Google.`),
+      has ? cur : null, pw, pw2),
+    actions: [
+      { label: 'Отмена', onClick: (close) => close() },
+      { label: 'Сохранить', primary: true, onClick: async (close) => {
+        if (pw.value !== pw2.value) return toast('Пароли не совпадают', 'error');
+        try {
+          S.me = { ...S.me, ...(await api.post('/me/password', { current: cur.value, password: pw.value })).user };
+          close();
+          toast('Пароль сохранён 🔐');
+        } catch (e) { toast(errorText(e), 'error'); }
+      } },
+    ],
+  });
+}
+
+document.addEventListener('mousedown', (e) => {
+  if (!V.panel || V.panel.classList.contains('hidden')) return;
+  if (V.panel.contains(e.target) || V.panelBtn.contains(e.target) || e.target.closest('.modal-backdrop')) return;
+  togglePanel(false);
+});
+
 // ============================================================ drawer & modals
 
 function openDrawer() {
@@ -1303,11 +1626,15 @@ function openDrawer() {
   const panel = h('nav', { class: 'drawer' },
     h('div', { class: 'drawer-head' },
       h('button', { class: 'drawer-me', onclick: () => { close(); editProfileModal(); } },
-        avatar({ id: me.id, name: me.name, src: me.avatar }, 64),
-        h('div', { class: 'drawer-name' }, me.name),
-        h('div', { class: 'drawer-username' }, `@${me.username}`))),
+        userAvatar(me, 64),
+        h('div', { class: 'drawer-name' }, nameWithBadge(me.name, me)),
+        h('div', { class: 'drawer-username' }, `@${me.username}`)),
+      h('button', { class: 'drawer-coins', onclick: () => { close(); myGiftsModal(); } },
+        h('span', {}, `🍋 ${me.coins ?? 0}`), h('span', { class: 'dc-label' }, 'лимонов'),
+        Date.now() >= (me.nextBonusAt || 0) ? h('span', { class: 'dc-bonus' }, `+${DAILY_BONUS} бонус`) : null)),
     h('div', { class: 'drawer-items' },
       item('user', 'Мой профиль', editProfileModal),
+      item('gift', 'Подарки и лимоны', myGiftsModal),
       item('group', 'Создать группу', newGroupModal),
       item('bookmark', 'Избранное', openSaved),
       item('settings', 'Настройки', settingsModal),
@@ -1317,7 +1644,7 @@ function openDrawer() {
       me.isAdmin ? item('shield', 'Админ-панель', () => { location.href = '/admin'; }, 'admin') : null,
       h('div', { class: 'drawer-sep' }),
       item('logout', 'Выйти', async () => { if (await confirmDialog('Выйти из аккаунта на этом устройстве?', { ok: 'Выйти', danger: true })) logout(); }, 'danger')),
-    h('div', { class: 'drawer-foot' }, 'Limoninior · v1.0'));
+    h('div', { class: 'drawer-foot' }, `Limoninior · ${S.config.version || 'dev'}`));
   backdrop = h('div', { class: 'drawer-backdrop', onclick: (e) => { if (e.target === backdrop) close(); } }, panel);
   document.body.append(backdrop);
   requestAnimationFrame(() => backdrop.classList.add('show'));
@@ -1337,19 +1664,36 @@ async function openUserProfile(id) {
   try { u = (await api.get(`/users/${id}`)).user; mergeUser(u); } catch { /* use cache */ }
   if (!u) return toast('Пользователь не найден');
   const link = `${location.origin}/@${u.username}`;
+  const gifts = h('div', {});
+  giftsGrid(u.id).then((g) => gifts.replaceWith(g));
   openModal({
     className: 'modal-profile',
     title: 'Профиль',
     body: h('div', { class: 'profile' },
-      h('div', { class: 'profile-hero' }, avatar({ id: u.id, name: u.name, src: u.avatar }, 110),
-        h('div', { class: 'profile-name' }, u.name),
+      h('div', { class: 'profile-hero' }, userAvatar(u, 110),
+        h('div', { class: 'profile-name' }, nameWithBadge(u.name, u)),
         h('div', { class: `profile-status ${u.online ? 'accent' : ''}` }, lastSeenText(u))),
       h('div', { class: 'profile-rows' },
         h('button', { class: 'profile-row', onclick: () => copyText(link) }, icon('at'),
           h('div', {}, h('div', { class: 'row-main' }, `@${u.username}`), h('div', { class: 'row-sub' }, 'Юзернейм · нажмите, чтобы скопировать ссылку'))),
         u.bio ? h('div', { class: 'profile-row' }, icon('info'), h('div', {}, h('div', { class: 'row-main' }, u.bio), h('div', { class: 'row-sub' }, 'О себе'))) : null),
-      h('button', { class: 'btn btn-primary btn-block', onclick: () => { closeTopModal(); startPrivate(u.id); } }, icon('chat'), 'Написать сообщение')),
+      h('div', { class: 'profile-actions' },
+        h('button', { class: 'btn btn-primary', onclick: () => { closeTopModal(); startPrivate(u.id); } }, icon('chat'), 'Написать'),
+        u.official ? null : h('button', { class: 'btn btn-ghost', onclick: () => giftFromProfile(u) }, icon('gift'), 'Подарить')),
+      h('div', { class: 'settings-label' }, `Подарки${u.giftsCount ? ` · ${u.giftsCount}` : ''}`),
+      gifts),
   });
+}
+
+async function giftFromProfile(u) {
+  try {
+    const { chat } = await api.post('/chats/private', { userId: u.id });
+    upsertChat(chat);
+    closeTopModal();
+    openChat(chat.id);
+    panelTab = 'gifts';
+    togglePanel(true);
+  } catch (e) { toast(errorText(e), 'error'); }
 }
 
 function editProfileModal() {
@@ -1451,7 +1795,13 @@ function settingsModal() {
         const p = await Notification.requestPermission();
         if (p !== 'granted') toast('Разрешите уведомления в настройках браузера', 'error');
         return p === 'granted';
-      })),
+      }),
+      h('div', { class: 'settings-label' }, 'Безопасность'),
+      h('button', { class: 'setting-row', onclick: passwordModal },
+        h('div', {}, h('div', { class: 'row-main' }, S.me.hasPassword ? 'Сменить пароль' : 'Задать пароль'),
+          h('div', { class: 'row-sub' }, S.me.hasPassword ? `Вход по @${S.me.username} и паролю` : 'Чтобы входить без Google')), icon('key')),
+      h('button', { class: 'setting-row', onclick: sessionsModal },
+        h('div', {}, h('div', { class: 'row-main' }, 'Активные сеансы'), h('div', { class: 'row-sub' }, 'Где выполнен вход')), icon('devices'))),
   });
 }
 
@@ -1497,7 +1847,7 @@ function userPicker(excludeIds = new Set()) {
     class: `picker-item ${selected.has(u.id) ? 'on' : ''}`,
     onclick: () => { selected.has(u.id) ? selected.delete(u.id) : selected.set(u.id, u); renderChips(); renderResults(); },
   }, avatar({ id: u.id, name: u.name, src: u.avatar }, 40),
-  h('div', { class: 'picker-text' }, h('div', { class: 'row-main' }, u.name), h('div', { class: 'row-sub' }, `@${u.username}`)),
+  h('div', { class: 'picker-text' }, h('div', { class: 'row-main' }, nameWithBadge(u.name, u)), h('div', { class: 'row-sub' }, `@${u.username}`)),
   h('span', { class: 'checkbox' }, icon('check')))) : [h('div', { class: 'list-note' }, input.value ? 'Никого не нашли' : 'Найдите людей по @юзернейму')]));
   let t = null;
   input.addEventListener('input', () => {
@@ -1572,7 +1922,7 @@ async function groupInfoModal(c) {
   const titleEl = h('div', { class: 'profile-name' }, data.chat.title);
   const members = h('div', { class: 'members' }, data.members.map((u) => h('div', { class: 'member' },
     h('button', { class: 'member-main', onclick: () => { closeTopModal(); openUserProfile(u.id); } },
-      avatar({ id: u.id, name: u.name, src: u.avatar, online: u.online }, 42),
+      userAvatar(u, 42, true),
       h('div', {}, h('div', { class: 'row-main' }, u.name, u.role === 'owner' ? h('span', { class: 'pill' }, 'создатель') : null),
         h('div', { class: `row-sub ${u.online ? 'accent' : ''}` }, lastSeenText(u)))),
     owner && u.id !== S.me.id ? h('button', { class: 'icon-btn', 'aria-label': 'Удалить из группы', onclick: async () => {
@@ -1649,6 +1999,7 @@ async function leaveGroup(c) {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (document.querySelector('.ctx-menu')) return closeMenu();
+  if (V.panel && !V.panel.classList.contains('hidden')) return togglePanel(false);
   if (closeTopModal()) return;
   const drawer = document.querySelector('.drawer-backdrop.show');
   if (drawer) return drawer.click();

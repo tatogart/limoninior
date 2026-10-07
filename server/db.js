@@ -62,14 +62,15 @@ db.exec(`
     id         INTEGER PRIMARY KEY,
     chat_id    INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
     sender_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    kind       TEXT NOT NULL DEFAULT 'text' CHECK (kind IN ('text', 'image', 'system')),
+    kind       TEXT NOT NULL DEFAULT 'text' CHECK (kind IN ('text', 'image', 'system', 'sticker', 'gift')),
     text       TEXT NOT NULL DEFAULT '',
     file       TEXT,
     width      INTEGER,
     height     INTEGER,
     reply_to   INTEGER,
     created_at INTEGER NOT NULL,
-    edited_at  INTEGER
+    edited_at  INTEGER,
+    extra      TEXT
   );
   CREATE INDEX IF NOT EXISTS messages_chat ON messages(chat_id, id);
 
@@ -96,6 +97,64 @@ db.exec(`
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+`);
+
+// ---------- migrations for databases created by earlier versions ----------
+
+function columns(table) {
+  return db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+}
+function addColumn(table, name, ddl) {
+  if (!columns(table).includes(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${ddl}`);
+}
+
+addColumn('users', 'password_hash', 'TEXT');
+addColumn('users', 'verified', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('users', 'coins', 'INTEGER NOT NULL DEFAULT 100');
+addColumn('users', 'last_bonus', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('messages', 'extra', 'TEXT');
+
+// Widen the messages.kind CHECK constraint (SQLite can't ALTER a CHECK, so rebuild).
+const msgSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'messages'").get()?.sql || '';
+if (!msgSql.includes("'gift'")) {
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN');
+  db.exec(`
+    CREATE TABLE messages_new (
+      id         INTEGER PRIMARY KEY,
+      chat_id    INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+      sender_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      kind       TEXT NOT NULL DEFAULT 'text' CHECK (kind IN ('text', 'image', 'system', 'sticker', 'gift')),
+      text       TEXT NOT NULL DEFAULT '',
+      file       TEXT,
+      width      INTEGER,
+      height     INTEGER,
+      reply_to   INTEGER,
+      created_at INTEGER NOT NULL,
+      edited_at  INTEGER,
+      extra      TEXT
+    );
+    INSERT INTO messages_new (id, chat_id, sender_id, kind, text, file, width, height, reply_to, created_at, edited_at, extra)
+      SELECT id, chat_id, sender_id, kind, text, file, width, height, reply_to, created_at, edited_at, extra FROM messages;
+    DROP TABLE messages;
+    ALTER TABLE messages_new RENAME TO messages;
+    CREATE INDEX IF NOT EXISTS messages_chat ON messages(chat_id, id);
+  `);
+  db.exec('COMMIT');
+  db.exec('PRAGMA foreign_keys = ON');
+}
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_gifts (
+    id         INTEGER PRIMARY KEY,
+    gift_id    TEXT NOT NULL,
+    from_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    to_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    note       TEXT NOT NULL DEFAULT '',
+    price      INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS user_gifts_to ON user_gifts(to_id, id);
 `);
 
 const stmtCache = new Map();

@@ -1,0 +1,9 @@
+[Unit]
+Description=Limoninior auto-update (git pull + install)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/limoninior/deploy/update.sh
+TimeoutStartSec=15min

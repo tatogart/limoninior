@@ -48,6 +48,16 @@ export const ERRORS = {
   bad_title: 'Укажите название',
   too_many_attempts: 'Слишком много попыток, подождите',
   bad_code: 'Неверный код',
+  bad_login: 'Неверный юзернейм или пароль',
+  weak_password: 'Пароль должен быть не короче 8 символов',
+  bad_password: 'Слишком длинный пароль',
+  bad_current_password: 'Текущий пароль неверный',
+  not_enough_coins: 'Не хватает лимонов 🍋',
+  bonus_not_ready: 'Бонус уже получен, приходите завтра',
+  bad_sticker: 'Неизвестный стикер',
+  bad_gift: 'Неизвестный подарок',
+  bad_amount: 'Неверное количество',
+  empty: 'Пустое сообщение',
 };
 
 export const errorText = (e) => ERRORS[e?.code] || (e?.status === 429 ? 'Слишком часто, подождите немного' : 'Что-то пошло не так');
