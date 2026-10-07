@@ -6,8 +6,9 @@ import { config } from './config.js';
 import { db, q, now, audit, kvGet, kvSet } from './db.js';
 import { requireAuth, isAdminUser } from './auth.js';
 import { verifyTotp } from './totp.js';
-import { isOnline, disconnectUser } from './realtime.js';
-import { ensurePrivateChat, postMessage, pushMe, pushChat, deleteChat, OFFICIAL_SUB } from './api.js';
+import { isOnline, disconnectUser, disconnectSession, sessionOnline } from './realtime.js';
+import { ensurePrivateChat, postMessage, pushMe, pushChat, deleteChat, OFFICIAL_SUB, sellerUser, activePlan } from './api.js';
+import { planById } from '../public/js/catalog.js';
 
 /**
  * Admin panel API. Layers of protection:
@@ -63,9 +64,11 @@ admin.post('/unlock', totpLimiter, (req, res) => {
     return res.status(401).json({ error: 'bad_code' });
   }
   kvSet('admin_totp_last_step', step);
-  const until = now() + config.adminSessionMinutes * 60_000;
+  // "Remember this device": stay unlocked on this session for 30 days instead of minutes.
+  const remember = !!req.body?.remember;
+  const until = now() + (remember ? 30 * 864e5 : config.adminSessionMinutes * 60_000);
   q('UPDATE sessions SET admin_until = ? WHERE id = ?').run(until, req.session.id);
-  audit(req.user.id, req.ip, 'admin_unlock');
+  audit(req.user.id, req.ip, 'admin_unlock', remember ? 'remember 30d' : '');
   res.json({ elevated: true, until });
 });
 
@@ -87,6 +90,7 @@ admin.get('/stats', (req, res) => {
     chats: one('SELECT COUNT(*) AS n FROM chats'),
     groups: one("SELECT COUNT(*) AS n FROM chats WHERE type = 'group'"),
     channels: one("SELECT COUNT(*) AS n FROM chats WHERE type = 'channel'"),
+    subscribers: one('SELECT COUNT(*) AS n FROM users WHERE sub_tier IS NOT NULL AND sub_until > ?', now()),
     verifyRequests: one("SELECT COUNT(*) AS n FROM chats WHERE type = 'channel' AND verify_requested > 0 AND verified = 0"),
     messages: one('SELECT COUNT(*) AS n FROM messages'),
     messagesToday: one('SELECT COUNT(*) AS n FROM messages WHERE created_at > ?', day),
@@ -110,6 +114,7 @@ admin.get('/users', (req, res) => {
       createdAt: u.created_at, lastSeen: u.last_seen, online: isOnline(u.id), messages: u.msg_count,
       avatar: u.avatar ? `/media/${u.avatar}` : null, isAdmin: isAdminUser(u),
       verified: !!u.verified, coins: u.coins, hasGoogle: !String(u.google_sub).startsWith('local:'),
+      sub: activePlan(u)?.id || null, subUntil: activePlan(u) ? u.sub_until : 0,
       official: u.google_sub === OFFICIAL_SUB,
     })),
   });
@@ -299,6 +304,78 @@ function notifyOwner(userId, text) {
   const off = officialUser();
   postMessage(ensurePrivateChat(off.id, userId), off.id, { kind: 'text', text });
 }
+
+/** Rough device info from a User-Agent string. */
+function deviceInfo(ua = '') {
+  const tablet = /iPad|Tablet|SM-T|Tab\b/i.test(ua) || (/Android/.test(ua) && !/Mobile/.test(ua));
+  const mobile = !tablet && /Mobi|iPhone|Android/i.test(ua);
+  const os = /Android ([\d.]+)/.test(ua) ? `Android ${RegExp.$1}` : /iPhone|iPad/.test(ua) ? 'iOS' : /Windows NT 10/.test(ua) ? 'Windows 10/11'
+    : /Windows/.test(ua) ? 'Windows' : /Mac OS X/.test(ua) ? 'macOS' : /CrOS/.test(ua) ? 'ChromeOS' : /Linux/.test(ua) ? 'Linux' : 'Неизвестно';
+  const browser = /YaBrowser/.test(ua) ? 'Яндекс Браузер' : /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /SamsungBrowser/.test(ua) ? 'Samsung Internet'
+    : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Браузер';
+  return { kind: tablet ? 'tablet' : mobile ? 'mobile' : 'desktop', os, browser };
+}
+
+admin.get('/sessions', (req, res) => {
+  const rows = q(`SELECT s.id, s.user_id, s.created_at, s.last_used, s.user_agent, s.ip, u.username, u.name
+                  FROM sessions s JOIN users u ON u.id = s.user_id ORDER BY s.last_used DESC LIMIT 500`).all();
+  const sessions = rows.map((s) => ({
+    id: s.id, userId: s.user_id, username: s.username, name: s.name, ip: s.ip, createdAt: s.created_at, lastUsed: s.last_used,
+    online: sessionOnline(s.id), ...deviceInfo(s.user_agent),
+  }));
+  const summary = { desktop: 0, mobile: 0, tablet: 0 };
+  for (const s of sessions) if (s.online) summary[s.kind] += 1;
+  res.json({ sessions, summary });
+});
+
+admin.delete('/sessions/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id === req.session.id) return res.status(400).json({ error: 'bad_session' });
+  const s = q('SELECT * FROM sessions WHERE id = ?').get(id);
+  if (!s) return res.status(404).json({ error: 'not_found' });
+  q('DELETE FROM sessions WHERE id = ?').run(id);
+  disconnectSession(id);
+  audit(req.user.id, req.ip, 'admin_kill_session', { sessionId: id, userId: s.user_id });
+  res.json({ ok: true });
+});
+
+// ---------- subscriptions ----------
+
+admin.post('/users/:id/subscription', (req, res) => {
+  const u = anyUser(req, res);
+  if (!u) return;
+  const plan = req.body?.plan ? planById(req.body.plan) : null;
+  if (req.body?.plan && !plan) return res.status(400).json({ error: 'bad_plan' });
+  if (!plan) {
+    q('UPDATE users SET sub_tier = NULL, sub_until = 0 WHERE id = ?').run(u.id);
+    audit(req.user.id, req.ip, 'admin_sub_remove', { userId: u.id, username: u.username });
+  } else {
+    const months = Math.min(Math.max(Math.trunc(Number(req.body?.months) || 1), 1), 36);
+    // Extend if the same plan is still active, otherwise start from now.
+    const base = u.sub_tier === plan.id && u.sub_until > now() ? u.sub_until : now();
+    const until = base + months * 30 * 864e5;
+    q('UPDATE users SET sub_tier = ?, sub_until = ? WHERE id = ?').run(plan.id, until, u.id);
+    audit(req.user.id, req.ip, 'admin_sub_grant', { userId: u.id, username: u.username, plan: plan.id, months });
+    const date = new Date(until).toLocaleDateString('ru-RU');
+    const off = officialUser();
+    postMessage(ensurePrivateChat(off.id, u.id), off.id, { kind: 'text', text: `${plan.emoji} Подписка ${plan.name} активирована до ${date}. Спасибо за поддержку!` });
+  }
+  pushMe(u.id);
+  res.json({ ok: true });
+});
+
+admin.get('/settings', (req, res) => {
+  const seller = sellerUser();
+  res.json({ seller: seller ? { id: seller.id, username: seller.username, name: seller.name } : null, sellerUsername: kvGet('seller_username') || '' });
+});
+
+admin.post('/settings', (req, res) => {
+  const name = String(req.body?.sellerUsername || '').replace(/^@/, '').trim();
+  if (name && !q('SELECT 1 FROM users WHERE username = ?').get(name)) return res.status(400).json({ error: 'user_not_found' });
+  kvSet('seller_username', name);
+  audit(req.user.id, req.ip, 'admin_settings', { sellerUsername: name });
+  res.json({ ok: true });
+});
 
 admin.get('/audit', (req, res) => {
   const rows = q(`SELECT a.*, u.username FROM audit_log a LEFT JOIN users u ON u.id = a.user_id

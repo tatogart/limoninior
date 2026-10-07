@@ -5,7 +5,12 @@ export function h(tag, props = {}, ...children) {
   for (const [k, v] of Object.entries(props || {})) {
     if (v == null || v === false) continue;
     if (k === 'class') el.className = v;
-    else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
+    else if (k === 'style' && typeof v === 'object') {
+      for (const [sk, sv] of Object.entries(v)) {
+        if (sk.startsWith('--')) el.style.setProperty(sk, sv);
+        else el.style[sk] = sv;
+      }
+    }
     else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v);
     else if (k === 'dataset') Object.assign(el.dataset, v);
     else if (k in el && typeof v !== 'string') el[k] = v;
@@ -62,6 +67,16 @@ const ICONS = {
   mute: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="m16 9.5 5 5M21 9.5l-5 5"/>',
   eyeSmall: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
   share: '<path d="M14 5l7 7-7 7M21 12H9a6 6 0 0 0-6 6"/>',
+  phone: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>',
+  phoneDown: '<path d="M3.5 14.5c4.7-4.2 12.3-4.2 17 0l-1.6 2.6-3.7-1.2v-2.6a10 10 0 0 0-6.4 0v2.6l-3.7 1.2z" fill="currentColor"/>',
+  video: '<rect x="3" y="6" width="12.5" height="12" rx="2.5"/><path d="m15.5 10.5 5-3v9l-5-3z"/>',
+  videoOff: '<rect x="3" y="6" width="12.5" height="12" rx="2.5"/><path d="m15.5 10.5 5-3v9l-5-3zM3 3l18 18"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>',
+  micOff: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M3 3l18 18"/>',
+  file: '<path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/>',
+  comment: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-5 4.5V16a2.5 2.5 0 0 1-1-2z"/><path d="M8 8.5h8M8 12h5"/>',
+  crown: '<path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z"/>',
+  warning: '<path d="M12 3 2 20h20z"/><path d="M12 10v4.5M12 17.2v.3"/>',
   key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 8-8M16 7l3 3M14 9l2 2"/>',
   coin: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v10M9.5 9.5h4a1.8 1.8 0 0 1 0 3.5h-3a1.8 1.8 0 0 0 0 3.5h4"/>',
   megaphone: '<path d="M4 10v4h3l6 4V6L7 10z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11"/>',
@@ -82,8 +97,12 @@ export function badge() {
 }
 
 /** Name followed by the verified badge when applicable. */
+const SUB_EMOJI = { plus: '⭐', premium: '💎', max: '👑' };
 export function nameWithBadge(name, user) {
-  return user?.verified ? [name, badge()] : [name];
+  const out = [name];
+  if (user?.verified) out.push(badge());
+  if (user?.sub && SUB_EMOJI[user.sub]) out.push(h('span', { class: `sub-badge sub-${user.sub}`, title: `Limoninior ${user.sub[0].toUpperCase()}${user.sub.slice(1)}` }, SUB_EMOJI[user.sub]));
+  return out;
 }
 export function icon(name, cls = '') {
   const svg = document.createElementNS(SVG_NS, 'svg');
@@ -186,8 +205,61 @@ export function bytes(n) {
   return `${(n / 1024 ** 3).toFixed(2)} ГБ`;
 }
 
-/** Text → nodes with safe http(s) links. */
-const URL_RE = /\bhttps?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]}»]/gi;
+// ---------- links: detection + safety check ----------
+
+const TLDS = 'com|ru|net|org|io|xyz|top|info|biz|me|app|dev|su|рф|online|site|store|shop|club|pro|gg|tv|co|uk|de|ua|by|kz|click|link|live|zip|mov|icu|tk|ml|ga|cf|gq|ly|cc|ws|in|fun|space|website|tech|cam|rest|work|loan';
+const URL_RE = new RegExp(
+  `(?:\\bhttps?:\\/\\/[^\\s<>"']+[^\\s<>"'.,;:!?)\\]}»])|(?<![@\\w.\\-/а-яё])(?:[a-z0-9а-яё-]+\\.)+(?:${TLDS})(?![\\w-])(?:\\/[^\\s<>"']*[^\\s<>"'.,;:!?)\\]}»])?`,
+  'giu');
+
+const SHORTENERS = ['bit.ly', 'tinyurl.com', 'cutt.ly', 'clck.ru', 'goo.su', 'is.gd', 't.ly', 'rebrand.ly', 'shorturl.at', 'vk.cc', 'ow.ly', 'u.to', 'qps.ru'];
+const ODD_TLDS = ['zip', 'mov', 'tk', 'ml', 'ga', 'cf', 'gq', 'xyz', 'top', 'click', 'icu', 'work', 'loan', 'rest', 'cam'];
+const BAD_WORDS = /scam|phish|fraud|hack|free-?nitro|nitro-?gift|giveaway|airdrop|claim|free-?robux|steam-?gift|verify|wallet|prize|lottery|darknet|crack|keygen|stealer|grabber|bonus-|-bonus|login-|-login|secure-|-secure/;
+const BRANDS = {
+  steamcommunity: ['steamcommunity.com'], steampowered: ['steampowered.com'], discord: ['discord.com', 'discord.gg', 'discordapp.com', 'discord.media', 'discordapp.net'],
+  telegram: ['telegram.org', 't.me', 'telegram.me'], gosuslugi: ['gosuslugi.ru'], sberbank: ['sberbank.ru', 'sber.ru', 'sberbank.com'],
+  tinkoff: ['tinkoff.ru', 'tbank.ru'], wildberries: ['wildberries.ru', 'wb.ru'], ozon: ['ozon.ru'], avito: ['avito.ru'],
+  yandex: ['yandex.ru', 'ya.ru', 'yandex.com', 'yandex.net', 'yandex.kz'], paypal: ['paypal.com'], instagram: ['instagram.com'],
+  whatsapp: ['whatsapp.com', 'wa.me'], vkontakte: ['vk.com'], youtube: ['youtube.com', 'youtu.be'], roblox: ['roblox.com'],
+};
+const EXEC_RE = /\.(exe|msi|apk|bat|cmd|scr|jar|vbs|ps1|dmg|pkg|iso|lnk)(\?|$)/i;
+
+function lev(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  }
+  return d[a.length][b.length];
+}
+const isOfficial = (host, list) => list.some((d) => host === d || host.endsWith(`.${d}`));
+
+/** Heuristic safety check: { level: 'danger' | 'warn' | null, reasons: [] }. */
+export function linkRisk(href) {
+  let u;
+  try { u = new URL(href); } catch { return { level: 'danger', reasons: ['Некорректный адрес'] }; }
+  if (u.origin === location.origin) return { level: null, reasons: [] };
+  const host = u.hostname.toLowerCase();
+  const danger = [], warn = [];
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':')) danger.push('Вместо домена указан IP-адрес');
+  if (host.includes('xn--')) danger.push('В домене подменены буквы (похожие символы)');
+  if (u.username || u.password) danger.push('Ссылка маскирует настоящий адрес');
+  if (BAD_WORDS.test(host)) danger.push('В адресе есть слова, типичные для мошенников');
+  for (const [brand, official] of Object.entries(BRANDS)) {
+    if (isOfficial(host, official)) continue;
+    const labels = host.split('.');
+    const looksLike = brand.length >= 6 ? host.includes(brand) : labels.some((l) => l.startsWith(`${brand}-`) || l.endsWith(`-${brand}`));
+    if (looksLike) { danger.push(`Похоже на подделку сайта ${official[0]}`); break; }
+    if (brand.length >= 6 && labels.some((l) => l.length >= 5 && lev(l, brand) <= (brand.length >= 8 ? 2 : 1))) { danger.push(`Адрес очень похож на ${official[0]}, но это другой сайт`); break; }
+  }
+  if (EXEC_RE.test(u.pathname)) danger.push('Ссылка ведёт на программу или установщик');
+  if (SHORTENERS.some((d) => host === d)) warn.push('Сокращённая ссылка — не видно, куда она ведёт');
+  if (ODD_TLDS.includes(host.split('.').pop())) warn.push('Необычная доменная зона, часто используется для спама');
+  if (u.protocol === 'http:') warn.push('Соединение без шифрования (http)');
+  return { level: danger.length ? 'danger' : warn.length ? 'warn' : null, reasons: [...danger, ...warn] };
+}
+
+/** Text → nodes with safe, risk-annotated links. */
 export function richText(text) {
   const out = [];
   let last = 0;
@@ -195,10 +267,20 @@ export function richText(text) {
     if (m.index > last) out.push(text.slice(last, m.index));
     let href = null;
     try {
-      const u = new URL(m[0]);
+      const u = new URL(/^https?:\/\//i.test(m[0]) ? m[0] : `https://${m[0]}`);
       if (u.protocol === 'http:' || u.protocol === 'https:') href = u.href;
     } catch { /* not a URL */ }
-    out.push(href ? h('a', { href, target: '_blank', rel: 'noopener noreferrer nofollow' }, m[0]) : m[0]);
+    if (href) {
+      const risk = linkRisk(href);
+      out.push(h('a', {
+        href, target: '_blank', rel: 'noopener noreferrer nofollow', class: `ext-link ${risk.level ? `link-${risk.level}` : ''}`,
+        title: risk.reasons.join('\n') || href,
+      }, m[0]));
+      if (risk.level === 'danger') out.push(h('span', { class: 'link-alert' }, '⚠️ Осторожно, возможно опасно'));
+      else if (risk.level === 'warn') out.push(h('span', { class: 'link-alert warn', title: risk.reasons.join('\n') }, '⚠️'));
+    } else {
+      out.push(m[0]);
+    }
     last = m.index + m[0].length;
   }
   if (last < text.length) out.push(text.slice(last));

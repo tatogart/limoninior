@@ -52,3 +52,34 @@ export const DAILY_BONUS = 20;
 export const START_COINS = 100;
 
 export const REACTIONS = ['👍', '❤️', '🔥', '😂', '😮', '😢', '🎉', '🍋', '🤯', '👎'];
+
+// ---------- subscriptions ----------
+export const FREE_FILE_MB = 25;
+export const PLANS = [
+  {
+    id: 'plus', name: 'Limoninior Plus', short: 'Plus', emoji: '⭐', price: 99, colors: ['#ffe27a', '#f5a524'],
+    bonusMult: 2, fileMB: 50,
+    perks: ['Значок ⭐ рядом с именем', 'Ежедневный бонус ×2', 'Файлы до 50 МБ', 'Поддержка развития Limoninior'],
+  },
+  {
+    id: 'premium', name: 'Limoninior Premium', short: 'Premium', emoji: '💎', price: 249, colors: ['#a5f3fc', '#6366f1'],
+    bonusMult: 3, fileMB: 100, popular: true,
+    perks: ['Значок 💎 рядом с именем', 'Ежедневный бонус ×3', 'Файлы до 100 МБ', 'Всё из Plus'],
+  },
+  {
+    id: 'max', name: 'Limoninior Max', short: 'Max', emoji: '👑', price: 499, colors: ['#fde68a', '#d946ef'],
+    bonusMult: 5, fileMB: 200,
+    perks: ['Значок 👑 рядом с именем', 'Ежедневный бонус ×5', 'Файлы до 200 МБ', 'Приоритетная верификация канала', 'Всё из Premium'],
+  },
+];
+export const planById = (id) => PLANS.find((p) => p.id === id) || null;
+
+// ---------- files ----------
+/** Extensions that can run code or install software — shown with a warning like in Discord. */
+export const DANGEROUS_EXT = new Set([
+  'exe', 'msi', 'bat', 'cmd', 'com', 'scr', 'pif', 'vbs', 'vbe', 'js', 'jse', 'wsf', 'wsh', 'ps1', 'psm1', 'hta', 'cpl',
+  'jar', 'apk', 'xapk', 'apks', 'aab', 'ipa', 'dmg', 'pkg', 'app', 'deb', 'rpm', 'sh', 'run', 'bin', 'dll', 'sys', 'drv',
+  'lnk', 'reg', 'inf', 'iso', 'img', 'vhd', 'vhdx', 'msc', 'gadget', 'docm', 'xlsm', 'pptm', 'xlam', 'chm', 'appx', 'msix',
+]);
+export const fileExt = (name) => (String(name).match(/\.([a-z0-9]{1,8})$/i)?.[1] || '').toLowerCase();
+export const isDangerousFile = (name) => DANGEROUS_EXT.has(fileExt(name));

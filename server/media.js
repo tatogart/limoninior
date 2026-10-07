@@ -12,6 +12,47 @@ export const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 5 },
 });
 
+// Arbitrary files go straight to disk (they can be large); max is the biggest plan limit.
+const tmpDir = path.join(config.dataDir, 'tmp');
+fs.mkdirSync(tmpDir, { recursive: true });
+export const uploadFile = multer({
+  storage: multer.diskStorage({
+    destination: tmpDir,
+    filename: (req, file, cb) => cb(null, crypto.randomBytes(16).toString('hex')),
+  }),
+  limits: { fileSize: 200 * 1024 * 1024, files: 1, fields: 5 },
+});
+
+/** Clean a user-supplied file name for display / Content-Disposition. */
+export function safeFileName(name) {
+  const n = Buffer.from(String(name || 'file'), 'latin1').toString('utf8'); // multer decodes as latin1
+  return n.replace(/[\u0000-\u001f\u007f/\\:*?"<>|]/g, '_').replace(/^\.+/, '').slice(0, 180) || 'file';
+}
+
+/** Persist an uploaded file (any type). Always served as a download, never rendered. */
+export function saveFile(file, { ownerId, chatId, maxBytes }) {
+  const fail = (msg) => Object.assign(new Error(msg), { status: 400 });
+  if (!file?.path) throw fail('no_file');
+  if (file.size > maxBytes) {
+    fs.rm(file.path, { force: true }, () => {});
+    throw fail('file_too_large');
+  }
+  const name = `${crypto.randomBytes(16).toString('hex')}.bin`;
+  fs.renameSync(file.path, path.join(mediaDir, name));
+  const orig = safeFileName(file.originalname);
+  q('INSERT INTO media (name, owner_id, kind, chat_id, mime, size, created_at, orig_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(name, ownerId, 'message', chatId, 'application/octet-stream', file.size, now(), orig);
+  return { name, size: file.size, origName: orig };
+}
+
+// Remove stale partial uploads.
+setInterval(() => {
+  for (const f of fs.readdirSync(tmpDir)) {
+    const p = path.join(tmpDir, f);
+    try { if (Date.now() - fs.statSync(p).mtimeMs > 3600_000) fs.rmSync(p, { force: true }); } catch { /* ignore */ }
+  }
+}, 3600_000).unref();
+
 /** Detect image type from magic bytes — never trust the client-provided mime. */
 function sniff(buf) {
   if (buf.length < 12) return null;
@@ -79,13 +120,16 @@ export function deleteMediaFile(name) {
 /** GET /media/:name — avatars visible to any signed-in user, chat media only to members. */
 export function serveMedia(req, res) {
   const name = req.params.name;
-  if (!/^[a-f0-9]{32}\.(jpg|png|gif|webp)$/.test(name)) return res.status(404).end();
+  if (!/^[a-f0-9]{32}\.(jpg|png|gif|webp|bin)$/.test(name)) return res.status(404).end();
   const m = q('SELECT * FROM media WHERE name = ?').get(name);
   if (!m) return res.status(404).end();
   if (m.kind === 'message') {
     const member = q('SELECT 1 FROM chat_members WHERE chat_id = ? AND user_id = ?').get(m.chat_id, req.user.id);
     const isPublic = q("SELECT 1 FROM chats WHERE id = ? AND type = 'channel' AND username IS NOT NULL").get(m.chat_id);
     if (!member && !isPublic) return res.status(404).end();
+  }
+  if (m.mime === 'application/octet-stream') {
+    res.set('Content-Disposition', `attachment; filename="file"; filename*=UTF-8''${encodeURIComponent(m.orig_name || 'file')}`);
   }
   res.set({
     'Content-Type': m.mime,

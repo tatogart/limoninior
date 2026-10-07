@@ -1,5 +1,6 @@
 import { api, errorText } from './api.js';
 import { h, icon, avatar, timeHM, dayLabel, lastSeenText, bytes, toast, confirmDialog, openModal, nameWithBadge } from './ui.js';
+import { PLANS, planById } from './catalog.js';
 
 const app = document.getElementById('app');
 let lockTimer = null;
@@ -34,7 +35,7 @@ function lockScreen() {
     if (code.length !== 6) return;
     cells.forEach((c) => { c.disabled = true; });
     try {
-      const r = await api.post('/admin/unlock', { code });
+      const r = await api.post('/admin/unlock', { code, remember: remember.checked });
       until = r.until;
       dashboard();
     } catch (e) {
@@ -65,12 +66,14 @@ function lockScreen() {
     });
   });
   const box = h('div', { class: 'otp' }, cells);
+  const remember = h('input', { type: 'checkbox', checked: true });
   app.replaceChildren(h('div', { class: 'login' }, h('div', { class: 'blob b1' }), h('div', { class: 'blob b2' }),
     h('div', { class: 'login-card' },
       h('div', { class: 'lock-ic' }, icon('shield')),
       h('h1', {}, 'Админ-панель'),
       h('p', { class: 'login-sub' }, 'Введите 6-значный код из приложения-аутентификатора.'),
       box,
+      h('label', { class: 'remember-row' }, remember, 'Запомнить это устройство на 30 дней'),
       h('p', { class: 'login-foot' }, 'Доступ ограничен. Все попытки записываются в журнал.'),
       h('a', { class: 'link-btn', href: '/' }, icon('back'), 'Вернуться в мессенджер'))));
   cells[0].focus();
@@ -82,7 +85,9 @@ function dashboard() {
   const timerEl = h('span', { class: 'admin-timer' });
   const tick = () => {
     const left = Math.max(0, until - Date.now());
-    timerEl.textContent = `сессия ${Math.floor(left / 60000)}:${String(Math.floor(left / 1000) % 60).padStart(2, '0')}`;
+    timerEl.textContent = left > 3600_000
+      ? `доступ до ${new Date(until).toLocaleDateString('ru-RU')}`
+      : `сессия ${Math.floor(left / 60000)}:${String(Math.floor(left / 1000) % 60).padStart(2, '0')}`;
     if (!left) lockScreen();
   };
   clearInterval(lockTimer);
@@ -91,6 +96,14 @@ function dashboard() {
 
   const stats = h('section', { class: 'stats-grid' }, h('div', { class: 'spinner' }));
   const chart = h('section', { class: 'admin-card' });
+  const devicesBody = h('div', { class: 'devices' });
+  const devSummary = h('div', { class: 'dev-summary' });
+  let devMode = 'online';
+  const devFilter = h('div', { class: 'segmented small-seg' });
+  const renderDevFilter = () => devFilter.replaceChildren(...[['online', 'Онлайн'], ['desktop', 'ПК'], ['mobile', 'Телефоны'], ['all', 'Все']].map(([k, l]) =>
+    h('button', { class: devMode === k ? 'on' : '', onclick: () => { devMode = k; renderDevFilter(); loadDevices(); } }, l)));
+  renderDevFilter();
+  const sellerBody = h('div', {});
   const serverBody = h('div', { class: 'server-grid' }, h('div', { class: 'spinner' }));
   const updateBtn = h('button', { class: 'btn btn-sm btn-primary', onclick: requestUpdate }, icon('refresh'), 'Обновить сейчас');
   const bcText = h('textarea', { class: 'input', rows: 3, maxLength: 4096, placeholder: 'Текст объявления — придёт всем пользователям от официального аккаунта Limoninior ✓' });
@@ -115,7 +128,13 @@ function dashboard() {
       h('section', { class: 'admin-card' },
         h('div', { class: 'card-head' }, h('h2', {}, 'Сервер и обновления'), updateBtn),
         serverBody),
+      h('section', { class: 'admin-card' },
+        h('div', { class: 'card-head' }, h('h2', {}, 'Устройства онлайн'), devFilter),
+        devSummary, devicesBody),
       chart,
+      h('section', { class: 'admin-card' },
+        h('div', { class: 'card-head' }, h('h2', {}, 'Подписки')),
+        sellerBody),
       h('section', { class: 'admin-card' },
         h('div', { class: 'card-head' }, h('h2', {}, 'Рассылка всем')),
         bcText,
@@ -143,6 +162,7 @@ function dashboard() {
         card('Активны за сутки', s.activeToday, `${s.banned} заблокировано`, 'bell'),
         card('Сообщения', s.messages, `+${s.messagesToday} за сутки`, 'chat'),
         card('Чаты', s.chats, `${s.groups} групп`, 'group'),
+        card('Подписчики', s.subscribers, 'Plus · Premium · Max', 'crown'),
         card('Каналы', s.channels, s.verifyRequests ? `${s.verifyRequests} заявок на галочку` : 'заявок нет', 'megaphone'),
         card('Медиа', bytes(s.mediaBytes), 'на диске', 'camera'),
         card('Сеансы', s.sessions, null, 'devices'));
@@ -179,6 +199,7 @@ function dashboard() {
       h('button', { class: `btn btn-sm ${u.verified ? 'btn-ghost' : 'btn-primary'}`, onclick: () => post('verify', { verified: !u.verified }) },
         u.verified ? 'Снять галочку' : '✓ Галочка'),
       h('button', { class: 'btn btn-sm btn-ghost', onclick: () => coinsDialog(u, post) }, '🍋 Лимоны'),
+      h('button', { class: `btn btn-sm ${u.sub ? 'btn-primary' : 'btn-ghost'}`, onclick: () => subDialog(u, post) }, u.sub ? `${planById(u.sub)?.emoji} ${planById(u.sub)?.short}` : '👑 Подписка'),
     ];
     return h('div', { class: `user-row ${u.banned ? 'banned' : ''}` },
       avatar({ id: u.id, name: u.name, src: u.avatar, online: u.online, official: u.official }, 44),
@@ -201,7 +222,7 @@ function dashboard() {
         admin_unlock_failed: 'Неверный код админки', admin_denied: 'Попытка доступа к админке', admin_totp_ratelimited: 'Лимит попыток кода',
         admin_ban: 'Бан', admin_unban: 'Разбан', admin_logout_user: 'Завершены сеансы', admin_reset_username: 'Сброс юзернейма',
         admin_vacuum: 'Очистка БД', csrf_block: 'Заблокирован CSRF',
-        register: 'Регистрация', password_set: 'Смена пароля', gift: 'Подарок', admin_verify: 'Выдана галочка',
+        register: 'Регистрация', admin_kill_session: 'Завершён сеанс', admin_sub_grant: 'Выдана подписка', admin_sub_remove: 'Отключена подписка', admin_settings: 'Настройки', password_set: 'Смена пароля', gift: 'Подарок', admin_verify: 'Выдана галочка',
         admin_unverify: 'Снята галочка', channel_create: 'Создан канал', channel_delete: 'Удалён канал',
         channel_verify_request: 'Заявка на галочку', admin_channel_verify: 'Канал верифицирован',
         admin_channel_unverify: 'Снята галочка канала', admin_channel_reject: 'Заявка отклонена', admin_channel_delete: 'Админ удалил канал', admin_coins: 'Начислены лимоны', admin_broadcast: 'Рассылка', admin_update_request: 'Запрос обновления',
@@ -229,6 +250,66 @@ function dashboard() {
       ],
     });
     setTimeout(() => inp.focus(), 50);
+  }
+
+  function subDialog(u, post) {
+    let plan = u.sub || 'premium';
+    let months = 1;
+    const plansEl = h('div', { class: 'plan-pick' });
+    const renderPlans = () => plansEl.replaceChildren(...PLANS.map((p) => h('button', { class: `btn btn-sm ${plan === p.id ? 'btn-primary' : 'btn-ghost'}`, onclick: () => { plan = p.id; renderPlans(); } }, `${p.emoji} ${p.short}`)));
+    renderPlans();
+    const monthsEl = h('div', { class: 'plan-pick' });
+    const renderMonths = () => monthsEl.replaceChildren(...[1, 3, 6, 12].map((m) => h('button', { class: `btn btn-sm ${months === m ? 'btn-primary' : 'btn-ghost'}`, onclick: () => { months = m; renderMonths(); } }, `${m} мес.`)));
+    renderMonths();
+    openModal({
+      title: `Подписка для ${u.name}`,
+      className: 'modal-small',
+      body: h('div', { class: 'stack' },
+        h('p', { class: 'muted small' }, u.sub ? `Сейчас: ${planById(u.sub)?.name} до ${new Date(u.subUntil).toLocaleDateString('ru-RU')}` : 'Сейчас подписки нет. Выдайте её после оплаты.'),
+        h('div', { class: 'small' }, 'Тариф'), plansEl, h('div', { class: 'small' }, 'Срок'), monthsEl,
+        h('p', { class: 'muted small' }, 'Пользователь получит сообщение от официального аккаунта Limoninior.')),
+      actions: [
+        u.sub ? { label: 'Отключить', danger: true, onClick: async (close) => { await post('subscription', { plan: null }); close(); } } : null,
+        { label: 'Выдать', primary: true, onClick: async (close) => { await post('subscription', { plan, months }); close(); } },
+      ].filter(Boolean),
+    });
+  }
+
+  async function loadSeller() {
+    try {
+      const st = await api.get('/admin/settings');
+      const inp = h('input', { class: 'input', placeholder: 'юзернейм продавца, например seek', value: st.sellerUsername });
+      sellerBody.replaceChildren(
+        h('p', { class: 'muted small' }, 'Кнопка «Купить» у пользователей открывает личный чат с продавцом с готовым сообщением. Оплату принимаете вы, а потом выдаёте подписку в списке пользователей (кнопка «👑 Подписка»).'),
+        h('div', { class: 'seller-row' },
+          h('div', { class: 'input-prefix' }, h('span', {}, '@'), inp),
+          h('button', { class: 'btn btn-primary', onclick: async () => {
+            try { await api.post('/admin/settings', { sellerUsername: inp.value }); toast('Сохранено'); loadSeller(); } catch (e) { toast(e.code === 'user_not_found' ? 'Такого пользователя нет' : 'Ошибка', 'error'); }
+          } }, 'Сохранить')),
+        h('p', { class: 'small' }, 'Сейчас покупатели пишут: ', st.seller ? h('b', {}, `@${st.seller.username} (${st.seller.name})`) : h('b', { class: 'bad' }, 'не настроено')),
+        h('div', { class: 'plans-mini' }, PLANS.map((p) => h('div', { class: 'plan-mini' }, h('b', {}, `${p.emoji} ${p.name}`), h('span', {}, `${p.price} ₽/мес`)))));
+    } catch (e) { handle(e); }
+  }
+
+  async function loadDevices() {
+    try {
+      const { sessions, summary } = await api.get('/admin/sessions');
+      devSummary.replaceChildren(...[
+        h('div', { class: 'dev-chip' }, '💻 ', h('b', {}, summary.desktop), ' с ПК'),
+        h('div', { class: 'dev-chip' }, '📱 ', h('b', {}, summary.mobile), ' с телефонов'),
+        summary.tablet ? h('div', { class: 'dev-chip' }, '📲 ', h('b', {}, summary.tablet), ' с планшетов') : null,
+        h('div', { class: 'dev-chip muted' }, `всего сеансов: ${sessions.length}`)].filter(Boolean));
+      const list = sessions.filter((x) => devMode === 'all' || (devMode === 'online' ? x.online : x.kind === devMode));
+      devicesBody.replaceChildren(...(list.length ? list.slice(0, 200).map((x) => h('div', { class: 'dev-row' },
+        h('div', { class: 'dev-ic' }, x.kind === 'desktop' ? '💻' : x.kind === 'tablet' ? '📲' : '📱'),
+        h('div', { class: 'dev-info' },
+          h('div', { class: 'row-main' }, x.name, x.username ? h('span', { class: 'muted' }, ` @${x.username}`) : null, x.online ? h('span', { class: 'pill' }, 'онлайн') : null),
+          h('div', { class: 'row-sub' }, `${x.browser}, ${x.os} · ${x.ip || '—'} · ${x.online ? 'сейчас' : `${dayLabel(x.lastUsed)} ${timeHM(x.lastUsed)}`}`)),
+        h('button', { class: 'btn btn-sm btn-danger-ghost', onclick: async () => {
+          if (!(await confirmDialog(`Завершить сеанс ${x.name} (${x.browser}, ${x.os})?`, { ok: 'Завершить', danger: true }))) return;
+          try { await api.del(`/admin/sessions/${x.id}`); toast('Сеанс завершён'); loadDevices(); } catch (e) { handle(e); }
+        } }, 'Выкинуть'))) : [h('div', { class: 'list-note' }, devMode === 'online' ? 'Сейчас никого нет онлайн' : 'Пусто')]));
+    } catch (e) { handle(e); }
   }
 
   async function broadcast() {
@@ -311,9 +392,11 @@ function dashboard() {
   loadStats();
   loadServer();
   clearInterval(serverTimer);
-  serverTimer = setInterval(loadServer, 15_000);
+  serverTimer = setInterval(() => { loadServer(); loadDevices(); }, 15_000);
   loadUsers();
   loadChannels();
+  loadDevices();
+  loadSeller();
   loadAudit();
 }
 

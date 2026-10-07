@@ -28,6 +28,7 @@ app.use(helmet({
       frameSrc: ['https://accounts.google.com/gsi/'],
       connectSrc: ["'self'", wsOrigin, 'https://accounts.google.com/gsi/'],
       imgSrc: ["'self'", 'data:', 'blob:'],
+      mediaSrc: ["'self'", 'blob:', 'data:'],
       fontSrc: ["'self'"],
       workerSrc: ["'self'"],
       manifestSrc: ["'self'"],
@@ -45,7 +46,7 @@ app.use(helmet({
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }));
 app.use((req, res, next) => {
-  res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
+  res.set('Permissions-Policy', 'camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=()');
   next();
 });
 

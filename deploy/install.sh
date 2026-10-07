@@ -24,10 +24,10 @@ if command -v node >/dev/null; then
   [[ "$v" == "1" ]] && need_node=0
 fi
 
-if [[ $need_node == 1 ]] || ! command -v caddy >/dev/null || ! command -v rsync >/dev/null || ! command -v ufw >/dev/null; then
+if [[ $need_node == 1 ]] || ! command -v caddy >/dev/null || ! command -v rsync >/dev/null || ! command -v ufw >/dev/null || ! command -v turnserver >/dev/null; then
   echo "==> Пакеты"
   apt-get update -y
-  apt-get install -y curl ca-certificates gnupg rsync ufw git debian-keyring debian-archive-keyring apt-transport-https
+  DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates gnupg rsync ufw git openssl coturn debian-keyring debian-archive-keyring apt-transport-https
   if [[ $need_node == 1 ]]; then
     echo "==> Node.js 22"
     curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
@@ -94,6 +94,8 @@ if [[ -f deploy/admin-usernames.txt ]]; then
     sed -i "s|^ADMIN_USERNAMES=.*|ADMIN_USERNAMES=$AU|" .env
   fi
 fi
+# Secret for TURN (relay for calls behind NAT).
+grep -q '^TURN_SECRET=' .env || echo "TURN_SECRET=$(openssl rand -hex 24)" >> .env
 chown -R limoninior:limoninior "$APP_DIR/data"
 chown root:limoninior .env && chmod 640 .env
 chmod 700 "$APP_DIR/data"
@@ -115,13 +117,46 @@ else
   rm -f /etc/caddy/Caddyfile.new
 fi
 
-if ! ufw status | grep -q 'Status: active'; then
-  echo "==> Файрвол"
-  ufw allow OpenSSH >/dev/null
-  ufw allow 80/tcp >/dev/null
-  ufw allow 443 >/dev/null
-  ufw --force enable >/dev/null
+echo "==> TURN (звонки)"
+TURN_SECRET=$(grep '^TURN_SECRET=' .env | cut -d= -f2)
+PUBLIC_IP=$(hostname -I | awk '{print $1}')
+cat > /etc/turnserver.conf.new <<TURNCONF
+listening-port=3478
+fingerprint
+use-auth-secret
+static-auth-secret=$TURN_SECRET
+realm=$DOMAIN
+min-port=49160
+max-port=49200
+external-ip=$PUBLIC_IP
+no-cli
+no-tls
+no-dtls
+no-multicast-peers
+no-loopback-peers
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+user-quota=12
+total-quota=200
+TURNCONF
+[[ -f /etc/default/coturn ]] && sed -i 's/^#\?TURNSERVER_ENABLED=.*/TURNSERVER_ENABLED=1/' /etc/default/coturn
+if ! cmp -s /etc/turnserver.conf.new /etc/turnserver.conf || ! systemctl is-active --quiet coturn; then
+  mv /etc/turnserver.conf.new /etc/turnserver.conf
+  systemctl enable coturn >/dev/null 2>&1 || true
+  systemctl restart coturn || echo "!!! coturn не запустился — звонки будут работать только без NAT"
+else
+  rm -f /etc/turnserver.conf.new
 fi
+
+echo "==> Файрвол"
+ufw allow OpenSSH >/dev/null
+ufw allow 80/tcp >/dev/null
+ufw allow 443 >/dev/null
+ufw allow 3478 >/dev/null
+ufw allow 49160:49200/udp >/dev/null
+ufw status | grep -q 'Status: active' || ufw --force enable >/dev/null
 
 systemctl restart limoninior
 

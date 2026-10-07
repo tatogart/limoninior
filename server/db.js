@@ -66,7 +66,7 @@ db.exec(`
     id         INTEGER PRIMARY KEY,
     chat_id    INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
     sender_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    kind       TEXT NOT NULL DEFAULT 'text' CHECK (kind IN ('text', 'image', 'system', 'sticker', 'gift')),
+    kind       TEXT NOT NULL DEFAULT 'text',
     text       TEXT NOT NULL DEFAULT '',
     file       TEXT,
     width      INTEGER,
@@ -74,7 +74,8 @@ db.exec(`
     reply_to   INTEGER,
     created_at INTEGER NOT NULL,
     edited_at  INTEGER,
-    extra      TEXT
+    extra      TEXT,
+    views      INTEGER NOT NULL DEFAULT 0
   );
   CREATE INDEX IF NOT EXISTS messages_chat ON messages(chat_id, id);
 
@@ -120,7 +121,8 @@ addColumn('messages', 'extra', 'TEXT');
 
 // Widen the messages.kind CHECK constraint (SQLite can't ALTER a CHECK, so rebuild).
 const msgSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'messages'").get()?.sql || '';
-if (!msgSql.includes("'gift'")) {
+if (msgSql.includes('CHECK (kind IN')) {
+  addColumn('messages', 'views', 'INTEGER NOT NULL DEFAULT 0');
   db.exec('PRAGMA foreign_keys = OFF');
   db.exec('BEGIN');
   db.exec(`
@@ -128,7 +130,7 @@ if (!msgSql.includes("'gift'")) {
       id         INTEGER PRIMARY KEY,
       chat_id    INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
       sender_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
-      kind       TEXT NOT NULL DEFAULT 'text' CHECK (kind IN ('text', 'image', 'system', 'sticker', 'gift')),
+      kind       TEXT NOT NULL DEFAULT 'text',
       text       TEXT NOT NULL DEFAULT '',
       file       TEXT,
       width      INTEGER,
@@ -136,10 +138,11 @@ if (!msgSql.includes("'gift'")) {
       reply_to   INTEGER,
       created_at INTEGER NOT NULL,
       edited_at  INTEGER,
-      extra      TEXT
+      extra      TEXT,
+      views      INTEGER NOT NULL DEFAULT 0
     );
-    INSERT INTO messages_new (id, chat_id, sender_id, kind, text, file, width, height, reply_to, created_at, edited_at, extra)
-      SELECT id, chat_id, sender_id, kind, text, file, width, height, reply_to, created_at, edited_at, extra FROM messages;
+    INSERT INTO messages_new (id, chat_id, sender_id, kind, text, file, width, height, reply_to, created_at, edited_at, extra, views)
+      SELECT id, chat_id, sender_id, kind, text, file, width, height, reply_to, created_at, edited_at, extra, views FROM messages;
     DROP TABLE messages;
     ALTER TABLE messages_new RENAME TO messages;
     CREATE INDEX IF NOT EXISTS messages_chat ON messages(chat_id, id);
@@ -193,6 +196,32 @@ db.exec(`
     user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     PRIMARY KEY (message_id, user_id)
   ) WITHOUT ROWID;
+`);
+
+addColumn('users', 'sub_tier', 'TEXT');
+addColumn('users', 'sub_until', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('media', 'orig_name', 'TEXT');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS post_comments (
+    id         INTEGER PRIMARY KEY,
+    post_id    INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    chat_id    INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+    user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    text       TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS post_comments_post ON post_comments(post_id, id);
+
+  CREATE TABLE IF NOT EXISTS push_subs (
+    id         INTEGER PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint   TEXT UNIQUE NOT NULL,
+    p256dh     TEXT NOT NULL,
+    auth       TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS push_subs_user ON push_subs(user_id);
 `);
 
 db.exec(`

@@ -2,9 +2,10 @@ import { io } from '/vendor/socket.io.esm.min.js';
 import { api, errorText } from './api.js';
 import {
   h, icon, avatar, timeHM, listTime, dayLabel, lastSeenText, plural, richText, emojiCount,
-  toast, openModal, closeTopModal, confirmDialog, contextMenu, closeMenu, isTouch, badge, nameWithBadge,
+  toast, openModal, closeTopModal, confirmDialog, contextMenu, closeMenu, isTouch, badge, nameWithBadge, linkRisk, bytes,
 } from './ui.js';
-import { STICKER_PACKS, stickerInfo, GIFTS, giftById, DAILY_BONUS, REACTIONS } from './catalog.js';
+import { STICKER_PACKS, stickerInfo, GIFTS, giftById, DAILY_BONUS, REACTIONS, PLANS, planById, isDangerousFile, fileExt } from './catalog.js';
+import { initCalls, startCall, inCall } from './calls.js';
 import { EMOJI } from './emoji.js';
 
 // ============================================================ state
@@ -110,6 +111,8 @@ function messagePreview(m) {
   if (m.kind === 'image') return m.text ? `🖼 ${m.text}` : '🖼 Фото';
   if (m.kind === 'sticker') return `${stickerInfo(m.text)?.emoji || '🍋'} Стикер`;
   if (m.kind === 'gift') return `🎁 Подарок: ${giftById(m.extra?.giftId)?.name || ''}`;
+  if (m.kind === 'file') return `📎 ${m.extra?.name || 'Файл'}`;
+  if (m.kind === 'call') return callText(m);
   return m.text.replace(/\s+/g, ' ');
 }
 
@@ -384,6 +387,7 @@ function startApp() {
   buildLayout();
   connectSocket();
   loadChats().then(handleDeepLink);
+  maybeOfferPush();
   setInterval(() => { if (S.current) renderHeaderStatus(); }, 30_000);
   setInterval(refreshChannelStats, 20_000);
   history.replaceState({ root: true }, '', location.pathname.startsWith('/@') ? location.pathname : '/');
@@ -529,6 +533,9 @@ function connectSocket() {
     if (c.id === S.current) { renderHeader(); renderComposerMode(); }
   });
   s.on('message:reactions', applyReactions);
+  s.on('comment', onCommentEvent);
+  s.on('comment:delete', onCommentEvent);
+  initCalls({ socket: s, userById: (id) => S.users.get(id) });
   s.on('chat:removed', ({ chatId }) => {
     S.chats.delete(chatId);
     S.msgs.delete(chatId);
@@ -905,7 +912,14 @@ function buildChatView(c) {
     h('button', { class: 'icon-btn back-btn', 'aria-label': 'Назад', onclick: () => closeChat() }, icon('back')),
     h('button', { class: 'header-info', onclick: () => openInfo(curChat()) }, V.headerAvatar,
       h('div', { class: 'header-text' }, V.headerTitle, V.headerStatus)),
+    V.callBtns = h('div', { class: 'header-calls' }),
     h('button', { class: 'icon-btn', 'aria-label': 'Информация', onclick: () => openInfo(curChat()) }, icon('info')));
+  const cc = c;
+  if (c.type === 'private' && !peerOf(c)?.official) {
+    V.callBtns.append(
+      h('button', { class: 'icon-btn', 'aria-label': 'Позвонить', title: 'Голосовой звонок', onclick: () => startCall(cc, peerOf(cc), false) }, icon('phone')),
+      h('button', { class: 'icon-btn', 'aria-label': 'Видеозвонок', title: 'Видеозвонок', onclick: () => startCall(cc, peerOf(cc), true) }, icon('video')));
+  }
 
   V.msgInner = h('div', { class: 'messages-inner' });
   V.scroller = h('div', { class: 'messages' }, V.msgInner);
@@ -919,7 +933,7 @@ function buildChatView(c) {
   V.input.addEventListener('input', onComposerInput);
   V.input.addEventListener('keydown', onComposerKey);
   V.input.addEventListener('paste', onPaste);
-  V.file = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp,image/gif', class: 'hidden', onchange: (e) => { if (e.target.files[0]) imageSendModal(e.target.files[0]); e.target.value = ''; } });
+  V.file = h('input', { type: 'file', class: 'hidden', onchange: (e) => { const f = e.target.files[0]; if (f) pickFile(f); e.target.value = ''; } });
   V.sendBtn = h('button', { class: 'send-btn', 'aria-label': 'Отправить', onclick: submitComposer }, icon('send'));
   V.panel = h('div', { class: 'emoji-panel hidden' });
   V.panelBtn = h('button', { class: 'icon-btn smile-btn', 'aria-label': 'Эмодзи, стикеры и подарки', onclick: () => togglePanel() }, icon('smile'));
@@ -928,7 +942,7 @@ function buildChatView(c) {
     V.bar,
     V.composerRow = h('div', { class: 'composer-row' },
       h('div', { class: 'composer-box' },
-        h('button', { class: 'icon-btn attach-btn', 'aria-label': 'Прикрепить фото', onclick: () => V.file.click() }, icon('attach')),
+        h('button', { class: 'icon-btn attach-btn', 'aria-label': 'Прикрепить фото или файл', onclick: () => V.file.click() }, icon('attach')),
         V.input, V.panelBtn, V.file),
       V.sendBtn),
     V.channelBar = h('div', { class: 'channel-bar hidden' }));
@@ -939,7 +953,7 @@ function buildChatView(c) {
   view.addEventListener('drop', (e) => {
     view.classList.remove('drag');
     const f = e.dataTransfer?.files?.[0];
-    if (f) { e.preventDefault(); imageSendModal(f); }
+    if (f) { e.preventDefault(); pickFile(f); }
   });
   V.pane.replaceChildren(view);
   renderHeader();
@@ -1068,7 +1082,7 @@ function renderMessages({ stick = false, keepOffset = false } = {}) {
     used.add(key);
     const sender = S.users.get(m.senderId);
     const read = m.senderId === S.me.id && typeof m.id === 'number' && m.id <= c.peerReadId;
-    const sig = [m.editedAt, m.text, first, last, read, m.pending, m.views, m.myReaction, JSON.stringify(m.reactions || []), sender?.name, sender?.avatar,
+    const sig = [m.editedAt, m.text, first, last, read, m.pending, m.views, m.comments, m.myReaction, JSON.stringify(m.reactions || []), sender?.name, sender?.avatar,
       m.replyTo?.id, m.replyTo && userName(m.replyTo.senderId)].join('|');
     let cached = nodeCache.get(key);
     if (!cached || cached.sig !== sig) {
@@ -1149,6 +1163,30 @@ function messageEl(c, m, first, last, read) {
   }
   if (m.kind === 'sticker') {
     bubble.append(stickerNode(m.text, 'msg-sticker'), meta);
+    return finishRow(c, m, bubble, { mine, group, first, last });
+  }
+  if (m.kind === 'file') {
+    const x = m.extra || {};
+    const danger = x.danger || isDangerousFile(x.name || '');
+    bubble.classList.add('file-bubble');
+    bubble.append(h('button', { class: `file-card ${danger ? 'danger' : ''}`, onclick: () => downloadFile(m) },
+      h('div', { class: 'file-ic' }, icon(danger ? 'warning' : 'file'), h('span', {}, (x.ext || '?').slice(0, 4).toUpperCase())),
+      h('div', { class: 'file-info' },
+        h('div', { class: 'file-name' }, x.name || 'Файл'),
+        h('div', { class: 'file-size' }, `${bytes(x.size || 0)} · ${m.pending ? 'загрузка…' : 'скачать'}`))),
+    ...(danger ? [h('div', { class: 'file-warn' }, icon('warning'), 'Потенциально опасный файл — может содержать вирус')] : []));
+    if (m.text) bubble.append(h('div', { class: 'text' }, richText(m.text), h('span', { class: 'meta-spacer' })));
+    bubble.append(meta);
+    return finishRow(c, m, bubble, { mine, group, first, last });
+  }
+  if (m.kind === 'call') {
+    const x = m.extra || {};
+    const missed = ['missed', 'declined', 'cancelled', 'busy'].includes(x.status);
+    bubble.classList.add('call-bubble');
+    bubble.append(h('button', { class: 'call-card', onclick: () => { const ch = curChat(); if (ch?.type === 'private') startCall(ch, peerOf(ch), !!x.video); } },
+      h('div', { class: `call-ic ${missed ? 'missed' : ''}` }, icon(x.video ? 'video' : 'phone')),
+      h('div', {}, h('div', { class: 'call-title' }, callText(m)),
+        h('div', { class: 'call-sub' }, x.duration ? `${Math.floor(x.duration / 60)}:${String(x.duration % 60).padStart(2, '0')}` : 'Нажмите, чтобы перезвонить'))), meta);
     return finishRow(c, m, bubble, { mine, group, first, last });
   }
   if (m.kind === 'gift') {
@@ -1237,7 +1275,15 @@ function finishRow(c, m, bubble, { mine, group, first, last }) {
     const meta = bubble.querySelector(':scope > .meta');
     meta ? bubble.insertBefore(rx, meta) : bubble.append(rx);
   }
-  if (isChannel(c)) bubble.classList.add('post');
+  if (isChannel(c)) {
+    bubble.classList.add('post');
+    if (typeof m.id === 'number' && m.kind !== 'system') {
+      bubble.append(h('button', { class: 'post-comments', onclick: (e) => { e.stopPropagation(); commentsModal(c, m); } },
+        icon('comment'),
+        h('span', {}, m.comments ? `${m.comments} ${plural(m.comments, 'комментарий', 'комментария', 'комментариев')}` : 'Прокомментировать'),
+        icon('back', 'chev')));
+    }
+  }
   const row = h('div', {
     class: `msg-row ${mine ? 'mine' : 'theirs'} ${first ? 'first' : ''} ${last ? 'last' : ''} ${group && !mine ? 'with-avatar' : ''}`,
     dataset: { id: String(m.id) },
@@ -1996,6 +2042,7 @@ function openDrawer() {
     h('div', { class: 'drawer-items' },
       item('user', 'Мой профиль', editProfileModal),
       item('gift', 'Подарки и лимоны', myGiftsModal),
+      item('crown', S.me.subUntil ? `${planById(S.me.sub)?.name || 'Подписка'} ✓` : 'Limoninior Premium', subscriptionsModal, 'premium-item'),
       item('group', 'Создать группу', newGroupModal),
       item('megaphone', 'Создать канал', newChannelModal),
       item('search', 'Каталог каналов', popularChannelsModal),
@@ -2153,12 +2200,9 @@ function settingsModal() {
       h('div', { class: 'settings-label' }, 'Цвет акцента'), swatches,
       h('div', { class: 'settings-label' }, 'Чаты'),
       toggle('Отправка по Enter', 'Shift+Enter — новая строка', 'enterToSend'),
-      toggle('Уведомления', 'Показывать, когда вкладка свёрнута', 'notify', async (v) => {
-        if (!v) return false;
-        if (!('Notification' in window)) { toast('Браузер не поддерживает уведомления', 'error'); return false; }
-        const p = await Notification.requestPermission();
-        if (p !== 'granted') toast('Разрешите уведомления в настройках браузера', 'error');
-        return p === 'granted';
+      toggle('Push-уведомления', 'Сообщения и звонки, даже когда приложение закрыто', 'notify', async (v) => {
+        if (!v) { await disablePush(); return false; }
+        return enablePush();
       }),
       h('div', { class: 'settings-label' }, 'Безопасность'),
       h('button', { class: 'setting-row', onclick: passwordModal },
@@ -2356,6 +2400,318 @@ async function leaveGroup(c) {
     await api.post(`/chats/${c.id}/leave`);
     while (closeTopModal()) { /* close all */ }
   } catch (e) { toast(errorText(e), 'error'); }
+}
+
+// ============================================================ files
+
+function callText(m) {
+  const x = m.extra || {};
+  const out = m.senderId === S.me.id;
+  const kind = x.video ? 'видеозвонок' : 'звонок';
+  if (x.status === 'missed') return out ? `Исходящий ${kind} · нет ответа` : `Пропущенный ${kind}`;
+  if (x.status === 'declined') return out ? `Исходящий ${kind} · отклонён` : `Отклонённый ${kind}`;
+  if (x.status === 'cancelled') return out ? `Отменённый ${kind}` : `Пропущенный ${kind}`;
+  if (x.status === 'busy') return out ? `Исходящий ${kind} · занято` : `Пропущенный ${kind}`;
+  return out ? `Исходящий ${kind}` : `Входящий ${kind}`;
+}
+
+function pickFile(f) {
+  if (['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(f.type)) return imageSendModal(f);
+  fileSendModal(f);
+}
+
+function fileSendModal(file) {
+  const limit = (S.me.fileLimitMB || 25) * 1024 * 1024;
+  const danger = isDangerousFile(file.name);
+  const caption = h('input', { class: 'input', placeholder: 'Подпись…', maxLength: 1024 });
+  const chatId = S.current;
+  const tooBig = file.size > limit;
+  openModal({
+    title: 'Отправить файл',
+    className: 'modal-small',
+    body: h('div', { class: 'stack' },
+      h('div', { class: `file-card static ${danger ? 'danger' : ''}` },
+        h('div', { class: 'file-ic' }, icon(danger ? 'warning' : 'file'), h('span', {}, (fileExt(file.name) || '?').slice(0, 4).toUpperCase())),
+        h('div', { class: 'file-info' }, h('div', { class: 'file-name' }, file.name), h('div', { class: 'file-size' }, bytes(file.size)))),
+      danger ? h('div', { class: 'danger-box' }, icon('warning'),
+        h('div', {}, h('b', {}, 'Этот тип файла может навредить устройству'), h('div', { class: 'small' }, 'Получатель увидит предупреждение о потенциально опасном файле.'))) : null,
+      tooBig ? h('div', { class: 'danger-box' }, icon('warning'), h('div', {}, h('b', {}, `Файл больше ${S.me.fileLimitMB} МБ`),
+        h('div', { class: 'small' }, 'С подпиской Limoninior можно отправлять файлы до 200 МБ.'),
+        h('button', { class: 'btn btn-sm btn-primary', onclick: () => { closeTopModal(); subscriptionsModal(); } }, 'Подписки'))) : null,
+      tooBig ? null : caption),
+    actions: tooBig ? [{ label: 'Закрыть', onClick: (c) => c() }] : [
+      { label: 'Отмена', onClick: (c) => c() },
+      { label: 'Отправить', primary: true, onClick: (close) => { close(); uploadFileTo(chatId, file, caption.value.trim()); } },
+    ],
+  });
+}
+
+async function uploadFileTo(chatId, file, text) {
+  const reply = S.reply;
+  S.reply = null;
+  renderBar();
+  const st = S.msgs.get(chatId);
+  const tmp = {
+    id: `tmp${++tmpSeq}`, chatId, senderId: S.me.id, kind: 'file', text, pending: true, createdAt: Date.now(),
+    extra: { name: file.name, size: file.size, ext: fileExt(file.name), danger: isDangerousFile(file.name) },
+  };
+  st?.items.push(tmp);
+  if (S.current === chatId) renderMessages({ stick: true });
+  try {
+    const fd = new FormData();
+    fd.append('file', file, file.name);
+    fd.append('text', text);
+    if (reply) fd.append('replyTo', reply.id);
+    const { message } = await api.post(`/chats/${chatId}/files`, fd);
+    if (st) { st.items = st.items.filter((x) => x !== tmp); addMessage(message); }
+  } catch (e) {
+    if (st) st.items = st.items.filter((x) => x !== tmp);
+    toast(e.code === 'file_too_large' ? `Файл больше ${S.me.fileLimitMB} МБ` : errorText(e), 'error');
+  }
+  if (S.current === chatId) renderMessages({ stick: true });
+}
+
+function downloadFile(m) {
+  if (m.pending || !m.file) return;
+  const x = m.extra || {};
+  const go = () => {
+    const a = h('a', { href: m.file, download: x.name || 'file' });
+    document.body.append(a);
+    a.click();
+    a.remove();
+  };
+  if (!(x.danger || isDangerousFile(x.name || ''))) return go();
+  openModal({
+    className: 'modal-small',
+    body: h('div', { class: 'warn-modal' },
+      h('div', { class: 'warn-ic' }, icon('warning')),
+      h('h3', {}, 'Потенциально опасная загрузка'),
+      h('p', {}, h('b', {}, x.name), ` (${bytes(x.size || 0)}) — это программа или файл, который может запускать код. В таких файлах часто прячут вирусы и стилеры паролей.`),
+      h('p', { class: 'muted small' }, 'Скачивайте, только если доверяете отправителю и ждали этот файл. Никогда не запускайте «читы», «генераторы» и «бесплатные подписки».')),
+    actions: [
+      { label: 'Отмена', primary: true, onClick: (c) => c() },
+      { label: 'Всё равно скачать', danger: true, onClick: (c) => { c(); go(); } },
+    ],
+  });
+}
+
+// ============================================================ links
+
+const TRUST_KEY = 'limoninior.trustedHosts';
+const trustedHosts = () => { try { return new Set(JSON.parse(localStorage.getItem(TRUST_KEY) || '[]')); } catch { return new Set(); } };
+
+function openExternal(href) {
+  let host = '';
+  try { host = new URL(href).hostname; } catch { return; }
+  const risk = linkRisk(href);
+  if (!risk.level && trustedHosts().has(host)) return window.open(href, '_blank', 'noopener,noreferrer');
+  const trust = h('input', { type: 'checkbox' });
+  const danger = risk.level === 'danger';
+  openModal({
+    className: 'modal-small',
+    body: h('div', { class: `warn-modal ${danger ? '' : 'calm'}` },
+      h('div', { class: 'warn-ic' }, icon(danger ? 'warning' : 'share')),
+      h('h3', {}, danger ? 'Осторожно, возможно опасно!' : 'Переход по внешней ссылке'),
+      h('p', {}, danger ? 'Ссылка выглядит подозрительно. Мошенники так крадут аккаунты, пароли и деньги.' : 'Вы покидаете Limoninior. Убедитесь, что доверяете этому сайту.'),
+      h('div', { class: `link-box ${risk.level || ''}` }, h('b', {}, host), h('div', { class: 'small' }, href)),
+      risk.reasons.length ? h('ul', { class: 'risk-list' }, risk.reasons.map((r) => h('li', {}, r))) : null,
+      !risk.level ? h('label', { class: 'trust-row' }, trust, `Больше не спрашивать для ${host}`) : null),
+    actions: danger ? [
+      { label: 'Не переходить', primary: true, onClick: (c) => c() },
+      { label: 'Всё равно перейти', danger: true, onClick: (c) => { c(); window.open(href, '_blank', 'noopener,noreferrer'); } },
+    ] : [
+      { label: 'Отмена', onClick: (c) => c() },
+      { label: 'Перейти', primary: true, onClick: (c) => {
+        if (trust.checked) {
+          const t = trustedHosts(); t.add(host);
+          try { localStorage.setItem(TRUST_KEY, JSON.stringify([...t])); } catch { /* ignore */ }
+        }
+        c();
+        window.open(href, '_blank', 'noopener,noreferrer');
+      } },
+    ],
+  });
+}
+
+document.addEventListener('click', (e) => {
+  const a = e.target.closest?.('a.ext-link');
+  if (!a) return;
+  e.preventDefault();
+  openExternal(a.href);
+});
+
+// ============================================================ comments
+
+let openComments = null; // { postId, list, render }
+
+function onCommentEvent(ev) {
+  const st = S.msgs.get(ev.chatId);
+  const m = st?.items.find((x) => x.id === ev.postId);
+  if (m) {
+    m.comments = ev.count;
+    if (S.current === ev.chatId) renderMessages();
+  }
+  if (openComments?.postId === ev.postId) {
+    if (ev.comment && !openComments.list.some((c) => c.id === ev.comment.id)) openComments.list.push(ev.comment);
+    if (ev.commentId) openComments.list = openComments.list.filter((c) => c.id !== ev.commentId);
+    openComments.render(true);
+  }
+}
+
+async function commentsModal(c, post) {
+  const listEl = h('div', { class: 'comments-list' }, h('div', { class: 'list-loading' }, h('span', { class: 'spinner' })));
+  const input = h('textarea', { class: 'input comment-input', rows: 1, maxLength: 2000, placeholder: 'Написать комментарий…' });
+  const sendBtn = h('button', { class: 'send-btn active', 'aria-label': 'Отправить' }, icon('send'));
+  const composer = h('div', { class: 'comment-composer' }, input, sendBtn);
+  const state = { postId: post.id, list: [], canComment: false, isOwner: false };
+  const postPreview = h('div', { class: 'comment-post' },
+    avatar({ id: c.id, name: c.title, src: c.avatar }, 36),
+    h('div', {}, h('b', {}, nameWithBadge(c.title, c)), h('div', { class: 'small clip2' }, messagePreview(post) || 'Пост')));
+  state.render = (scroll) => {
+    listEl.replaceChildren(...(state.list.length ? state.list.map((cm) => h('div', { class: 'comment' },
+      h('button', { class: 'comment-av', onclick: () => cm.user && (closeTopModal(), openUserProfile(cm.user.id)) }, avatar({ id: cm.user?.id || 0, name: cm.user?.name || '?', src: cm.user?.avatar, official: cm.user?.official }, 36)),
+      h('div', { class: 'comment-body' },
+        h('div', { class: 'comment-head' }, h('b', { style: { color: nameColor(cm.user?.id || 0) } }, nameWithBadge(cm.user?.name || 'Удалённый аккаунт', cm.user)),
+          h('span', { class: 'muted small' }, `${dayLabel(cm.createdAt)}, ${timeHM(cm.createdAt)}`)),
+        h('div', { class: 'comment-text' }, richText(cm.text))),
+      cm.user?.id === S.me.id || state.isOwner ? h('button', { class: 'icon-btn sm', 'aria-label': 'Удалить', onclick: async () => {
+        if (!(await confirmDialog('Удалить комментарий?', { ok: 'Удалить', danger: true }))) return;
+        try { await api.del(`/comments/${cm.id}`); } catch (e) { toast(errorText(e), 'error'); }
+      } }, icon('trash')) : null))
+      : [h('div', { class: 'list-note' }, 'Комментариев пока нет — будьте первым 💬')]));
+    if (scroll) listEl.scrollTop = listEl.scrollHeight;
+  };
+  const send = async () => {
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    try {
+      const r = await api.post(`/posts/${post.id}/comments`, { text });
+      if (!state.list.some((x) => x.id === r.comment.id)) state.list.push(r.comment);
+      state.render(true);
+    } catch (e) { input.value = text; toast(errorText(e), 'error'); }
+  };
+  sendBtn.addEventListener('click', send);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !isTouch()) { e.preventDefault(); send(); } });
+  openComments = state;
+  openModal({
+    title: 'Комментарии',
+    className: 'modal-comments',
+    body: h('div', { class: 'comments' }, postPreview, listEl, composer),
+    onClose: () => { if (openComments === state) openComments = null; },
+  });
+  try {
+    const r = await api.get(`/posts/${post.id}/comments`);
+    state.list = r.comments;
+    state.canComment = r.canComment;
+    state.isOwner = r.isOwner;
+    if (!r.canComment) composer.replaceChildren(h('button', { class: 'btn btn-primary btn-block', onclick: () => { closeTopModal(); joinChannel(c); } }, 'Подпишитесь, чтобы комментировать'));
+    state.render(true);
+    if (r.canComment && !isTouch()) input.focus();
+  } catch (e) { listEl.replaceChildren(h('div', { class: 'list-note' }, errorText(e))); }
+}
+
+// ============================================================ subscriptions
+
+async function subscriptionsModal() {
+  let data;
+  try { data = await api.get('/subscriptions'); } catch (e) { return toast(errorText(e), 'error'); }
+  const cur = data.current;
+  const buy = async (plan) => {
+    if (!data.seller) return toast('Продавец не настроен — напишите администратору', 'error');
+    if (data.seller.id === S.me.id) return toast('Это вы продаёте подписки 🙂');
+    try {
+      const { chat } = await api.post('/chats/private', { userId: data.seller.id });
+      upsertChat(chat);
+      S.drafts.set(chat.id, `Привет! Хочу купить ${plan.name} (${plan.price} ₽/мес). Мой юзернейм: @${S.me.username}`);
+      while (closeTopModal()) { /* close all */ }
+      renderChatList();
+      openChat(chat.id);
+      toast('Напишите продавцу — сообщение уже подготовлено ✍️');
+    } catch (e) { toast(errorText(e), 'error'); }
+  };
+  openModal({
+    title: 'Подписки Limoninior',
+    className: 'modal-plans',
+    body: h('div', { class: 'plans' },
+      h('p', { class: 'muted small center' }, cur
+        ? `У вас ${planById(cur)?.name} до ${new Date(data.until).toLocaleDateString('ru-RU')} 💛`
+        : 'Поддержите Limoninior и получите плюшки. Оплата — напрямую у владельца мессенджера.'),
+      ...data.plans.map((p) => h('div', { class: `plan ${p.popular ? 'popular' : ''} ${cur === p.id ? 'current' : ''}`, style: { '--p1': p.colors[0], '--p2': p.colors[1] } },
+        p.popular ? h('div', { class: 'plan-tag' }, 'Популярный') : null,
+        h('div', { class: 'plan-head' },
+          h('div', { class: 'plan-emoji' }, p.emoji),
+          h('div', {}, h('div', { class: 'plan-name' }, p.name), h('div', { class: 'plan-price' }, h('b', {}, `${p.price} ₽`), ' / месяц'))),
+        h('ul', { class: 'plan-perks' }, p.perks.map((x) => h('li', {}, icon('check'), x))),
+        h('button', { class: 'btn btn-block plan-buy', onclick: () => buy(p) }, cur === p.id ? 'Продлить' : 'Купить'))),
+      data.seller ? h('p', { class: 'muted small center' }, 'Кнопка «Купить» откроет чат с ', h('b', {}, `@${data.seller.username}`), '. После оплаты подписка включится вручную.') : null),
+  });
+}
+
+// ============================================================ push notifications
+
+function urlB64ToUint8(b64) {
+  const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(raw, (ch) => ch.charCodeAt(0));
+}
+
+async function enablePush({ silent = false } = {}) {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    if (!silent) toast(isIOS() ? 'На iPhone уведомления работают, если установить приложение на экран Домой' : 'Браузер не поддерживает push-уведомления', 'error');
+    return false;
+  }
+  const perm = Notification.permission === 'granted' ? 'granted' : silent ? Notification.permission : await Notification.requestPermission();
+  if (perm !== 'granted') {
+    if (!silent) toast('Разрешите уведомления в настройках браузера', 'error');
+    return false;
+  }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      const { key } = await api.get('/push/key');
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(key) });
+    }
+    await api.post('/push/subscribe', { subscription: sub.toJSON() });
+    if (!silent) toast('Уведомления включены 🔔');
+    return true;
+  } catch (e) {
+    if (!silent) toast('Не удалось включить уведомления', 'error');
+    return false;
+  }
+}
+
+async function disablePush() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      await api.post('/push/unsubscribe', { endpoint: sub.endpoint }).catch(() => {});
+      await sub.unsubscribe();
+    }
+  } catch { /* ignore */ }
+}
+
+/** Ask once (softly) to turn on notifications after login. */
+function maybeOfferPush() {
+  if (!('Notification' in window) || !('PushManager' in window)) return;
+  if (Notification.permission === 'granted') { if (S.settings.notify !== false) enablePush({ silent: true }); return; }
+  if (Notification.permission === 'denied' || localStorage.getItem('limoninior.pushAsked')) return;
+  setTimeout(() => {
+    try { localStorage.setItem('limoninior.pushAsked', '1'); } catch { /* ignore */ }
+    openModal({
+      className: 'modal-small',
+      body: h('div', { class: 'warn-modal calm' },
+        h('div', { class: 'warn-ic' }, icon('bell')),
+        h('h3', {}, 'Включить уведомления?'),
+        h('p', {}, 'Будем сообщать о новых сообщениях и звонках, даже когда Limoninior закрыт.')),
+      actions: [
+        { label: 'Позже', onClick: (c) => c() },
+        { label: 'Включить', primary: true, onClick: async (c) => { c(); S.settings.notify = await enablePush(); saveSettings(); } },
+      ],
+    });
+  }, 4000);
 }
 
 // ============================================================ keyboard

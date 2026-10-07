@@ -71,3 +71,20 @@ body:has(.admin-app) { overflow: auto; background: var(--bg-2); }
 .row-sub.clip { max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Lock screen fills the whole window (the admin page scrolls, so #app has no fixed height). */
 .admin-app > .login { min-height: 100vh; min-height: 100dvh; height: auto; }
+.remember-row { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 12px; font-size: 14px; color: var(--text-2); cursor: pointer; }
+.remember-row input { width: 18px; height: 18px; accent-color: var(--accent); }
+.small-seg { padding: 3px; }
+.small-seg button { height: 30px; padding: 0 12px; font-size: 13px; flex: none; }
+.dev-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.dev-chip { padding: 6px 12px; border-radius: 12px; background: var(--bg-2); font-size: 14px; }
+.devices { display: grid; gap: 2px; max-height: 420px; overflow-y: auto; }
+.dev-row { display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 12px; }
+.dev-row:hover { background: var(--hover); }
+.dev-ic { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; font-size: 22px; background: var(--bg-2); flex-shrink: 0; }
+.dev-info { flex: 1; min-width: 0; }
+.seller-row { display: flex; gap: 8px; align-items: center; margin: 10px 0; max-width: 480px; }
+.seller-row .input-prefix { flex: 1; }
+.plans-mini { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.plan-mini { padding: 8px 12px; border-radius: 12px; background: var(--bg-2); display: grid; font-size: 13.5px; }
+.plan-pick { display: flex; gap: 6px; flex-wrap: wrap; }
+.bad { color: var(--danger); }

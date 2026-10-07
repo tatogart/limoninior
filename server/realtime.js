@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { Server } from 'socket.io';
 import { config } from './config.js';
 import { q, now } from './db.js';
@@ -45,10 +46,111 @@ function broadcastPresence(userId, isOn) {
   emitToUsers(contactsOf(userId), 'presence', { userId, online: isOn, lastSeen });
 }
 
+// ---------- 1:1 calls (WebRTC signaling) ----------
+
+const calls = new Map(); // callId -> call
+const userCall = new Map(); // userId -> callId
+let callHooks = { onInvite() {}, onEnd() {} };
+export function setCallHooks(h) { callHooks = { ...callHooks, ...h }; }
+
+function endCall(call, status) {
+  if (!calls.has(call.id)) return;
+  clearTimeout(call.timer);
+  calls.delete(call.id);
+  if (userCall.get(call.from) === call.id) userCall.delete(call.from);
+  if (userCall.get(call.to) === call.id) userCall.delete(call.to);
+  emitToUsers([call.from, call.to], 'call:ended', { callId: call.id, status });
+  const duration = call.startedAt ? Math.round((Date.now() - call.startedAt) / 1000) : 0;
+  try { callHooks.onEnd({ ...call, status, duration }); } catch (e) { console.error(e); }
+}
+
+function registerCallHandlers(socket, userId) {
+  const reply = (ack, data) => typeof ack === 'function' && ack(data);
+  const own = (callId) => {
+    const c = calls.get(String(callId || ''));
+    return c && (c.from === userId || c.to === userId) ? c : null;
+  };
+
+  socket.on('call:invite', (p, ack) => {
+    const chatId = Number(p?.chatId);
+    const chat = Number.isInteger(chatId) && q("SELECT * FROM chats WHERE id = ? AND type = 'private'").get(chatId);
+    const peer = chat && q('SELECT u.* FROM chat_members cm JOIN users u ON u.id = cm.user_id WHERE cm.chat_id = ? AND cm.user_id != ?').get(chatId, userId);
+    if (!chat || !peer || !q('SELECT 1 FROM chat_members WHERE chat_id = ? AND user_id = ?').get(chatId, userId)) return reply(ack, { error: 'not_found' });
+    if (peer.banned || String(peer.google_sub).startsWith('system:')) return reply(ack, { error: 'unavailable' });
+    if (userCall.has(userId)) return reply(ack, { error: 'busy_self' });
+    const call = {
+      id: crypto.randomUUID(), chatId, from: userId, to: peer.id, video: !!p?.video,
+      callerSocket: socket.id, calleeSocket: null, startedAt: 0, createdAt: Date.now(),
+    };
+    if (userCall.has(peer.id)) {
+      try { callHooks.onEnd({ ...call, status: 'busy', duration: 0 }); } catch { /* ignore */ }
+      return reply(ack, { error: 'busy' });
+    }
+    calls.set(call.id, call);
+    userCall.set(userId, call.id);
+    userCall.set(peer.id, call.id);
+    call.timer = setTimeout(() => endCall(call, 'missed'), 45_000);
+    emitToUser(peer.id, 'call:incoming', { callId: call.id, chatId, from: userId, video: call.video });
+    try { callHooks.onInvite(call); } catch (e) { console.error(e); }
+    reply(ack, { callId: call.id });
+  });
+
+  socket.on('call:accept', (p) => {
+    const c = own(p?.callId);
+    if (!c || c.to !== userId || c.startedAt) return;
+    clearTimeout(c.timer);
+    c.calleeSocket = socket.id;
+    c.startedAt = Date.now();
+    io.to(c.callerSocket).emit('call:accepted', { callId: c.id });
+    // Stop ringing on the callee's other devices.
+    io.to(`u:${userId}`).except(socket.id).emit('call:ended', { callId: c.id, status: 'elsewhere' });
+  });
+
+  socket.on('call:reject', (p) => {
+    const c = own(p?.callId);
+    if (c && c.to === userId && !c.startedAt) endCall(c, 'declined');
+  });
+
+  socket.on('call:end', (p) => {
+    const c = own(p?.callId);
+    if (c) endCall(c, c.startedAt ? 'ended' : c.from === userId ? 'cancelled' : 'declined');
+  });
+
+  socket.on('call:signal', (p) => {
+    const c = own(p?.callId);
+    if (!c || !c.calleeSocket) return;
+    let data;
+    try { data = JSON.stringify(p.data); } catch { return; }
+    if (!data || data.length > 20_000) return;
+    const target = socket.id === c.callerSocket ? c.calleeSocket : socket.id === c.calleeSocket ? c.callerSocket : null;
+    if (target) io.to(target).emit('call:signal', { callId: c.id, data: p.data });
+  });
+
+  socket.on('call:state', (p) => {
+    // Mic / camera toggles shown on the other side.
+    const c = own(p?.callId);
+    if (!c) return;
+    const target = socket.id === c.callerSocket ? c.calleeSocket : c.callerSocket;
+    if (target) io.to(target).emit('call:state', { callId: c.id, mic: !!p.mic, cam: !!p.cam });
+  });
+
+  socket.on('disconnect', () => {
+    for (const c of calls.values()) {
+      if (c.callerSocket === socket.id) endCall(c, c.startedAt ? 'ended' : 'cancelled');
+      else if (c.calleeSocket === socket.id) endCall(c, 'ended');
+    }
+  });
+}
+
+/** Whether a given session currently has an open socket. */
+export function sessionOnline(sessionId) {
+  return !!io?.sockets.adapter.rooms.get(`s:${sessionId}`)?.size;
+}
+
 export function initRealtime(httpServer) {
   io = new Server(httpServer, {
     serveClient: false,
-    maxHttpBufferSize: 16 * 1024,
+    maxHttpBufferSize: 64 * 1024,
     pingInterval: 20_000,
     pingTimeout: 20_000,
     cors: { origin: config.appOrigin, credentials: true },
@@ -85,6 +187,12 @@ export function initRealtime(httpServer) {
       if (!ok) return;
       emitToChat(chatId, 'typing', { chatId, userId }, userId);
     });
+
+    registerCallHandlers(socket, userId);
+    // App opened from a call push: deliver the still-ringing call.
+    for (const c of calls.values()) {
+      if (c.to === userId && !c.startedAt) socket.emit('call:incoming', { callId: c.id, chatId: c.chatId, from: c.from, video: c.video });
+    }
 
     socket.on('disconnect', () => {
       const left = (online.get(userId) || 1) - 1;

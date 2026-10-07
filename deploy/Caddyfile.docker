@@ -2,7 +2,7 @@
 chat.example.ru {
 	encode zstd gzip
 	request_body {
-		max_size 12MB
+		max_size 210MB
 	}
 	header -Server
 	reverse_proxy app:3000

@@ -1,8 +1,8 @@
 // Limoninior service worker: app-shell caching + notification clicks.
-const VERSION = 'v1';
+const VERSION = 'v4';
 const SHELL = `shell-${VERSION}`;
 const ASSETS = [
-  '/', '/css/app.css', '/js/app.js', '/js/ui.js', '/js/api.js', '/js/theme.js',
+  '/', '/css/app.css', '/js/app.js', '/js/ui.js', '/js/api.js', '/js/theme.js', '/js/calls.js', '/js/catalog.js', '/js/emoji.js',
   '/vendor/socket.io.esm.min.js', '/icons/icon.svg', '/icons/icon-192.png', '/manifest.webmanifest',
 ];
 
@@ -37,6 +37,26 @@ self.addEventListener('fetch', (e) => {
       })
       .catch(async () => (await caches.match(req)) || (req.mode === 'navigate' ? caches.match('/') : Response.error())),
   );
+});
+
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch { d = { title: 'Limoninior', body: e.data?.text() }; }
+  e.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    // Don't duplicate a message notification while the app is open on screen.
+    if (d.type !== 'call' && wins.some((w) => w.visibilityState === 'visible')) return;
+    await self.registration.showNotification(d.title || 'Limoninior', {
+      body: d.body || '',
+      tag: d.tag || undefined,
+      renotify: true,
+      icon: '/icons/icon-192.png',
+      badge: '/icons/badge.png',
+      data: { chatId: d.chatId, type: d.type },
+      requireInteraction: d.type === 'call',
+      vibrate: d.type === 'call' ? [500, 250, 500, 250, 500] : [120],
+    });
+  })());
 });
 
 self.addEventListener('notificationclick', (e) => {

@@ -6,9 +6,14 @@ import {
   verifyGoogleCredential, upsertUser, createSession, destroySession,
   requireAuth, requireProfile, isAdminUser, hashPassword, verifyPassword, createLocalUser, sessionFromCookie,
 } from './auth.js';
-import { isValidSticker, giftById, DAILY_BONUS } from '../public/js/catalog.js';
-import { upload, saveImage, deleteMediaFile } from './media.js';
-import { isOnline, emitToUser, emitToUsers, emitToChat, memberIds, disconnectSession } from './realtime.js';
+import {
+  isValidSticker, giftById, stickerInfo, DAILY_BONUS, PLANS, planById, FREE_FILE_MB, isDangerousFile, fileExt,
+} from '../public/js/catalog.js';
+import { upload, uploadFile, saveImage, saveFile, deleteMediaFile } from './media.js';
+import { sendPush, saveSubscription, removeSubscription, vapidPublicKey } from './push.js';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import { isOnline, emitToUser, emitToUsers, emitToChat, memberIds, disconnectSession, setCallHooks } from './realtime.js';
 
 export const api = express.Router();
 
@@ -48,9 +53,16 @@ export function publicUser(u) {
     lastSeen: u.last_seen,
     verified: !!u.verified,
     official: u.google_sub === OFFICIAL_SUB,
+    sub: activePlan(u)?.id || null,
     giftsCount: q('SELECT COUNT(*) AS n FROM user_gifts WHERE to_id = ?').get(u.id).n,
   };
 }
+
+/** The user's active subscription plan, or null. */
+export function activePlan(u) {
+  return u?.sub_tier && u.sub_until > now() ? planById(u.sub_tier) : null;
+}
+const fileLimitMB = (u) => activePlan(u)?.fileMB || FREE_FILE_MB;
 
 export function meUser(u) {
   return {
@@ -62,6 +74,8 @@ export function meUser(u) {
     nextBonusAt: u.last_bonus + 864e5,
     hasPassword: !!u.password_hash,
     hasGoogle: !String(u.google_sub).startsWith('local:'),
+    subUntil: activePlan(u) ? u.sub_until : 0,
+    fileLimitMB: fileLimitMB(u),
   };
 }
 
@@ -93,6 +107,7 @@ function serializeMessage(m, viewerId = null) {
     views: m.views,
     reactions: reactionSummary(m.id),
     myReaction: viewerId ? q('SELECT emoji FROM reactions WHERE message_id = ? AND user_id = ?').get(m.id, viewerId)?.emoji || null : null,
+    comments: q('SELECT COUNT(*) AS n FROM post_comments WHERE post_id = ?').get(m.id).n,
   };
 }
 
@@ -176,10 +191,32 @@ function insertMessage(chatId, senderId, fields) {
   return q('SELECT * FROM messages WHERE id = ?').get(id);
 }
 
+function pushText(m) {
+  if (m.kind === 'image') return m.text ? `🖼 ${m.text}` : '🖼 Фото';
+  if (m.kind === 'sticker') return `${stickerInfo(m.text)?.emoji || '🍋'} Стикер`;
+  if (m.kind === 'gift') return '🎁 Подарок';
+  if (m.kind === 'file') return `📎 ${JSON.parse(m.extra || '{}').name || 'Файл'}`;
+  if (m.kind === 'call') return '📞 Звонок';
+  return m.text.slice(0, 200);
+}
+
 function broadcastNewMessage(chatId, msg) {
   const payload = serializeMessage(msg);
-  for (const uid of memberIds(chatId)) {
+  const members = memberIds(chatId);
+  for (const uid of members) {
     emitToUser(uid, 'message', { message: payload, chat: chatForUser(chatId, uid) });
+  }
+  // Web push for people who are offline right now (and haven't muted the chat).
+  if (msg.kind !== 'system') {
+    const targets = q('SELECT user_id FROM chat_members WHERE chat_id = ? AND muted = 0').all(chatId)
+      .map((r) => r.user_id).filter((uid) => uid !== msg.sender_id && !isOnline(uid));
+    if (targets.length) {
+      const chat = q('SELECT * FROM chats WHERE id = ?').get(chatId);
+      const sender = msg.sender_id ? q('SELECT name FROM users WHERE id = ?').get(msg.sender_id) : null;
+      const title = chat.type === 'private' || chat.type === 'saved' ? sender?.name || 'Limoninior' : chat.title;
+      const body = chat.type === 'group' && sender ? `${sender.name}: ${pushText(msg)}` : pushText(msg);
+      sendPush(targets, { type: 'message', chatId, title, body, tag: `chat${chatId}` });
+    }
   }
   return payload;
 }
@@ -379,10 +416,23 @@ api.post('/me/password', requireAuth, authLimiter, async (req, res) => {
 });
 
 api.post('/me/bonus', requireAuth, (req, res) => {
+  const bonus = DAILY_BONUS * (activePlan(req.user)?.bonusMult || 1);
   const r = q('UPDATE users SET coins = coins + ?, last_bonus = ? WHERE id = ? AND last_bonus <= ?')
-    .run(DAILY_BONUS, now(), req.user.id, now() - 864e5);
+    .run(bonus, now(), req.user.id, now() - 864e5);
   if (!r.changes) return bad(res, 'bonus_not_ready');
-  res.json({ user: meUser(q('SELECT * FROM users WHERE id = ?').get(req.user.id)), bonus: DAILY_BONUS });
+  res.json({ user: meUser(q('SELECT * FROM users WHERE id = ?').get(req.user.id)), bonus });
+});
+
+// ---------- web push ----------
+
+api.get('/push/key', requireAuth, (req, res) => res.json({ key: vapidPublicKey }));
+api.post('/push/subscribe', requireAuth, (req, res) => {
+  saveSubscription(req.user.id, req.body?.subscription);
+  res.json({ ok: true });
+});
+api.post('/push/unsubscribe', requireAuth, (req, res) => {
+  removeSubscription(req.user.id, req.body?.endpoint);
+  res.json({ ok: true });
 });
 
 function broadcastProfile(user) {
@@ -745,6 +795,115 @@ api.post('/chats/:id/read', (req, res) => {
     }
   }
   res.json({ ok: true });
+});
+
+// ---------- files ----------
+
+api.post('/chats/:id/files', uploadLimiter, uploadFile.single('file'), (req, res) => {
+  const id = int(req.params.id);
+  const drop = () => req.file?.path && fs.rmSync(req.file.path, { force: true });
+  if (!id || !isMember(id, req.user.id)) { drop(); return bad(res, 'not_found', 404); }
+  if (!canPost(id, req.user.id)) { drop(); return bad(res, 'forbidden', 403); }
+  const f = saveFile(req.file, { ownerId: req.user.id, chatId: id, maxBytes: fileLimitMB(req.user) * 1024 * 1024 });
+  const msg = insertMessage(id, req.user.id, {
+    kind: 'file', text: clean(req.body?.text, MAX_TEXT), file: f.name, replyTo: validReply(id, req.body?.replyTo),
+    extra: { name: f.origName, size: f.size, ext: fileExt(f.origName), danger: isDangerousFile(f.origName) },
+  });
+  res.json({ message: broadcastNewMessage(id, msg) });
+});
+
+// ---------- channel post comments ----------
+
+function postForComments(req, res) {
+  const id = int(req.params.id);
+  const m = id && q("SELECT m.*, c.type, c.username, c.owner_id FROM messages m JOIN chats c ON c.id = m.chat_id WHERE m.id = ? AND c.type = 'channel' AND m.kind != 'system'").get(id);
+  if (!m || (!m.username && !isMember(m.chat_id, req.user.id))) { bad(res, 'not_found', 404); return null; }
+  return m;
+}
+
+function serializeComment(c) {
+  const u = c.user_id ? q('SELECT * FROM users WHERE id = ?').get(c.user_id) : null;
+  return { id: c.id, postId: c.post_id, user: publicUser(u), text: c.text, createdAt: c.created_at };
+}
+
+api.get('/posts/:id/comments', (req, res) => {
+  const m = postForComments(req, res);
+  if (!m) return;
+  const rows = q('SELECT * FROM post_comments WHERE post_id = ? ORDER BY id DESC LIMIT 300').all(m.id).reverse();
+  res.json({ comments: rows.map(serializeComment), canComment: isMember(m.chat_id, req.user.id), isOwner: m.owner_id === req.user.id });
+});
+
+api.post('/posts/:id/comments', sendLimiter, (req, res) => {
+  const m = postForComments(req, res);
+  if (!m) return;
+  if (!isMember(m.chat_id, req.user.id)) return bad(res, 'subscribe_first', 403);
+  const text = clean(req.body?.text, 2001);
+  if (!text) return bad(res, 'empty');
+  if (text.length > 2000) return bad(res, 'too_long');
+  const r = q('INSERT INTO post_comments (post_id, chat_id, user_id, text, created_at) VALUES (?, ?, ?, ?, ?)').run(m.id, m.chat_id, req.user.id, text, now());
+  const comment = serializeComment(q('SELECT * FROM post_comments WHERE id = ?').get(r.lastInsertRowid));
+  const count = q('SELECT COUNT(*) AS n FROM post_comments WHERE post_id = ?').get(m.id).n;
+  emitToChat(m.chat_id, 'comment', { chatId: m.chat_id, postId: m.id, comment, count });
+  // Let the post author know (if not commenting on their own post).
+  if (m.sender_id && m.sender_id !== req.user.id && !isOnline(m.sender_id)) {
+    sendPush([m.sender_id], { type: 'comment', chatId: m.chat_id, title: `💬 ${req.user.name}`, body: text.slice(0, 200), tag: `post${m.id}` });
+  }
+  res.json({ comment, count });
+});
+
+api.delete('/comments/:id', (req, res) => {
+  const id = int(req.params.id);
+  const c = id && q('SELECT pc.*, ch.owner_id FROM post_comments pc JOIN chats ch ON ch.id = pc.chat_id WHERE pc.id = ?').get(id);
+  if (!c) return bad(res, 'not_found', 404);
+  if (c.user_id !== req.user.id && c.owner_id !== req.user.id) return bad(res, 'forbidden', 403);
+  q('DELETE FROM post_comments WHERE id = ?').run(id);
+  const count = q('SELECT COUNT(*) AS n FROM post_comments WHERE post_id = ?').get(c.post_id).n;
+  emitToChat(c.chat_id, 'comment:delete', { chatId: c.chat_id, postId: c.post_id, commentId: id, count });
+  res.json({ ok: true, count });
+});
+
+// ---------- subscriptions (paid manually: "buy" opens a DM with the seller) ----------
+
+export function sellerUser() {
+  const name = q("SELECT value FROM kv WHERE key = 'seller_username'").get()?.value;
+  let u = name ? q('SELECT * FROM users WHERE username = ? AND banned = 0').get(name) : null;
+  if (!u) {
+    u = q('SELECT * FROM users WHERE banned = 0 AND username IS NOT NULL ORDER BY id').all().find((x) => isAdminUser(x)) || null;
+  }
+  return u;
+}
+
+api.get('/subscriptions', (req, res) => {
+  res.json({ plans: PLANS, seller: publicUser(sellerUser()), current: activePlan(req.user)?.id || null, until: activePlan(req.user) ? req.user.sub_until : 0 });
+});
+
+// ---------- calls ----------
+
+api.get('/calls/ice', (req, res) => {
+  const servers = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }];
+  const secret = process.env.TURN_SECRET;
+  if (secret) {
+    const host = new URL(config.appOrigin).hostname;
+    const username = `${Math.floor(Date.now() / 1000) + 12 * 3600}:${req.user.id}`;
+    const credential = crypto.createHmac('sha1', secret).update(username).digest('base64');
+    servers.push({ urls: [`turn:${host}:3478?transport=udp`, `turn:${host}:3478?transport=tcp`], username, credential });
+  }
+  res.json({ iceServers: servers });
+});
+
+setCallHooks({
+  onInvite(call) {
+    const from = q('SELECT name FROM users WHERE id = ?').get(call.from);
+    sendPush([call.to], {
+      type: 'call', chatId: call.chatId, callId: call.id, title: `${call.video ? '📹 Видеозвонок' : '📞 Звонок'} от ${from?.name || 'пользователя'}`,
+      body: 'Нажмите, чтобы ответить', tag: `call${call.id}`,
+    }, { ttl: 40, urgency: 'high' });
+  },
+  onEnd(call) {
+    postMessage(call.chatId, call.from, {
+      kind: 'call', text: '', extra: { video: call.video, status: call.status, duration: call.duration, to: call.to },
+    });
+  },
 });
 
 // ---------- reactions & mute ----------
