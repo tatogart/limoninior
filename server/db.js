@@ -278,3 +278,21 @@ export function kvGet(key) {
 export function kvSet(key, value) {
   q('INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, String(value));
 }
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS blocks (
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    blocked_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, blocked_id)
+  ) WITHOUT ROWID;
+`);
+addColumn('chat_members', 'pinned_at', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('chats', 'pinned_msg_id', 'INTEGER');
+
+/** 'me' if `a` blocked `b`, 'them' if `b` blocked `a`, else null. */
+export function blockedBetween(a, b) {
+  if (q('SELECT 1 FROM blocks WHERE user_id = ? AND blocked_id = ?').get(a, b)) return 'me';
+  if (q('SELECT 1 FROM blocks WHERE user_id = ? AND blocked_id = ?').get(b, a)) return 'them';
+  return null;
+}

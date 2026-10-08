@@ -53,6 +53,38 @@ setInterval(() => {
   }
 }, 3600_000).unref();
 
+/** Voice notes: webm/opus (Chrome, Firefox), ogg, or mp4/aac (Safari). Played inline. */
+function sniffAudio(buf) {
+  if (buf.length < 12) return null;
+  if (buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) return { mime: 'audio/webm', ext: 'webm' };
+  if (buf.subarray(0, 4).toString('latin1') === 'OggS') return { mime: 'audio/ogg', ext: 'ogg' };
+  if (buf.subarray(4, 8).toString('latin1') === 'ftyp') return { mime: 'audio/mp4', ext: 'm4a' };
+  return null;
+}
+
+export function saveVoice(file, { ownerId, chatId }) {
+  const fail = (msg) => Object.assign(new Error(msg), { status: 400 });
+  if (!file?.buffer) throw fail('no_file');
+  const t = sniffAudio(file.buffer);
+  if (!t) throw fail('unsupported_audio');
+  const name = `${crypto.randomBytes(16).toString('hex')}.${t.ext}`;
+  fs.writeFileSync(path.join(mediaDir, name), file.buffer, { flag: 'wx' });
+  q('INSERT INTO media (name, owner_id, kind, chat_id, mime, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(name, ownerId, 'message', chatId, t.mime, file.buffer.length, now());
+  return { name };
+}
+
+/** Duplicate a chat file for another chat (forwarding keeps access per chat). */
+export function copyMedia(name, { ownerId, chatId }) {
+  const m = q('SELECT * FROM media WHERE name = ?').get(name);
+  if (!m) return null;
+  const copy = `${crypto.randomBytes(16).toString('hex')}${path.extname(name)}`;
+  try { fs.copyFileSync(path.join(mediaDir, path.basename(name)), path.join(mediaDir, copy)); } catch { return null; }
+  q('INSERT INTO media (name, owner_id, kind, chat_id, mime, size, created_at, orig_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(copy, ownerId, 'message', chatId, m.mime, m.size, now(), m.orig_name);
+  return copy;
+}
+
 /** Detect image type from magic bytes — never trust the client-provided mime. */
 function sniff(buf) {
   if (buf.length < 12) return null;
@@ -120,7 +152,7 @@ export function deleteMediaFile(name) {
 /** GET /media/:name — avatars visible to any signed-in user, chat media only to members. */
 export function serveMedia(req, res) {
   const name = req.params.name;
-  if (!/^[a-f0-9]{32}\.(jpg|png|gif|webp|bin)$/.test(name)) return res.status(404).end();
+  if (!/^[a-f0-9]{32}\.(jpg|png|gif|webp|bin|webm|ogg|m4a)$/.test(name)) return res.status(404).end();
   const m = q('SELECT * FROM media WHERE name = ?').get(name);
   if (!m) return res.status(404).end();
   if (m.kind === 'message') {

@@ -96,3 +96,13 @@ body:has(.admin-app) { overflow: auto; background: var(--bg-2); }
 }
 [data-style="glass"] .admin-top { border-width: 0 0 1px; }
 [data-style="glass"] .srv, [data-style="glass"] .dev-chip, [data-style="glass"] .plan-mini { background: var(--bg-2); }
+
+/* IP bans */
+.ban-form { display: grid; grid-template-columns: 1.2fr 1fr auto; gap: 8px; margin: 10px 0 6px; }
+@media (max-width: 700px) { .ban-form { grid-template-columns: 1fr; } }
+.ban-ic { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font-size: 22px; background: color-mix(in srgb, var(--danger) 12%, transparent); flex-shrink: 0; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 0.01em; }
+.ip-row { display: flex; align-items: center; gap: 10px; padding: 10px 2px; border-bottom: 1px solid var(--line, rgba(127, 127, 127, 0.15)); }
+.ip-row:last-child { border-bottom: 0; }
+.ip-row .user-info { flex: 1; min-width: 0; }
+.ip-row .pill { margin-left: 6px; }

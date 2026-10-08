@@ -6,7 +6,8 @@ import { config } from './config.js';
 import { db, q, now, audit, kvGet, kvSet } from './db.js';
 import { requireAuth, isAdminUser } from './auth.js';
 import { verifyTotp } from './totp.js';
-import { isOnline, disconnectUser, disconnectSession, sessionOnline } from './realtime.js';
+import { isOnline, disconnectUser, disconnectSession, sessionOnline, disconnectIp } from './realtime.js';
+import { banIp, unbanIp, listIpBans, userIps, normIp, validIp } from './ipban.js';
 import { ensurePrivateChat, postMessage, pushMe, pushChat, deleteChat, OFFICIAL_SUB, sellerUser, activePlan } from './api.js';
 import { planById } from '../public/js/catalog.js';
 
@@ -138,10 +139,63 @@ admin.post('/users/:id/ban', (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- IP bans ----------
+
+/** Addresses the admin uses right now or recently: never ban those (no self-lockout). */
+function protectedIps(req) {
+  const set = new Set([normIp(req.ip)]);
+  for (const u of q('SELECT * FROM users').all().filter(isAdminUser)) {
+    for (const e of userIps(u.id)) set.add(e.ip);
+  }
+  return set;
+}
+
+admin.get('/ip-bans', (req, res) => res.json({ bans: listIpBans(), myIp: normIp(req.ip) }));
+
+admin.post('/ip-bans', (req, res) => {
+  const ip = normIp(req.body?.ip);
+  if (!validIp(ip)) return res.status(400).json({ error: 'bad_ip' });
+  if (protectedIps(req).has(ip)) return res.status(400).json({ error: 'own_ip' });
+  banIp(ip, { reason: req.body?.reason, byId: req.user.id });
+  disconnectIp(ip);
+  audit(req.user.id, req.ip, 'admin_ip_ban', { ip });
+  res.json({ bans: listIpBans() });
+});
+
+admin.delete('/ip-bans/:ip', (req, res) => {
+  const ip = normIp(req.params.ip);
+  unbanIp(ip);
+  audit(req.user.id, req.ip, 'admin_ip_unban', { ip });
+  res.json({ bans: listIpBans() });
+});
+
+admin.get('/users/:id/ips', (req, res) => {
+  const id = Number(req.params.id);
+  const u = Number.isSafeInteger(id) && q('SELECT * FROM users WHERE id = ?').get(id);
+  if (!u) return res.status(404).json({ error: 'not_found' });
+  const prot = protectedIps(req);
+  res.json({ ips: userIps(u.id).map((e) => ({ ...e, protected: prot.has(e.ip) })) });
+});
+
+// Ban the account and every address it was seen from.
+admin.post('/users/:id/ban-ip', (req, res) => {
+  const u = targetUser(req, res);
+  if (!u) return;
+  const prot = protectedIps(req);
+  const ips = userIps(u.id).map((e) => e.ip).filter((ip) => !prot.has(ip));
+  for (const ip of ips) { banIp(ip, { reason: req.body?.reason || `аккаунт @${u.username || u.id}`, userId: u.id, byId: req.user.id }); disconnectIp(ip); }
+  q('UPDATE users SET banned = 1 WHERE id = ?').run(u.id);
+  q('DELETE FROM sessions WHERE user_id = ?').run(u.id);
+  disconnectUser(u.id);
+  audit(req.user.id, req.ip, 'admin_ban_ip', { userId: u.id, username: u.username, ips });
+  res.json({ ok: true, ips });
+});
+
 admin.post('/users/:id/unban', (req, res) => {
   const u = targetUser(req, res);
   if (!u) return;
   q('UPDATE users SET banned = 0 WHERE id = ?').run(u.id);
+  for (const b of q('SELECT ip FROM ip_bans WHERE user_id = ?').all(u.id)) unbanIp(b.ip);
   audit(req.user.id, req.ip, 'admin_unban', { userId: u.id, username: u.username });
   res.json({ ok: true });
 });

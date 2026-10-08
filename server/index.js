@@ -10,6 +10,7 @@ import { api } from './api.js';
 import { admin } from './admin.js';
 import { serveMedia } from './media.js';
 import { initRealtime } from './realtime.js';
+import { ipBanGuard } from './ipban.js';
 
 const app = express();
 const pub = path.join(config.root, 'public');
@@ -51,6 +52,7 @@ app.use((req, res, next) => {
 });
 
 app.get('/healthz', (req, res) => res.json({ ok: true }));
+app.use(ipBanGuard);
 
 const globalLimiter = rateLimit({ windowMs: 60_000, limit: 600, standardHeaders: 'draft-7', legacyHeaders: false });
 
@@ -104,7 +106,7 @@ app.use((err, req, res, next) => {
 setInterval(() => q('DELETE FROM sessions WHERE expires_at < ?').run(now()), 3600_000).unref();
 
 const server = http.createServer(app);
-initRealtime(server);
+initRealtime(server, app.get('trust proxy fn'));
 server.listen(config.port, config.host, () => {
   console.log(`Limoninior listening on http://${config.host}:${config.port} (origin ${config.appOrigin})`);
   if (config.devLogin) console.log('DEV LOGIN is enabled — do not use in production');

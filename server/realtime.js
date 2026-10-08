@@ -3,7 +3,10 @@ import { Server } from 'socket.io';
 import { config } from './config.js';
 import { q, now } from './db.js';
 import { sessionFromCookie } from './auth.js';
+import proxyaddr from 'proxy-addr';
 import { getPrefs } from './prefs.js';
+import { normIp, isIpBanned, trackIp } from './ipban.js';
+import { blockedBetween } from './db.js';
 
 let io = null;
 const online = new Map(); // userId -> number of open sockets
@@ -29,6 +32,11 @@ export function emitToChat(chatId, event, data, exceptUserId = null) {
 
 export function disconnectUser(userId) {
   io?.in(`u:${userId}`).disconnectSockets(true);
+}
+
+export async function disconnectIp(ip) {
+  if (!io) return;
+  for (const s of await io.fetchSockets()) if (s.data.ip === ip) s.disconnect(true);
 }
 
 export function disconnectSession(sessionId) {
@@ -83,6 +91,7 @@ function registerCallHandlers(socket, userId) {
     const who = getPrefs(peer).calls;
     const isContact = !!q('SELECT 1 FROM messages WHERE chat_id = ? AND sender_id = ? LIMIT 1').get(chatId, peer.id);
     if (who === 'nobody' || (who === 'contacts' && !isContact)) return reply(ack, { error: 'calls_disabled' });
+    if (blockedBetween(userId, peer.id)) return reply(ack, { error: 'calls_disabled' });
     if (userCall.has(userId)) return reply(ack, { error: 'busy_self' });
     const call = {
       id: crypto.randomUUID(), chatId, from: userId, to: peer.id, video: !!p?.video,
@@ -153,7 +162,7 @@ export function sessionOnline(sessionId) {
   return !!io?.sockets.adapter.rooms.get(`s:${sessionId}`)?.size;
 }
 
-export function initRealtime(httpServer) {
+export function initRealtime(httpServer, trustFn) {
   io = new Server(httpServer, {
     serveClient: false,
     maxHttpBufferSize: 64 * 1024,
@@ -169,6 +178,10 @@ export function initRealtime(httpServer) {
   io.use((socket, next) => {
     const r = sessionFromCookie(socket.request.headers.cookie);
     if (!r || !r.user.username) return next(new Error('unauthorized'));
+    const ip = normIp(trustFn ? proxyaddr(socket.request, trustFn) : socket.handshake.address);
+    if (isIpBanned(ip)) return next(new Error('ip_banned'));
+    trackIp(r.user.id, ip);
+    socket.data.ip = ip;
     socket.data.userId = r.user.id;
     socket.data.sessionId = r.session.id;
     next();

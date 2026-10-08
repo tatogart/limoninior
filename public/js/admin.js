@@ -113,6 +113,10 @@ function dashboard() {
   let ct = null;
   chSearch.addEventListener('input', () => { clearTimeout(ct); ct = setTimeout(() => loadChannels(chSearch.value), 250); });
   const auditBody = h('div', { class: 'audit-list' });
+  const bansBody = h('div', { class: 'users-list' });
+  const banIpInput = h('input', { class: 'input', placeholder: 'IP-адрес, например 203.0.113.7', autocomplete: 'off', spellcheck: false });
+  const banReason = h('input', { class: 'input', placeholder: 'Причина (необязательно)', maxLength: 200 });
+  const myIpNote = h('div', { class: 'row-sub' });
   const search = h('input', { class: 'input', type: 'search', placeholder: 'Поиск: имя, @юзернейм, email' });
   let t = null;
   search.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => loadUsers(search.value), 250); });
@@ -145,6 +149,13 @@ function dashboard() {
       h('section', { class: 'admin-card' },
         h('div', { class: 'card-head' }, h('h2', {}, 'Пользователи'), search),
         usersBody),
+      h('section', { class: 'admin-card' },
+        h('div', { class: 'card-head' }, h('h2', {}, 'Баны по IP')),
+        h('p', { class: 'muted small' }, 'С забаненного адреса нельзя открыть сайт, войти или зарегистрироваться. Осторожно: у мобильного интернета один IP бывает у многих людей. Ваши собственные адреса забанить нельзя.'),
+        h('div', { class: 'ban-form' }, banIpInput, banReason,
+          h('button', { class: 'btn btn-danger-ghost', onclick: addIpBan }, icon('shield'), 'Забанить IP')),
+        myIpNote,
+        bansBody),
       h('section', { class: 'admin-card' },
         h('div', { class: 'card-head' }, h('h2', {}, 'Журнал безопасности'),
           h('button', { class: 'btn btn-sm btn-ghost', onclick: vacuum }, 'Очистка БД')),
@@ -199,6 +210,7 @@ function dashboard() {
       h('button', { class: `btn btn-sm ${u.verified ? 'btn-ghost' : 'btn-primary'}`, onclick: () => post('verify', { verified: !u.verified }) },
         u.verified ? 'Снять галочку' : '✓ Галочка'),
       h('button', { class: 'btn btn-sm btn-ghost', onclick: () => coinsDialog(u, post) }, '🍋 Лимоны'),
+      h('button', { class: 'btn btn-sm btn-ghost', onclick: () => ipsDialog(u) }, '🌐 IP'),
       h('button', { class: `btn btn-sm ${u.sub ? 'btn-primary' : 'btn-ghost'}`, onclick: () => subDialog(u, post) }, u.sub ? `${planById(u.sub)?.emoji} ${planById(u.sub)?.short}` : '👑 Подписка'),
     ];
     return h('div', { class: `user-row ${u.banned ? 'banned' : ''}` },
@@ -214,13 +226,64 @@ function dashboard() {
         u.username ? act('Сбросить @', 'reset-username', `Сбросить юзернейм @${u.username}? Пользователю придётся выбрать новый.`) : null));
   }
 
+  async function loadBans() {
+    try {
+      const { bans, myIp } = await api.get('/admin/ip-bans');
+      myIpNote.textContent = myIp ? `Ваш текущий IP: ${myIp}` : '';
+      bansBody.replaceChildren(...(bans.length ? bans.map((b) => h('div', { class: 'user-row' },
+        h('div', { class: 'ban-ic' }, '⛔'),
+        h('div', { class: 'user-info' },
+          h('div', { class: 'row-main mono' }, b.ip),
+          h('div', { class: 'row-sub' }, [b.username ? `@${b.username}` : null, b.reason || null, `${dayLabel(b.createdAt)} ${timeHM(b.createdAt)}`].filter(Boolean).join(' · '))),
+        h('div', { class: 'user-actions' }, h('button', { class: 'btn btn-sm btn-ghost', onclick: async () => {
+          try { await api.del(`/admin/ip-bans/${encodeURIComponent(b.ip)}`); toast('IP разбанен'); loadBans(); loadAudit(); } catch (e) { handle(e); }
+        } }, 'Разбанить')))) : [h('div', { class: 'list-note' }, 'Забаненных адресов нет')]));
+    } catch (e) { handle(e); }
+  }
+
+  async function addIpBan(ipArg, reasonArg) {
+    const ip = typeof ipArg === 'string' ? ipArg : banIpInput.value.trim();
+    if (!ip) { banIpInput.focus(); return; }
+    if (!(await confirmDialog(`Забанить IP ${ip}? Все, кто заходит с этого адреса, потеряют доступ.`, { ok: 'Забанить', danger: true }))) return;
+    try {
+      await api.post('/admin/ip-bans', { ip, reason: typeof reasonArg === 'string' ? reasonArg : banReason.value });
+      if (typeof ipArg !== 'string') { banIpInput.value = ''; banReason.value = ''; }
+      toast(`IP ${ip} забанен`);
+      loadBans(); loadAudit();
+    } catch (e) { handle(e); }
+  }
+
+  async function ipsDialog(u) {
+    const body = h('div', { class: 'stack' }, h('div', { class: 'spinner' }));
+    const m = openModal({ title: `IP-адреса ${u.name}`, body, actions: [
+      { label: 'Закрыть', onClick: (c) => c() },
+      u.isAdmin || u.official ? null : { label: 'Бан аккаунта + все IP', danger: true, onClick: async (close) => {
+        if (!(await confirmDialog(`Забанить ${u.name} и все его IP-адреса? Он не сможет зайти даже с нового аккаунта с этих адресов.`, { ok: 'Забанить', danger: true }))) return;
+        try {
+          const r = await api.post(`/admin/users/${u.id}/ban-ip`);
+          toast(`Забанен аккаунт и ${r.ips.length} IP`);
+          close(); loadUsers(search.value); loadBans(); loadAudit();
+        } catch (e) { handle(e); }
+      } },
+    ].filter(Boolean) });
+    try {
+      const { ips } = await api.get(`/admin/users/${u.id}/ips`);
+      body.replaceChildren(...(ips.length ? ips.map((x) => h('div', { class: 'ip-row' },
+        h('div', { class: 'user-info' },
+          h('div', { class: 'row-main mono' }, x.ip, x.banned ? h('span', { class: 'pill danger' }, 'забанен') : null, x.protected ? h('span', { class: 'pill' }, 'ваш') : null),
+          h('div', { class: 'row-sub' }, `последний раз ${dayLabel(x.lastSeen)} ${timeHM(x.lastSeen)}${x.sharedWith ? ` · ещё ${x.sharedWith} акк. с этого IP` : ''}`)),
+        x.banned || x.protected ? null : h('button', { class: 'btn btn-sm btn-danger-ghost', onclick: async () => { await addIpBan(x.ip, `аккаунт @${u.username || u.id}`); m?.close?.(); ipsDialog(u); } }, 'Бан IP')))
+        : [h('div', { class: 'list-note' }, 'Адресов пока нет')]));
+    } catch (e) { handle(e); }
+  }
+
   async function loadAudit() {
     try {
       const { entries } = await api.get('/admin/audit');
       const LABELS = {
         login: 'Вход', login_failed: 'Неудачный вход', login_banned: 'Вход заблокированного', admin_unlock: 'Вход в админку',
         admin_unlock_failed: 'Неверный код админки', admin_denied: 'Попытка доступа к админке', admin_totp_ratelimited: 'Лимит попыток кода',
-        admin_ban: 'Бан', admin_unban: 'Разбан', admin_logout_user: 'Завершены сеансы', admin_reset_username: 'Сброс юзернейма',
+        admin_ban: 'Бан', admin_unban: 'Разбан', admin_ip_ban: 'Бан IP', admin_ip_unban: 'Разбан IP', admin_ban_ip: 'Бан аккаунта и IP', admin_logout_user: 'Завершены сеансы', admin_reset_username: 'Сброс юзернейма',
         admin_vacuum: 'Очистка БД', csrf_block: 'Заблокирован CSRF',
         register: 'Регистрация', admin_kill_session: 'Завершён сеанс', admin_sub_grant: 'Выдана подписка', admin_sub_remove: 'Отключена подписка', admin_settings: 'Настройки', password_set: 'Смена пароля', gift: 'Подарок', admin_verify: 'Выдана галочка',
         admin_unverify: 'Снята галочка', channel_create: 'Создан канал', channel_delete: 'Удалён канал',
@@ -398,6 +461,7 @@ function dashboard() {
   loadDevices();
   loadSeller();
   loadAudit();
+  loadBans();
 }
 
 boot();

@@ -31,6 +31,14 @@ function append(el, children) {
 
 const ICONS = {
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  more: '<circle cx="12" cy="5.5" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="18.5" r="1.5" fill="currentColor" stroke="none"/>',
+  pin: '<path d="M9.5 3.5h5l-.8 5.2 3.3 3.3v2H7v-2l3.3-3.3z"/><path d="M12 14v6.5"/>',
+  unpin: '<path d="M9.5 3.5h5l-.8 5.2 3.3 3.3v2H7v-2l3.3-3.3z"/><path d="M12 14v6.5M4 4l16 16"/>',
+  forward: '<path d="M13.5 5.5 20 12l-6.5 6.5"/><path d="M20 12H10a6 6 0 0 0-6 6v.5"/>',
+  block: '<circle cx="12" cy="12" r="8.5"/><path d="m6 6 12 12"/>',
+  play: '<path d="M8 5.2v13.6L19 12z" fill="currentColor"/>',
+  pause: '<rect x="6.5" y="5" width="3.8" height="14" rx="1.2" fill="currentColor" stroke="none"/><rect x="13.7" y="5" width="3.8" height="14" rx="1.2" fill="currentColor" stroke="none"/>',
+  stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="2.5" fill="currentColor" stroke="none"/>',
   search: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/>',
   back: '<path d="M15 5l-7 7 7 7"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',

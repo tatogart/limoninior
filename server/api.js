@@ -1,7 +1,7 @@
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import { config } from './config.js';
-import { q, tx, now, audit } from './db.js';
+import { q, tx, now, audit, blockedBetween } from './db.js';
 import {
   verifyGoogleCredential, upsertUser, createSession, destroySession,
   requireAuth, requireProfile, isAdminUser, hashPassword, verifyPassword, createLocalUser, sessionFromCookie,
@@ -9,7 +9,7 @@ import {
 import {
   isValidSticker, giftById, stickerInfo, DAILY_BONUS, PLANS, planById, FREE_FILE_MB, isDangerousFile, fileExt,
 } from '../public/js/catalog.js';
-import { upload, uploadFile, saveImage, saveFile, deleteMediaFile } from './media.js';
+import { upload, uploadFile, saveImage, saveFile, saveVoice, copyMedia, deleteMediaFile } from './media.js';
 import { sendPush, saveSubscription, removeSubscription, vapidPublicKey } from './push.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -137,16 +137,19 @@ export function channelPublic(c) {
 const newInviteToken = () => crypto.randomBytes(12).toString('base64url');
 
 function chatForUser(chatId, userId) {
-  const c = q(`SELECT c.*, cm.last_read_id, cm.role, cm.muted FROM chats c
+  const c = q(`SELECT c.*, cm.last_read_id, cm.role, cm.muted, cm.pinned_at FROM chats c
                JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = ?
                WHERE c.id = ?`).get(userId, chatId);
   if (!c) return null;
   const last = c.last_msg_id ? q('SELECT * FROM messages WHERE id = ?').get(c.last_msg_id) : null;
+  const pinnedMsg = c.pinned_msg_id ? serializeMessage(q('SELECT * FROM messages WHERE id = ? AND chat_id = ?').get(c.pinned_msg_id, chatId)) : null;
+  const common = { pinnedAt: c.pinned_at || 0, pinnedMessage: pinnedMsg };
   const unread = q('SELECT COUNT(*) AS n FROM messages WHERE chat_id = ? AND id > ? AND (sender_id IS NULL OR sender_id != ?)')
     .get(chatId, c.last_read_id, userId).n;
   if (c.type === 'channel') {
     return {
       ...channelPublic(c),
+      ...common,
       role: c.role,
       ownerId: c.owner_id,
       canPost: c.role === 'owner' || c.role === 'admin',
@@ -169,6 +172,8 @@ function chatForUser(chatId, userId) {
     title: c.type === 'group' ? c.title : c.type === 'saved' ? 'Избранное' : peer?.name || 'Удалённый аккаунт',
     avatar: c.type === 'group' ? mediaUrl(c.avatar) : peer ? mediaUrl(peer.avatar) : null,
     peer: peer ? publicUser(peer) : null,
+    blocked: peer ? blockedBetween(userId, peer.id) : null,
+    ...common,
     membersCount: others.length + 1,
     role: c.role,
     ownerId: c.owner_id,
@@ -209,6 +214,7 @@ function pushText(m) {
   if (m.kind === 'gift') return '🎁 Подарок';
   if (m.kind === 'file') return `📎 ${JSON.parse(m.extra || '{}').name || 'Файл'}`;
   if (m.kind === 'call') return '📞 Звонок';
+  if (m.kind === 'voice') return '🎤 Голосовое сообщение';
   return m.text.slice(0, 200);
 }
 
@@ -540,7 +546,7 @@ api.get('/users/:id', (req, res) => {
 
 api.get('/chats', (req, res) => {
   const ids = q(`SELECT c.id FROM chats c JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = ?
-                 ORDER BY c.last_msg_id DESC, c.id DESC`).all(req.user.id);
+                 ORDER BY cm.pinned_at DESC, c.last_msg_id DESC, c.id DESC`).all(req.user.id);
   res.json({ chats: ids.map((r) => chatForUser(r.id, req.user.id)) });
 });
 
@@ -603,9 +609,18 @@ api.post('/chats/group', (req, res) => {
   res.json({ chat: chatForUser(chatId, req.user.id) });
 });
 
-function canPost(chatId, userId) {
+/** Why `userId` can't post in `chatId` (null = allowed). */
+function postError(chatId, userId) {
   const r = q('SELECT c.type, cm.role FROM chats c JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = ? WHERE c.id = ?').get(userId, chatId);
-  return !!r && (r.type !== 'channel' || r.role === 'owner' || r.role === 'admin');
+  if (!r) return 'forbidden';
+  if (r.type === 'channel' && r.role !== 'owner' && r.role !== 'admin') return 'forbidden';
+  if (r.type === 'private') {
+    const peer = q('SELECT user_id FROM chat_members WHERE chat_id = ? AND user_id != ?').get(chatId, userId);
+    const b = peer && blockedBetween(userId, peer.user_id);
+    if (b === 'me') return 'you_blocked';
+    if (b === 'them') return 'blocked';
+  }
+  return null;
 }
 
 function groupAsAdmin(req, res, types = ['group']) {
@@ -714,7 +729,7 @@ function validReply(chatId, replyTo) {
 api.post('/chats/:id/messages', sendLimiter, (req, res) => {
   const id = int(req.params.id);
   if (!id || !isMember(id, req.user.id)) return bad(res, 'not_found', 404);
-  if (!canPost(id, req.user.id)) return bad(res, 'forbidden', 403);
+  { const e = postError(id, req.user.id); if (e) return bad(res, e, 403); }
   const text = clean(req.body?.text, MAX_TEXT + 1);
   if (!text) return bad(res, 'empty');
   if (text.length > MAX_TEXT) return bad(res, 'too_long');
@@ -725,7 +740,7 @@ api.post('/chats/:id/messages', sendLimiter, (req, res) => {
 api.post('/chats/:id/images', uploadLimiter, upload.single('file'), (req, res) => {
   const id = int(req.params.id);
   if (!id || !isMember(id, req.user.id)) return bad(res, 'not_found', 404);
-  if (!canPost(id, req.user.id)) return bad(res, 'forbidden', 403);
+  { const e = postError(id, req.user.id); if (e) return bad(res, e, 403); }
   const img = saveImage(req.file, { ownerId: req.user.id, kind: 'message', chatId: id });
   const msg = insertMessage(id, req.user.id, {
     kind: 'image', text: clean(req.body?.text, MAX_TEXT), file: img.name, width: img.w, height: img.h,
@@ -737,7 +752,7 @@ api.post('/chats/:id/images', uploadLimiter, upload.single('file'), (req, res) =
 api.post('/chats/:id/stickers', sendLimiter, (req, res) => {
   const id = int(req.params.id);
   if (!id || !isMember(id, req.user.id)) return bad(res, 'not_found', 404);
-  if (!canPost(id, req.user.id)) return bad(res, 'forbidden', 403);
+  { const e = postError(id, req.user.id); if (e) return bad(res, e, 403); }
   const sticker = String(req.body?.sticker || '');
   if (!isValidSticker(sticker)) return bad(res, 'bad_sticker');
   res.json({ message: postMessage(id, req.user.id, { kind: 'sticker', text: sticker, replyTo: validReply(id, req.body?.replyTo) }) });
@@ -753,6 +768,7 @@ api.post('/chats/:id/gift', sendLimiter, (req, res) => {
   if (!gift) return bad(res, 'bad_gift');
   const toId = q('SELECT user_id FROM chat_members WHERE chat_id = ? AND user_id != ?').get(id, req.user.id)?.user_id;
   if (!toId) return bad(res, 'not_found', 404);
+  { const e = postError(id, req.user.id); if (e) return bad(res, e, 403); }
   const note = clean(req.body?.note, 140);
   const ok = tx(() => {
     const r = q('UPDATE users SET coins = coins - ? WHERE id = ? AND coins >= ?').run(gift.price, req.user.id, gift.price);
@@ -798,6 +814,7 @@ api.delete('/messages/:id', (req, res) => {
   if (!canDelete) return bad(res, 'forbidden', 403);
   q('DELETE FROM messages WHERE id = ?').run(id);
   if (m.file) deleteMediaFile(m.file);
+  if (chat.pinned_msg_id === id) { q('UPDATE chats SET pinned_msg_id = NULL WHERE id = ?').run(m.chat_id); setTimeout(() => pushChat(m.chat_id), 0); }
   if (chat.last_msg_id === id) {
     const prev = q('SELECT MAX(id) AS id FROM messages WHERE chat_id = ?').get(m.chat_id);
     q('UPDATE chats SET last_msg_id = ? WHERE id = ?').run(prev.id || 0, m.chat_id);
@@ -841,7 +858,7 @@ api.post('/chats/:id/files', uploadLimiter, uploadFile.single('file'), (req, res
   const id = int(req.params.id);
   const drop = () => req.file?.path && fs.rmSync(req.file.path, { force: true });
   if (!id || !isMember(id, req.user.id)) { drop(); return bad(res, 'not_found', 404); }
-  if (!canPost(id, req.user.id)) { drop(); return bad(res, 'forbidden', 403); }
+  { const e = postError(id, req.user.id); if (e) { drop(); return bad(res, e, 403); } }
   const f = saveFile(req.file, { ownerId: req.user.id, chatId: id, maxBytes: fileLimitMB(req.user) * 1024 * 1024 });
   const msg = insertMessage(id, req.user.id, {
     kind: 'file', text: clean(req.body?.text, MAX_TEXT), file: f.name, replyTo: validReply(id, req.body?.replyTo),
@@ -849,6 +866,126 @@ api.post('/chats/:id/files', uploadLimiter, uploadFile.single('file'), (req, res
   });
   res.json({ message: broadcastNewMessage(id, msg) });
 });
+
+// ---------- voice messages ----------
+
+api.post('/chats/:id/voice', uploadLimiter, upload.single('file'), (req, res) => {
+  const id = int(req.params.id);
+  if (!id || !isMember(id, req.user.id)) return bad(res, 'not_found', 404);
+  { const e = postError(id, req.user.id); if (e) return bad(res, e, 403); }
+  const duration = Math.min(Math.max(Number(req.body?.duration) || 0, 0), 3600);
+  let wave = [];
+  try { wave = JSON.parse(req.body?.wave || '[]'); } catch { /* ignore */ }
+  wave = (Array.isArray(wave) ? wave : []).slice(0, 64).map((v) => Math.min(31, Math.max(0, Math.round(Number(v) || 0))));
+  const v = saveVoice(req.file, { ownerId: req.user.id, chatId: id });
+  const msg = insertMessage(id, req.user.id, {
+    kind: 'voice', file: v.name, replyTo: validReply(id, req.body?.replyTo),
+    extra: { duration: Math.round(duration * 10) / 10, wave },
+  });
+  res.json({ message: broadcastNewMessage(id, msg) });
+});
+
+// ---------- forwarding ----------
+
+const FORWARDABLE = new Set(['text', 'image', 'sticker', 'file', 'voice']);
+
+api.post('/messages/:id/forward', sendLimiter, (req, res) => {
+  const id = int(req.params.id);
+  const m = id && q('SELECT * FROM messages WHERE id = ?').get(id);
+  if (!m || !isMember(m.chat_id, req.user.id) || !FORWARDABLE.has(m.kind)) return bad(res, 'not_found', 404);
+  const targets = [...new Set((Array.isArray(req.body?.chatIds) ? req.body.chatIds : []).map(int).filter(Boolean))].slice(0, 10);
+  if (!targets.length) return bad(res, 'bad_chat');
+  const src = q('SELECT * FROM chats WHERE id = ?').get(m.chat_id);
+  const extra = m.extra ? JSON.parse(m.extra) : {};
+  if (!extra.fwd) {
+    const sender = m.sender_id ? q('SELECT id, name FROM users WHERE id = ?').get(m.sender_id) : null;
+    extra.fwd = src.type === 'channel'
+      ? { chatId: src.id, title: src.title, channel: true }
+      : { userId: sender?.id || null, name: sender?.name || 'Удалённый аккаунт' };
+  }
+  const sent = [];
+  for (const chatId of targets) {
+    if (postError(chatId, req.user.id)) continue;
+    const file = m.file ? copyMedia(m.file, { ownerId: req.user.id, chatId }) : null;
+    if (m.file && !file) continue;
+    const msg = insertMessage(chatId, req.user.id, { kind: m.kind, text: m.text, file, width: m.width, height: m.height, extra });
+    sent.push(broadcastNewMessage(chatId, msg));
+  }
+  if (!sent.length) return bad(res, 'forbidden', 403);
+  res.json({ messages: sent });
+});
+
+// ---------- pins ----------
+
+api.post('/chats/:id/pin-chat', (req, res) => {
+  const id = int(req.params.id);
+  if (!id || !isMember(id, req.user.id)) return bad(res, 'not_found', 404);
+  const pin = !!req.body?.pinned;
+  if (pin && q('SELECT COUNT(*) AS n FROM chat_members WHERE user_id = ? AND pinned_at > 0').get(req.user.id).n >= 5) return bad(res, 'too_many_pins');
+  q('UPDATE chat_members SET pinned_at = ? WHERE chat_id = ? AND user_id = ?').run(pin ? now() : 0, id, req.user.id);
+  const chat = chatForUser(id, req.user.id);
+  emitToUser(req.user.id, 'chat', chat);
+  res.json({ chat });
+});
+
+api.post('/chats/:id/pin-message', (req, res) => {
+  const id = int(req.params.id);
+  const c = id && q('SELECT c.*, cm.role FROM chats c JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = ? WHERE c.id = ?').get(req.user.id, id);
+  if (!c) return bad(res, 'not_found', 404);
+  if ((c.type === 'group' || c.type === 'channel') && c.role !== 'owner' && c.role !== 'admin') return bad(res, 'forbidden', 403);
+  const mid = int(req.body?.messageId);
+  const m = mid && q("SELECT * FROM messages WHERE id = ? AND chat_id = ? AND kind NOT IN ('system', 'call')").get(mid, id);
+  if (mid && !m) return bad(res, 'not_found', 404);
+  q('UPDATE chats SET pinned_msg_id = ? WHERE id = ?').run(m ? m.id : null, id);
+  if (m && c.type !== 'channel') systemMessage(id, `${req.user.name} закрепляет сообщение`);
+  pushChat(id);
+  res.json({ chat: chatForUser(id, req.user.id) });
+});
+
+// ---------- search inside a chat ----------
+
+api.get('/chats/:id/search', searchLimiter, (req, res) => {
+  const id = int(req.params.id);
+  if (!id || !isMember(id, req.user.id)) return bad(res, 'not_found', 404);
+  const raw = clean(req.query.q, 100);
+  if (raw.length < 2) return res.json({ messages: [] });
+  const like = `%${raw.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+  const rows = q(`SELECT * FROM messages WHERE chat_id = ? AND kind IN ('text', 'image', 'file')
+                  AND (text LIKE ? ESCAPE '\\' OR (kind = 'file' AND extra LIKE ? ESCAPE '\\'))
+                  ORDER BY id DESC LIMIT 50`).all(id, like, like);
+  res.json({ messages: rows.map((m) => serializeMessage(m)) });
+});
+
+// Messages around one id (to jump to an old search result / pinned message).
+api.get('/chats/:id/messages/around/:mid', (req, res) => {
+  const id = int(req.params.id);
+  const mid = int(req.params.mid);
+  if (!id || !mid || !isMember(id, req.user.id)) return bad(res, 'not_found', 404);
+  if (q('SELECT COUNT(*) AS n FROM messages WHERE chat_id = ? AND id >= ?').get(id, mid).n > 2000) return bad(res, 'too_far');
+  const newer = q('SELECT * FROM messages WHERE chat_id = ? AND id >= ? ORDER BY id ASC').all(id, mid);
+  const older = q('SELECT * FROM messages WHERE chat_id = ? AND id < ? ORDER BY id DESC LIMIT ?').all(id, mid, PAGE).reverse();
+  res.json({ messages: [...older, ...newer].map((m) => serializeMessage(m, req.user.id)), hasMore: older.length === PAGE });
+});
+
+// ---------- blocking ----------
+
+api.get('/me/blocks', (req, res) => {
+  const rows = q('SELECT u.* FROM blocks b JOIN users u ON u.id = b.blocked_id WHERE b.user_id = ? ORDER BY b.created_at DESC').all(req.user.id);
+  res.json({ users: rows.map(publicUser) });
+});
+
+function setBlock(req, res, block) {
+  const id = int(req.params.id);
+  const u = id && q('SELECT * FROM users WHERE id = ?').get(id);
+  if (!u || u.id === req.user.id || u.google_sub === OFFICIAL_SUB) return bad(res, 'not_found', 404);
+  if (block) q('INSERT OR IGNORE INTO blocks (user_id, blocked_id, created_at) VALUES (?, ?, ?)').run(req.user.id, u.id, now());
+  else q('DELETE FROM blocks WHERE user_id = ? AND blocked_id = ?').run(req.user.id, u.id);
+  const pc = q('SELECT id FROM chats WHERE pair_key = ?').get(`${Math.min(req.user.id, u.id)}:${Math.max(req.user.id, u.id)}`);
+  if (pc) pushChat(pc.id);
+  res.json({ ok: true, chat: pc ? chatForUser(pc.id, req.user.id) : null });
+}
+api.post('/users/:id/block', (req, res) => setBlock(req, res, true));
+api.delete('/users/:id/block', (req, res) => setBlock(req, res, false));
 
 // ---------- channel post comments ----------
 
