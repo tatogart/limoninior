@@ -33,6 +33,13 @@ const S = {
 const V = {}; // view refs
 const nodeCache = new Map(); // message key -> { sig, el }
 let tmpSeq = 0;
+const animKeys = new Map(); // message key -> { type: 'send' | 'in', t } — entry animation in progress
+const ANIM_MS = 450;
+/** Keep a running entry animation when the optimistic copy is swapped for the real message. */
+function transferAnim(fromId, toId) {
+  const a = animKeys.get(String(fromId));
+  if (a) animKeys.set(String(toId), a);
+}
 
 function loadSettings() {
   let s = {};
@@ -399,7 +406,7 @@ function startApp() {
   maybeOfferPush();
   setInterval(() => { if (S.current) renderHeaderStatus(); }, 30_000);
   setInterval(refreshChannelStats, 20_000);
-  history.replaceState({ root: true }, '', location.pathname.startsWith('/@') ? location.pathname : '/');
+  history.replaceState({ root: true }, '', /^\/(@|join\/)/.test(location.pathname) ? location.pathname : '/');
 }
 
 function buildLayout() {
@@ -466,8 +473,10 @@ function upsertChat(c) {
 }
 
 async function handleDeepLink() {
+  const inv = location.pathname.match(/^\/join\/([A-Za-z0-9_-]{8,32})$/);
   const m = location.pathname.match(/^\/@([A-Za-z][A-Za-z0-9_]{4,31})$/);
   history.replaceState({ root: true }, '', '/');
+  if (inv) return openInvite(inv[1]);
   if (!m) return;
   try {
     if (m[1].toLowerCase() === S.me.username.toLowerCase()) return openSaved();
@@ -937,6 +946,9 @@ function buildChatView(c) {
   V.msgInner = h('div', { class: 'messages-inner' });
   V.scroller = h('div', { class: 'messages' }, V.msgInner);
   V.scroller.addEventListener('scroll', onScroll, { passive: true });
+  wasAtBottom = true;
+  // Keyboard / composer growth shrinks the list: stay pinned to the newest message.
+  if (window.ResizeObserver) new ResizeObserver(() => { if (wasAtBottom && V.scroller) V.scroller.scrollTop = V.scroller.scrollHeight; }).observe(V.scroller);
   V.downBadge = h('span', { class: 'badge hidden' });
   V.downBtn = h('button', { class: 'scroll-down hidden', 'aria-label': 'Вниз', onclick: () => scrollToBottom(true) }, icon('down'), V.downBadge);
 
@@ -948,6 +960,8 @@ function buildChatView(c) {
   V.input.addEventListener('paste', onPaste);
   V.file = h('input', { type: 'file', class: 'hidden', onchange: (e) => { const f = e.target.files[0]; if (f) pickFile(f); e.target.value = ''; } });
   V.sendBtn = h('button', { class: 'send-btn', 'aria-label': 'Отправить', onclick: submitComposer }, icon('send'));
+  for (const ev of ['pointerdown', 'mousedown']) V.sendBtn.addEventListener(ev, (e) => { if (document.activeElement === V.input) e.preventDefault(); });
+  V.input.addEventListener('focus', () => { if (isTouch() && !V.panel.classList.contains('hidden')) togglePanel(false); keepBottom(); });
   V.panel = h('div', { class: 'emoji-panel hidden' });
   V.panelBtn = h('button', { class: 'icon-btn smile-btn', 'aria-label': 'Эмодзи, стикеры и подарки', onclick: () => togglePanel() }, icon('smile'));
   const composer = h('div', { class: 'composer' },
@@ -1044,15 +1058,16 @@ async function loadOlder() {
   }
 }
 
-function addMessage(m) {
+function addMessage(m, anim = true) {
   const st = S.msgs.get(m.chatId);
   if (!st?.loaded) return;
   if (st.items.some((x) => x.id === m.id)) return;
   if (m.senderId === S.me.id) {
-    // Replace our own optimistic copy if the socket beat the HTTP response.
+    // Replace our own optimistic copy if the socket beat the HTTP response (it already animated).
     const i = st.items.findIndex((x) => x.pending && x.kind === m.kind && x.text === m.text);
-    if (i >= 0) st.items.splice(i, 1);
+    if (i >= 0) { transferAnim(st.items[i].id, m.id); st.items.splice(i, 1); anim = false; }
   }
+  if (anim && m.chatId === S.current && m.kind !== 'system') animKeys.set(String(m.id), { type: m.senderId === S.me.id ? 'send' : 'in', t: performance.now() });
   const tmpStart = st.items.findIndex((x) => typeof x.id !== 'number');
   if (tmpStart >= 0) st.items.splice(tmpStart, 0, m);
   else st.items.push(m);
@@ -1099,12 +1114,22 @@ function renderMessages({ stick = false, keepOffset = false } = {}) {
       m.replyTo?.id, m.replyTo && userName(m.replyTo.senderId)].join('|');
     let cached = nodeCache.get(key);
     if (!cached || cached.sig !== sig) {
+      if (!cached && m.pending && !animKeys.has(key)) animKeys.set(key, { type: 'send', t: performance.now() });
       cached = { sig, el: messageEl(c, m, first, last, read) };
       nodeCache.set(key, cached);
+      const anim = animKeys.get(key);
+      const elapsed = anim ? performance.now() - anim.t : Infinity;
+      if (elapsed < ANIM_MS) {
+        // Rebuilt mid-animation (e.g. sent ✓ arrived): continue from where it was.
+        cached.el.classList.add(anim.type === 'send' ? 'anim-send' : 'anim-in');
+        cached.el.style.setProperty('--anim-delay', `${-Math.round(elapsed)}ms`);
+      }
     }
     nodes.push(cached.el);
   });
   for (const k of nodeCache.keys()) if (!used.has(k)) nodeCache.delete(k);
+  const tNow = performance.now();
+  for (const [k, a] of animKeys) if (tNow - a.t > ANIM_MS) animKeys.delete(k);
   if (!document.hidden) reportViews(c, st.items);
   V.msgInner.replaceChildren(...nodes);
 
@@ -1321,7 +1346,13 @@ function scrollToBottom(smooth = false) {
   scrollToBottom.t = setTimeout(() => { stickAfterLoad = false; }, 1500);
 }
 
+let wasAtBottom = true;
+function keepBottom() {
+  if (wasAtBottom) requestAnimationFrame(() => scrollToBottom());
+}
+
 function onScroll() {
+  wasAtBottom = isViewingBottom();
   if (V.scroller.scrollTop < 300) loadOlder();
   if (!isViewingBottom()) stickAfterLoad = false;
   updateDownBtn();
@@ -1413,7 +1444,7 @@ function showMessageMenu(m, x, y) {
   contextMenu(x, y, [
     reactRow,
     c.canPost !== false ? { icon: 'reply', label: 'Ответить', onClick: () => startReply(m) } : null,
-    isChannel(c) && c.username ? { icon: 'share', label: 'Ссылка на канал', onClick: () => copyText(`${location.origin}/@${c.username}`) } : null,
+    isChannel(c) && channelLink(c) ? { icon: 'share', label: 'Ссылка на канал', onClick: () => copyText(channelLink(c)) } : null,
     m.text && m.kind !== 'sticker' ? { icon: 'copy', label: 'Копировать', onClick: () => copyText(m.text) } : null,
     m.kind === 'image' ? { icon: 'download', label: 'Открыть фото', onClick: () => openViewer(m) } : null,
     mine && (m.kind === 'text' || m.kind === 'image') ? { icon: 'edit', label: 'Изменить', onClick: () => startEdit(m) } : null,
@@ -1543,8 +1574,18 @@ async function submitComposer() {
   S.drafts.delete(S.current);
   autosize();
   updateSendBtn();
-  if (isTouch()) V.input.focus();
+  flySendBtn();
   sendText(text);
+}
+
+function flySendBtn() {
+  const b = V.sendBtn;
+  if (!b) return;
+  b.classList.remove('fly');
+  void b.offsetWidth; // restart the animation
+  b.classList.add('fly');
+  clearTimeout(flySendBtn.t);
+  flySendBtn.t = setTimeout(() => b.classList.remove('fly'), 500);
 }
 
 async function sendText(text) {
@@ -1563,7 +1604,8 @@ async function sendText(text) {
     const { message } = await api.post(`/chats/${chatId}/messages`, { text, replyTo: reply?.id });
     if (st) {
       st.items = st.items.filter((x) => x !== tmp);
-      addMessage(message);
+      transferAnim(tmp.id, message.id);
+      addMessage(message, false);
     }
   } catch (e) {
     if (st) st.items = st.items.filter((x) => x !== tmp);
@@ -1625,7 +1667,7 @@ function imageSendModal(file) {
       fd.append('text', tmp.text);
       if (reply) fd.append('replyTo', reply.id);
       const { message } = await api.post(`/chats/${chatId}/images`, fd);
-      if (st) { st.items = st.items.filter((x) => x !== tmp); addMessage(message); }
+      if (st) { st.items = st.items.filter((x) => x !== tmp); transferAnim(tmp.id, message.id); addMessage(message, false); }
     } catch (e) {
       if (st) st.items = st.items.filter((x) => x !== tmp);
       toast(errorText(e), 'error');
@@ -1681,9 +1723,13 @@ function canGift(c) {
 
 function togglePanel(force) {
   const open = force ?? V.panel.classList.contains('hidden');
+  const stick = isViewingBottom();
+  // On phones the panel replaces the keyboard instead of stacking on top of it.
+  if (open && isTouch() && document.activeElement === V.input) V.input.blur();
   V.panel.classList.toggle('hidden', !open);
   V.panelBtn.classList.toggle('on', open);
   if (open) renderPanel();
+  if (stick) scrollToBottom();
 }
 
 function renderPanel() {
@@ -1881,9 +1927,61 @@ function channelUsernameField(initial = '', chatId = 0) {
   return f;
 }
 
+/** Public / private switch; hides the @link field for private channels. */
+function channelTypeField(isPrivate, uname) {
+  let priv = isPrivate;
+  const hint = h('div', { class: 'field-hint' });
+  const el = h('div', { class: 'segmented' });
+  const render = () => {
+    el.replaceChildren(
+      h('button', { type: 'button', class: priv ? '' : 'on', onclick: () => { priv = false; render(); } }, icon('at'), 'Публичный'),
+      h('button', { type: 'button', class: priv ? 'on' : '', onclick: () => { priv = true; render(); } }, icon('lock'), 'Приватный'));
+    hint.textContent = priv
+      ? 'Канал не виден в поиске. Вступить можно только по ссылке-приглашению.'
+      : 'Канал можно найти в поиске, у него есть ссылка вида /@имя.';
+    uname.wrap.classList.toggle('hidden', priv);
+  };
+  render();
+  return { wrap: h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Тип канала'), el, hint), isPrivate: () => priv };
+}
+
+const inviteLink = (c) => (c.inviteToken ? `${location.origin}/join/${c.inviteToken}` : null);
+const channelLink = (c) => (c.username ? `${location.origin}/@${c.username}` : inviteLink(c));
+
+/** /join/<token>: open the channel if already subscribed, else show an invite card. */
+async function openInvite(token) {
+  let r;
+  try { r = await api.get(`/channels/invite/${encodeURIComponent(token)}`); } catch { return toast('Ссылка-приглашение недействительна или устарела', 'error'); }
+  if (r.chat) { upsertChat(r.chat); renderChatList(); return openChat(r.chat.id); }
+  const ch = r.channel;
+  openModal({
+    title: 'Приглашение',
+    className: 'modal-profile',
+    body: h('div', { class: 'profile' },
+      h('div', { class: 'profile-hero' }, avatar({ id: ch.id, name: ch.title, src: ch.avatar }, 110),
+        h('div', { class: 'profile-name' }, nameWithBadge(ch.title, ch)),
+        h('div', { class: 'profile-status' }, ch.isPrivate ? `🔒 Приватный канал · ${subsText(ch.membersCount)}` : subsText(ch.membersCount))),
+      ch.description ? h('div', { class: 'profile-rows' }, h('div', { class: 'profile-row' }, icon('info'),
+        h('div', {}, h('div', { class: 'row-main pre' }, richText(ch.description)), h('div', { class: 'row-sub' }, 'Описание')))) : null,
+      h('button', { class: 'btn btn-primary btn-block', onclick: async (e) => {
+        e.currentTarget.disabled = true;
+        try {
+          const { chat } = await api.post(`/channels/invite/${encodeURIComponent(token)}/join`);
+          S.msgs.delete(chat.id);
+          upsertChat(chat);
+          renderChatList();
+          closeTopModal();
+          openChat(chat.id);
+          toast(`Вы подписались на «${chat.title}» 🎉`);
+        } catch (err) { e.currentTarget.disabled = false; toast(errorText(err), 'error'); }
+      } }, icon('plus'), 'Подписаться')),
+  });
+}
+
 function newChannelModal() {
   const title = h('input', { class: 'input', placeholder: 'Название канала', maxLength: 64 });
   const uname = channelUsernameField('');
+  const kind = channelTypeField(false, uname);
   const desc = h('textarea', { class: 'input', rows: 3, maxLength: 255, placeholder: 'Описание (необязательно)' });
   openModal({
     title: 'Новый канал',
@@ -1891,6 +1989,7 @@ function newChannelModal() {
       h('div', { class: 'channel-intro' }, h('div', { class: 'group-ic' }, icon('megaphone')),
         h('div', { class: 'muted small' }, 'Каналы — для публикаций на широкую аудиторию. Писать может только автор, остальные подписываются, читают и ставят реакции.')),
       h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Название'), title),
+      kind.wrap,
       uname.wrap,
       h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Описание'), desc)),
     actions: [
@@ -1898,12 +1997,12 @@ function newChannelModal() {
       { label: 'Создать канал', primary: true, onClick: async (close) => {
         if (!title.value.trim()) { title.focus(); return toast('Укажите название', 'error'); }
         try {
-          const { chat } = await api.post('/channels', { title: title.value, username: uname.input.value, description: desc.value });
+          const { chat } = await api.post('/channels', { title: title.value, username: uname.input.value, description: desc.value, isPrivate: kind.isPrivate() });
           upsertChat(chat);
           close();
           renderChatList();
           openChat(chat.id);
-          toast('Канал создан! Поделитесь ссылкой 🚀');
+          toast(chat.isPrivate ? 'Приватный канал создан! Ссылка-приглашение — в информации о канале 🔒' : 'Канал создан! Поделитесь ссылкой 🚀');
         } catch (e) { toast(errorText(e), 'error'); }
       } },
     ],
@@ -1917,7 +2016,8 @@ async function channelInfoModal(c) {
     try { ch = { ...c, ...(await api.get(`/channels/${c.id}`)).channel }; } catch { /* use cached */ }
   }
   const owner = c.role === 'owner';
-  const link = `${location.origin}/@${ch.username}`;
+  const link = channelLink({ ...c, ...ch });
+  const invite = inviteLink(c);
   const avWrap = h('div', { class: owner ? 'avatar-edit' : '' }, avatar({ id: ch.id, name: ch.title, src: ch.avatar }, 110),
     owner ? h('span', { class: 'avatar-edit-overlay' }, icon('camera')) : null);
   const fileIn = h('input', { type: 'file', accept: 'image/*', class: 'hidden' });
@@ -1955,13 +2055,18 @@ async function channelInfoModal(c) {
         h('div', { class: 'profile-status' }, subsText(ch.membersCount))),
       h('div', { class: 'profile-rows' },
         ch.description ? h('div', { class: 'profile-row' }, icon('info'), h('div', {}, h('div', { class: 'row-main pre' }, richText(ch.description)), h('div', { class: 'row-sub' }, 'Описание'))) : null,
-        h('button', { class: 'profile-row', onclick: () => copyText(link) }, icon('at'),
-          h('div', {}, h('div', { class: 'row-main accent' }, `${location.host}/@${ch.username}`), h('div', { class: 'row-sub' }, 'Ссылка · нажмите, чтобы скопировать')))),
+        ch.username ? h('button', { class: 'profile-row', onclick: () => copyText(`${location.origin}/@${ch.username}`) }, icon('at'),
+          h('div', {}, h('div', { class: 'row-main accent' }, `${location.host}/@${ch.username}`), h('div', { class: 'row-sub' }, 'Ссылка · нажмите, чтобы скопировать')))
+          : h('div', { class: 'profile-row' }, icon('lock'), h('div', {}, h('div', { class: 'row-main' }, 'Приватный канал'), h('div', { class: 'row-sub' }, 'Не виден в поиске, вход только по приглашению'))),
+        invite ? h('button', { class: 'profile-row', onclick: () => copyText(invite) }, icon('share'),
+          h('div', { class: 'grow' }, h('div', { class: 'row-main accent ellipsis' }, invite.replace(/^https?:\/\//, '')), h('div', { class: 'row-sub' }, 'Ссылка-приглашение · нажмите, чтобы скопировать'))) : null,
+        invite && owner ? h('button', { class: 'profile-row', onclick: () => resetInvite(c) }, icon('refresh'),
+          h('div', {}, h('div', { class: 'row-main' }, 'Сбросить ссылку-приглашение'), h('div', { class: 'row-sub' }, 'Старая ссылка перестанет работать'))) : null),
       c.preview
         ? h('button', { class: 'btn btn-primary btn-block', onclick: () => { closeTopModal(); joinChannel(c); } }, icon('plus'), 'Подписаться')
         : h('div', { class: 'profile-actions' },
           h('button', { class: 'btn btn-ghost', onclick: () => { closeTopModal(); toggleMute(c); } }, icon(c.muted ? 'bell' : 'mute'), c.muted ? 'Включить звук' : 'Без звука'),
-          h('button', { class: 'btn btn-ghost', onclick: () => shareLink(link, ch.title) }, icon('share'), 'Поделиться')),
+          link ? h('button', { class: 'btn btn-ghost', onclick: () => shareLink(link, ch.title) }, icon('share'), 'Поделиться') : null),
       verifyBlock,
       owner ? h('div', { class: 'profile-actions' },
         h('button', { class: 'btn btn-ghost', onclick: () => editChannelModal(c, ch) }, icon('edit'), 'Изменить'),
@@ -1977,6 +2082,17 @@ async function shareLink(url, title) {
   copyText(url);
 }
 
+async function resetInvite(c) {
+  if (!(await confirmDialog('Сбросить ссылку-приглашение? Старая ссылка перестанет работать, подписчики останутся.', { ok: 'Сбросить', danger: true }))) return;
+  try {
+    const { chat } = await api.post(`/channels/${c.id}/invite-reset`);
+    upsertChat(chat);
+    copyText(inviteLink(chat));
+    while (closeTopModal()) { /* close all */ }
+    channelInfoModal(chat);
+  } catch (e) { toast(errorText(e), 'error'); }
+}
+
 async function requestVerification(c) {
   if (!(await confirmDialog('Отправить заявку на верификацию? Администрация проверит канал и выдаст галочку, если он подлинный и активный.', { ok: 'Отправить' }))) return;
   try {
@@ -1989,20 +2105,24 @@ async function requestVerification(c) {
 
 function editChannelModal(c, ch) {
   const title = h('input', { class: 'input', value: ch.title, maxLength: 64 });
-  const uname = channelUsernameField(ch.username, c.id);
+  const uname = channelUsernameField(ch.username || '', c.id);
+  const kind = channelTypeField(!ch.username, uname);
   const desc = h('textarea', { class: 'input', rows: 3, maxLength: 255 });
   desc.value = ch.description || '';
   openModal({
     title: 'Настройки канала',
     body: h('div', { class: 'group-form' },
       h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Название'), title),
+      kind.wrap,
       uname.wrap,
       h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Описание'), desc)),
     actions: [
       { label: 'Отмена', onClick: (close) => close() },
       { label: 'Сохранить', primary: true, onClick: async (close) => {
         try {
-          const { chat } = await api.patch(`/channels/${c.id}`, { title: title.value, username: uname.input.value, description: desc.value });
+          const { chat } = await api.patch(`/channels/${c.id}`, kind.isPrivate()
+            ? { title: title.value, isPrivate: true, description: desc.value }
+            : { title: title.value, username: uname.input.value, description: desc.value });
           upsertChat(chat);
           renderChatList(); renderHeader();
           while (closeTopModal()) { /* close all */ }
@@ -2642,7 +2762,7 @@ async function uploadFileTo(chatId, file, text) {
     fd.append('text', text);
     if (reply) fd.append('replyTo', reply.id);
     const { message } = await api.post(`/chats/${chatId}/files`, fd);
-    if (st) { st.items = st.items.filter((x) => x !== tmp); addMessage(message); }
+    if (st) { st.items = st.items.filter((x) => x !== tmp); transferAnim(tmp.id, message.id); addMessage(message, false); }
   } catch (e) {
     if (st) st.items = st.items.filter((x) => x !== tmp);
     toast(e.code === 'file_too_large' ? `Файл больше ${S.me.fileLimitMB} МБ` : errorText(e), 'error');

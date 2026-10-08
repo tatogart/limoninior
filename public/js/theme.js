@@ -23,5 +23,7 @@
   }
   fit();
   (vv || window).addEventListener('resize', fit);
+  // iOS scrolls the page when the keyboard opens; the app is fixed, so undo it.
+  if (vv) vv.addEventListener('scroll', function () { if (vv.offsetTop) window.scrollTo(0, 0); });
   window.addEventListener('orientationchange', function () { setTimeout(fit, 300); });
 })();

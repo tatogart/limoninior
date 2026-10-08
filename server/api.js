@@ -129,9 +129,12 @@ export function channelPublic(c) {
     username: c.username,
     description: c.description,
     verified: !!c.verified,
+    isPrivate: !c.username,
     membersCount: q('SELECT COUNT(*) AS n FROM chat_members WHERE chat_id = ?').get(c.id).n,
   };
 }
+
+const newInviteToken = () => crypto.randomBytes(12).toString('base64url');
 
 function chatForUser(chatId, userId) {
   const c = q(`SELECT c.*, cm.last_read_id, cm.role, cm.muted FROM chats c
@@ -148,6 +151,7 @@ function chatForUser(chatId, userId) {
       ownerId: c.owner_id,
       canPost: c.role === 'owner' || c.role === 'admin',
       verifyRequested: c.role === 'owner' ? !!c.verify_requested : undefined,
+      inviteToken: c.role === 'owner' || c.role === 'admin' ? c.invite_token || null : undefined,
       muted: !!c.muted,
       lastMessage: serializeMessage(last),
       unread,
@@ -1021,13 +1025,16 @@ api.get('/channels/popular', (req, res) => {
 api.post('/channels', channelLimiter, (req, res) => {
   const title = clean(req.body?.title, 64);
   const description = clean(req.body?.description, 255);
-  const username = String(req.body?.username || '').replace(/^@/, '');
+  const isPrivate = !!req.body?.isPrivate;
+  const username = isPrivate ? null : String(req.body?.username || '').replace(/^@/, '');
   if (!title) return bad(res, 'bad_title');
-  const err = checkUsername(username);
-  if (err) return bad(res, err);
+  if (!isPrivate) {
+    const err = checkUsername(username);
+    if (err) return bad(res, err);
+  }
   const id = tx(() => {
-    const r = q("INSERT INTO chats (type, title, description, username, owner_id, created_at) VALUES ('channel', ?, ?, ?, ?, ?)")
-      .run(title, description, username, req.user.id, now());
+    const r = q("INSERT INTO chats (type, title, description, username, invite_token, owner_id, created_at) VALUES ('channel', ?, ?, ?, ?, ?, ?)")
+      .run(title, description, username, newInviteToken(), req.user.id, now());
     const cid = Number(r.lastInsertRowid);
     q("INSERT INTO chat_members (chat_id, user_id, role, joined_at) VALUES (?, ?, 'owner', ?)").run(cid, req.user.id, now());
     return cid;
@@ -1037,8 +1044,36 @@ api.post('/channels', channelLimiter, (req, res) => {
   res.json({ chat: chatForUser(id, req.user.id) });
 });
 
+// Invite links work for both private and public channels: /join/<token>.
+function channelByInvite(token) {
+  const t = String(token || '');
+  return /^[A-Za-z0-9_-]{8,32}$/.test(t) ? q("SELECT * FROM chats WHERE invite_token = ? AND type = 'channel'").get(t) : null;
+}
+
+api.get('/channels/invite/:token', (req, res) => {
+  const c = channelByInvite(req.params.token);
+  if (!c) return bad(res, 'invite_invalid', 404);
+  res.json({ channel: channelPublic(c), chat: chatForUser(c.id, req.user.id) });
+});
+
+api.post('/channels/invite/:token/join', channelLimiter, (req, res) => {
+  const c = channelByInvite(req.params.token);
+  if (!c) return bad(res, 'invite_invalid', 404);
+  q('INSERT OR IGNORE INTO chat_members (chat_id, user_id, joined_at, last_read_id) VALUES (?, ?, ?, ?)').run(c.id, req.user.id, now(), c.last_msg_id);
+  res.json({ chat: chatForUser(c.id, req.user.id) });
+});
+
+api.post('/channels/:id/invite-reset', (req, res) => {
+  const c = groupAsAdmin(req, res, ['channel']);
+  if (!c) return;
+  q('UPDATE chats SET invite_token = ? WHERE id = ?').run(newInviteToken(), c.id);
+  audit(req.user.id, req.ip, 'channel_invite_reset', { chatId: c.id });
+  res.json({ chat: chatForUser(c.id, req.user.id) });
+});
+
 api.get('/channels/:id', (req, res) => {
-  const c = publicChannel(int(req.params.id));
+  const id = int(req.params.id);
+  const c = publicChannel(id) || (isMember(id, req.user.id) && q("SELECT * FROM chats WHERE id = ? AND type = 'channel'").get(id));
   if (!c) return bad(res, 'not_found', 404);
   res.json({ channel: channelPublic(c), chat: chatForUser(c.id, req.user.id) });
 });
@@ -1088,15 +1123,17 @@ api.patch('/channels/:id', (req, res) => {
   const title = req.body?.title !== undefined ? clean(req.body.title, 64) : c.title;
   const description = req.body?.description !== undefined ? clean(req.body.description, 255) : c.description;
   let username = c.username;
-  if (req.body?.username !== undefined) {
+  if (req.body?.isPrivate === true) username = null;
+  else if (req.body?.username !== undefined) {
     username = String(req.body.username).replace(/^@/, '');
-    if (username.toLowerCase() !== String(c.username).toLowerCase()) {
+    if (username.toLowerCase() !== String(c.username || '').toLowerCase()) {
       const err = checkUsername(username);
       if (err) return bad(res, err);
     }
   }
   if (!title) return bad(res, 'bad_title');
-  q('UPDATE chats SET title = ?, description = ?, username = ? WHERE id = ?').run(title, description, username, c.id);
+  q('UPDATE chats SET title = ?, description = ?, username = ?, invite_token = COALESCE(invite_token, ?) WHERE id = ?')
+    .run(title, description, username, newInviteToken(), c.id);
   pushChat(c.id);
   res.json({ chat: chatForUser(c.id, req.user.id) });
 });

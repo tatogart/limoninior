@@ -373,7 +373,7 @@ function dashboard() {
       avatar({ id: c.id, name: c.title, src: c.avatar }, 44),
       h('div', { class: 'user-info' },
         h('div', { class: 'row-main' }, nameWithBadge(c.title, c), c.verifyRequested ? h('span', { class: 'pill warn' }, 'заявка на галочку') : null),
-        h('div', { class: 'row-sub' }, `@${c.username} · владелец ${c.owner}`),
+        h('div', { class: 'row-sub' }, `${c.username ? '@' + c.username : '🔒 приватный'} · владелец ${c.owner}`),
         h('div', { class: 'row-sub' }, `${c.subscribers} подписчиков · ${c.posts} постов · создан ${dayLabel(c.createdAt)}`),
         c.description ? h('div', { class: 'row-sub clip' }, c.description) : null),
       h('div', { class: 'user-actions' },

@@ -203,6 +203,9 @@ addColumn('users', 'sub_until', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('media', 'orig_name', 'TEXT');
 addColumn('users', 'prefs', "TEXT NOT NULL DEFAULT '{}'");
 addColumn('users', 'profile_color', 'TEXT');
+addColumn('chats', 'invite_token', 'TEXT');
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS chats_invite_token ON chats(invite_token) WHERE invite_token IS NOT NULL');
+db.exec("UPDATE chats SET invite_token = lower(hex(randomblob(12))) WHERE type = 'channel' AND invite_token IS NULL");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS post_comments (
