@@ -13,17 +13,23 @@
   document.documentElement.style.setProperty('--msg-size', (s.textSize || 15.5) + 'px');
 })();
 
-// Track the real visible height (keyboard, browser bars) for the app container.
+// Keyboard handling. Android (interactive-widget=resizes-content) shrinks the layout itself, so the
+// fixed #app follows the keyboard natively in the same frame. iOS only shrinks the visual viewport:
+// there we size #app from it by hand.
 (function () {
   var vv = window.visualViewport;
+  var root = document.documentElement;
+  var raf = 0;
   function fit() {
-    var h = vv ? vv.height : window.innerHeight;
-    document.documentElement.style.setProperty('--app-h', Math.round(h) + 'px');
-    if (vv && vv.offsetTop) window.scrollTo(0, 0);
+    raf = 0;
+    if (!vv) return;
+    var overlay = window.innerHeight - vv.height > 1 && Math.abs(vv.scale - 1) < 0.01;
+    if (overlay) root.style.setProperty('--app-h', Math.round(vv.height) + 'px');
+    else root.style.removeProperty('--app-h');
+    if (vv.offsetTop) window.scrollTo(0, 0);
   }
+  function schedule() { if (!raf) raf = requestAnimationFrame(fit); }
   fit();
-  (vv || window).addEventListener('resize', fit);
-  // iOS scrolls the page when the keyboard opens; the app is fixed, so undo it.
-  if (vv) vv.addEventListener('scroll', function () { if (vv.offsetTop) window.scrollTo(0, 0); });
+  if (vv) { vv.addEventListener('resize', schedule); vv.addEventListener('scroll', schedule); }
   window.addEventListener('orientationchange', function () { setTimeout(fit, 300); });
 })();

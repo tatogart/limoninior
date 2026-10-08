@@ -1091,16 +1091,24 @@ function renderMessages({ stick = false, keepOffset = false } = {}) {
   const fromBottom = V.scroller.scrollHeight - V.scroller.scrollTop;
 
   const nodes = [];
-  if (!st.hasMore && st.items.length) nodes.push(h('div', { class: 'chat-start' }));
-  if (!st.items.length) nodes.push(emptyChatHint(c));
   const used = new Set();
+  // Static nodes (separators, system lines) are cached too, so a re-render only touches what changed.
+  const staticNode = (key, sig, make) => {
+    used.add(key);
+    let e = nodeCache.get(key);
+    if (!e || e.sig !== sig) nodeCache.set(key, (e = { sig, el: make() }));
+    nodes.push(e.el);
+  };
+  if (!st.hasMore && st.items.length) staticNode('start', '', () => h('div', { class: 'chat-start' }));
+  if (!st.items.length) staticNode('empty', c.id, () => emptyChatHint(c));
+  let animated = false;
   st.items.forEach((m, i) => {
     const prev = st.items[i - 1];
     const next = st.items[i + 1];
     const newDay = !prev || dayKey(prev.createdAt) !== dayKey(m.createdAt);
-    if (newDay) nodes.push(h('div', { class: 'date-sep' }, h('span', {}, dayLabel(m.createdAt))));
+    if (newDay) { const lbl = dayLabel(m.createdAt); staticNode(`d:${dayKey(m.createdAt)}`, lbl, () => h('div', { class: 'date-sep' }, h('span', {}, lbl))); }
     if (m.kind === 'system') {
-      nodes.push(h('div', { class: 'system-msg' }, h('span', {}, m.text)));
+      staticNode(`s:${m.id}`, m.text, () => h('div', { class: 'system-msg' }, h('span', {}, m.text)));
       return;
     }
     const first = newDay || prev.kind === 'system' || prev.senderId !== m.senderId || m.createdAt - prev.createdAt > GAP;
@@ -1123,6 +1131,7 @@ function renderMessages({ stick = false, keepOffset = false } = {}) {
         // Rebuilt mid-animation (e.g. sent ✓ arrived): continue from where it was.
         cached.el.classList.add(anim.type === 'send' ? 'anim-send' : 'anim-in');
         cached.el.style.setProperty('--anim-delay', `${-Math.round(elapsed)}ms`);
+        if (elapsed < 30) animated = true;
       }
     }
     nodes.push(cached.el);
@@ -1131,11 +1140,31 @@ function renderMessages({ stick = false, keepOffset = false } = {}) {
   const tNow = performance.now();
   for (const [k, a] of animKeys) if (tNow - a.t > ANIM_MS) animKeys.delete(k);
   if (!document.hidden) reportViews(c, st.items);
-  V.msgInner.replaceChildren(...nodes);
+  const prevH = animated && atBottom ? V.msgInner.offsetHeight : 0;
+  syncChildren(V.msgInner, nodes);
 
   if (atBottom) scrollToBottom();
+  if (prevH) slideList(V.msgInner.offsetHeight - prevH);
   else if (keepOffset) V.scroller.scrollTop = V.scroller.scrollHeight - fromBottom;
   updateDownBtn();
+}
+
+/** Put `nodes` into `parent` in order, moving only what differs (no full re-insert). */
+function syncChildren(parent, nodes) {
+  let cur = parent.firstChild;
+  for (const n of nodes) {
+    if (cur === n) { cur = cur.nextSibling; continue; }
+    parent.insertBefore(n, cur);
+  }
+  while (cur) { const nx = cur.nextSibling; cur.remove(); cur = nx; }
+}
+
+/** Telegram-style: the list glides up by the height of the new message instead of jumping. */
+function slideList(dy) {
+  const el = V.msgInner;
+  if (!el || dy <= 0 || dy > 600 || document.documentElement.dataset.motion === 'reduced') return;
+  el.getAnimations?.().forEach((a) => a.cancel());
+  el.animate?.([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 260, easing: 'cubic-bezier(0.25, 0.8, 0.3, 1)' });
 }
 
 const reportedViews = new Set();
@@ -1547,7 +1576,9 @@ function onPaste(e) {
   }
 }
 
+const nativeAutosize = CSS.supports?.('field-sizing', 'content');
 function autosize() {
+  if (nativeAutosize) return;
   V.input.style.height = 'auto';
   V.input.style.height = `${Math.min(V.input.scrollHeight, 180)}px`;
 }

@@ -1192,6 +1192,7 @@ audio.call-remote { display: none; }
 :root[data-style="glass"] {
   --glass: rgba(255, 255, 255, 0.52);
   --glass-strong: rgba(255, 255, 255, 0.74);
+  --glass-solid: rgba(255, 255, 255, 0.82);
   --glass-edge: rgba(255, 255, 255, 0.7);
   --glass-edge-2: rgba(255, 255, 255, 0.25);
   --glass-blur: blur(26px) saturate(190%);
@@ -1208,6 +1209,7 @@ audio.call-remote { display: none; }
 :root[data-style="glass"][data-theme="dark"] {
   --glass: rgba(22, 30, 42, 0.5);
   --glass-strong: rgba(20, 27, 38, 0.76);
+  --glass-solid: rgba(24, 32, 45, 0.86);
   --glass-edge: rgba(255, 255, 255, 0.16);
   --glass-edge-2: rgba(255, 255, 255, 0.05);
   --glass-hi: inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 -1px 0 rgba(255, 255, 255, 0.04), inset 0 0 0 1px rgba(255, 255, 255, 0.07);
@@ -1478,29 +1480,38 @@ button.pf-row:hover { background: var(--hover); }
 .segmented button svg { width: 16px; height: 16px; }
 .field .segmented + .field-hint { margin-top: 6px; }
 
-/* Message send / receive animation (once per message). */
-.msg-row.anim-send .bubble { transform-origin: 100% 100%; animation: msg-send 0.42s cubic-bezier(0.2, 0.9, 0.25, 1.15) var(--anim-delay, 0ms) both; }
-.msg-row.anim-in .bubble { transform-origin: 0 100%; animation: msg-recv 0.34s cubic-bezier(0.2, 0.9, 0.3, 1.1) var(--anim-delay, 0ms) both; }
+/* Message send / receive animation (once per message); the list itself glides up via JS. */
+.msg-row.anim-send .bubble { transform-origin: 100% 100%; animation: msg-send 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) var(--anim-delay, 0ms) both; }
+.msg-row.anim-in .bubble { transform-origin: 0 100%; animation: msg-recv 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) var(--anim-delay, 0ms) both; }
 .msg-row.anim-in .msg-avatar { animation: msg-in 0.3s var(--ease) both; }
-@keyframes msg-send {
-  0% { opacity: 0; transform: translate(14px, 26px) scale(0.6); filter: blur(2px); }
-  55% { opacity: 1; filter: none; }
-  75% { transform: translate(0, -2px) scale(1.02); }
-  100% { transform: none; }
-}
-@keyframes msg-recv {
-  0% { opacity: 0; transform: translate(-10px, 14px) scale(0.8); }
-  70% { opacity: 1; transform: translate(0, -1px) scale(1.01); }
-  100% { transform: none; }
-}
-.send-btn.fly .ic { animation: send-fly 0.45s cubic-bezier(0.5, 0, 0.3, 1) both; }
+@keyframes msg-send { from { opacity: 0; transform: translateY(14px) scale(0.9); } }
+@keyframes msg-recv { from { opacity: 0; transform: translateY(10px) scale(0.92); } }
+.send-btn.fly .ic { animation: send-fly 0.36s cubic-bezier(0.4, 0, 0.2, 1) both; }
 @keyframes send-fly {
   0% { transform: none; opacity: 1; }
-  45% { transform: translate(26px, -26px) rotate(-12deg) scale(0.7); opacity: 0; }
-  46% { transform: translate(-22px, 22px) scale(0.7); opacity: 0; }
+  40% { transform: translate(18px, -18px) scale(0.8); opacity: 0; }
+  41% { transform: translate(-10px, 10px) scale(0.8); opacity: 0; }
   100% { transform: none; opacity: 1; }
 }
 .send-btn { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.composer-input { field-sizing: content; }
 @media (prefers-reduced-motion: reduce) {
   .msg-row.anim-send .bubble, .msg-row.anim-in .bubble, .send-btn.fly .ic { animation: none; }
+}
+
+/* Phones: real backdrop blur only where it is cheap. Blurring the composer re-renders it on every
+   keystroke and sticky date pills re-blur on every scroll frame, which made typing laggy. */
+@media (pointer: coarse) {
+  [data-style="glass"] .composer-box,
+  [data-style="glass"] .composer-bar,
+  [data-style="glass"] .send-btn,
+  [data-style="glass"] .scroll-down,
+  [data-style="glass"] .date-sep span,
+  [data-style="glass"] .system-msg span {
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+  [data-style="glass"] .composer-box, [data-style="glass"] .composer-bar, [data-style="glass"] .send-btn:not(.active), [data-style="glass"] .scroll-down { background: var(--glass-solid); }
+  [data-style="glass"] .date-sep span, [data-style="glass"] .system-msg span { background: var(--glass-solid); }
+  [data-style="glass"] .chat-header::after, [data-style="glass"] .sidebar::after { display: none; }
+  [data-style="glass"] .chat-header { -webkit-backdrop-filter: blur(16px) saturate(170%); backdrop-filter: blur(16px) saturate(170%); }
 }
