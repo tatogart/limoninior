@@ -88,3 +88,11 @@ body:has(.admin-app) { overflow: auto; background: var(--bg-2); }
 .plan-mini { padding: 8px 12px; border-radius: 12px; background: var(--bg-2); display: grid; font-size: 13.5px; }
 .plan-pick { display: flex; gap: 6px; flex-wrap: wrap; }
 .bad { color: var(--danger); }
+/* Liquid Glass: admin floats on the same wallpaper as the app */
+[data-style="glass"] body:has(.admin-app) { background: var(--wall-img); background-attachment: fixed; }
+[data-style="glass"] .admin-card, [data-style="glass"] .stat, [data-style="glass"] .admin-top {
+  background: var(--glass); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-edge); box-shadow: var(--glass-hi), var(--glass-drop);
+}
+[data-style="glass"] .admin-top { border-width: 0 0 1px; }
+[data-style="glass"] .srv, [data-style="glass"] .dev-chip, [data-style="glass"] .plan-mini { background: var(--bg-2); }

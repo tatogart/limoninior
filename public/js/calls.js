@@ -1,6 +1,7 @@
 // 1:1 voice / video calls over WebRTC. Signaling goes through the Socket.IO connection.
 import { api, errorText } from './api.js';
-import { h, icon, avatar, toast } from './ui.js';
+import { h, icon, avatar, toast, contextMenu } from './ui.js';
+import { startRingtone, startRingback, stopRing } from './sounds.js';
 
 let ctx = null; // { socket, me, userById }
 let call = null; // current call state
@@ -39,42 +40,8 @@ export const inCall = () => !!call;
 
 // ---------------------------------------------------------------- sounds
 
-function startTone(kind) {
-  stopTone();
-  try {
-    const ac = new (window.AudioContext || window.webkitAudioContext)();
-    const gain = ac.createGain();
-    gain.gain.value = 0;
-    gain.connect(ac.destination);
-    const osc = ac.createOscillator();
-    osc.type = 'sine';
-    osc.connect(gain);
-    osc.start();
-    let on = false;
-    const tick = () => {
-      on = !on;
-      if (kind === 'ring') {
-        osc.frequency.setValueAtTime(on ? 660 : 880, ac.currentTime);
-        gain.gain.setTargetAtTime(on ? 0.18 : 0.12, ac.currentTime, 0.02);
-        navigator.vibrate?.(on ? [400, 200, 400] : 0);
-      } else {
-        osc.frequency.setValueAtTime(425, ac.currentTime);
-        gain.gain.setTargetAtTime(on ? 0.12 : 0, ac.currentTime, 0.02);
-      }
-    };
-    tick();
-    const timer = setInterval(tick, kind === 'ring' ? 600 : 1500);
-    ring = { ac, timer };
-  } catch { /* audio not allowed yet */ }
-}
-
-function stopTone() {
-  if (!ring) return;
-  clearInterval(ring.timer);
-  ring.ac.close().catch(() => {});
-  navigator.vibrate?.(0);
-  ring = null;
-}
+const startTone = (kind) => (kind === 'ring' ? startRingtone() : startRingback());
+const stopTone = () => stopRing();
 
 // ---------------------------------------------------------------- media
 
@@ -130,7 +97,7 @@ const signal = (data) => ctx.socket.emit('call:signal', { callId: call?.id, data
 export async function startCall(chat, peer, video) {
   if (call) return toast('Сначала завершите текущий звонок');
   if (!window.RTCPeerConnection || !navigator.mediaDevices?.getUserMedia) return toast('Браузер не поддерживает звонки', 'error');
-  call = { id: null, chatId: chat.id, peer, video, role: 'caller', status: 'calling', mic: true, cam: video, peerMic: true, peerCam: video };
+  call = { id: null, chatId: chat.id, peer, video, role: 'caller', status: 'calling', mic: true, cam: video, peerMic: true, peerCam: video, speaker: true };
   render();
   const local = await getMedia(video);
   if (!local || !call) { cleanup(); return; }
@@ -141,7 +108,8 @@ export async function startCall(chat, peer, video) {
   ctx.socket.emit('call:invite', { chatId: chat.id, video: call.video }, (r) => {
     if (!call) return;
     if (r?.error) {
-      finish(r.error === 'busy' ? 'Абонент занят' : r.error === 'busy_self' ? 'У вас уже идёт звонок' : END_TEXT[r.error] || errorText({ code: r.error }));
+      finish(r.error === 'busy' ? 'Абонент занят' : r.error === 'busy_self' ? 'У вас уже идёт звонок'
+        : r.error === 'calls_disabled' ? 'Пользователь ограничил входящие звонки' : END_TEXT[r.error] || errorText({ code: r.error }));
       return;
     }
     call.id = r.callId;
@@ -168,7 +136,7 @@ function onIncoming({ callId, chatId, from, video }) {
     return; // already in a call; the server marks us busy
   }
   const peer = ctx.userById(from) || { id: from, name: 'Пользователь' };
-  call = { id: callId, chatId, peer, video, role: 'callee', status: 'incoming', mic: true, cam: video, peerMic: true, peerCam: video };
+  call = { id: callId, chatId, peer, video, role: 'callee', status: 'incoming', mic: true, cam: video, peerMic: true, peerCam: video, speaker: true };
   startTone('ring');
   render();
   if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
@@ -250,6 +218,29 @@ function toggleCam() {
   render();
 }
 
+function toggleSpeaker() {
+  if (!call) return;
+  call.speaker = !call.speaker;
+  if (call.remoteEl) call.remoteEl.muted = !call.speaker;
+  toast(call.speaker ? 'Звук собеседника включён' : 'Звук собеседника выключен 🔇');
+  render();
+}
+
+const canPickOutput = () => 'setSinkId' in HTMLMediaElement.prototype && navigator.mediaDevices?.enumerateDevices;
+
+async function pickOutput(e) {
+  const r = e.currentTarget.getBoundingClientRect();
+  const outs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audiooutput');
+  if (outs.length < 2) return toast('Другие устройства вывода не найдены');
+  contextMenu(r.left, r.top - 8 - outs.length * 42, outs.map((d, i) => ({
+    icon: d.deviceId === call?.sinkId ? 'check' : 'volume',
+    label: d.label || `Устройство ${i + 1}`,
+    onClick: async () => {
+      try { await call.remoteEl?.setSinkId(d.deviceId); call.sinkId = d.deviceId; toast(`Звук: ${d.label || 'устройство'}`); } catch { toast('Не удалось переключить устройство', 'error'); }
+    },
+  })));
+}
+
 async function flipCam() {
   const old = call?.local?.getVideoTracks()[0];
   if (!old || !call.pc) return;
@@ -315,9 +306,15 @@ function render() {
 
   const stage = h('div', { class: `call-stage ${remoteVideo ? 'has-video' : ''}` });
   if (call.remote) {
-    const media = h(remoteVideo ? 'video' : 'audio', { autoplay: true, playsInline: true, class: 'call-remote' });
-    media.srcObject = call.remote;
-    stage.append(media);
+    // Keep one media element for the whole call so audio doesn't restart on every re-render.
+    if (!call.remoteEl) {
+      call.remoteEl = h('video', { autoplay: true, playsInline: true, class: 'call-remote' });
+      call.remoteEl.srcObject = call.remote;
+      if (call.sinkId) call.remoteEl.setSinkId?.(call.sinkId).catch(() => {});
+    }
+    call.remoteEl.muted = !call.speaker;
+    call.remoteEl.classList.toggle('audio-only', !remoteVideo);
+    stage.append(call.remoteEl);
   }
   if (!remoteVideo) {
     stage.append(h('div', { class: 'call-peer' },
@@ -329,10 +326,12 @@ function render() {
     stage.append(h('div', { class: 'call-top' }, h('div', { class: 'call-name small' }, peer.name), h('div', { class: 'call-status' }, statusText())));
   }
   if (call.local && call.local.getVideoTracks().length && call.cam) {
-    const v = h('video', { autoplay: true, playsInline: true, muted: true, class: 'call-local' });
-    v.srcObject = call.local;
-    v.muted = true;
-    stage.append(v);
+    if (!call.localEl) {
+      call.localEl = h('video', { autoplay: true, playsInline: true, muted: true, class: 'call-local' });
+      call.localEl.muted = true;
+    }
+    if (call.localEl.srcObject !== call.local) call.localEl.srcObject = call.local;
+    stage.append(call.localEl);
   }
 
   const controls = call.status === 'incoming'
@@ -340,9 +339,11 @@ function render() {
       btn('red', 'phoneDown', 'Отклонить', reject),
       btn('green', call.video ? 'video' : 'phone', 'Ответить', accept))
     : h('div', { class: 'call-controls' },
-      btn('glass', call.mic ? 'mic' : 'micOff', call.mic ? 'Микрофон' : 'Без звука', toggleMic, call.mic),
+      btn('glass', call.speaker ? 'volume' : 'volumeOff', call.speaker ? 'Динамик' : 'Динамик выкл.', toggleSpeaker, call.speaker),
+      btn('glass', call.mic ? 'mic' : 'micOff', call.mic ? 'Микрофон' : 'Микр. выкл.', toggleMic, call.mic),
       call.local?.getVideoTracks().length ? btn('glass', call.cam ? 'video' : 'videoOff', 'Камера', toggleCam, call.cam) : null,
       call.local?.getVideoTracks().length && /Android|iPhone|iPad/i.test(navigator.userAgent) ? btn('glass', 'refresh', 'Повернуть', flipCam) : null,
+      canPickOutput() && !/Android|iPhone|iPad/i.test(navigator.userAgent) ? btn('glass', 'devices', 'Вывод', pickOutput) : null,
       btn('red', 'phoneDown', 'Завершить', hangup));
 
   overlay.replaceChildren(

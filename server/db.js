@@ -201,6 +201,8 @@ db.exec(`
 addColumn('users', 'sub_tier', 'TEXT');
 addColumn('users', 'sub_until', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('media', 'orig_name', 'TEXT');
+addColumn('users', 'prefs', "TEXT NOT NULL DEFAULT '{}'");
+addColumn('users', 'profile_color', 'TEXT');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS post_comments (

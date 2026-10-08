@@ -13,6 +13,7 @@ import { upload, uploadFile, saveImage, saveFile, deleteMediaFile } from './medi
 import { sendPush, saveSubscription, removeSubscription, vapidPublicKey } from './push.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { getPrefs, cleanPrefs, PROFILE_COLORS } from './prefs.js';
 import { isOnline, emitToUser, emitToUsers, emitToChat, memberIds, disconnectSession, setCallHooks } from './realtime.js';
 
 export const api = express.Router();
@@ -43,14 +44,18 @@ const mediaUrl = (name) => (name ? `/media/${name}` : null);
 
 export function publicUser(u) {
   if (!u) return null;
+  const hidden = getPrefs(u).lastSeen === 'nobody';
   return {
     id: u.id,
     username: u.username,
     name: u.name,
     bio: u.bio,
     avatar: mediaUrl(u.avatar),
-    online: isOnline(u.id),
-    lastSeen: u.last_seen,
+    online: hidden ? false : isOnline(u.id),
+    lastSeen: hidden ? null : u.last_seen,
+    lastSeenHidden: hidden,
+    profileColor: u.profile_color || null,
+    createdAt: u.created_at,
     verified: !!u.verified,
     official: u.google_sub === OFFICIAL_SUB,
     sub: activePlan(u)?.id || null,
@@ -67,6 +72,9 @@ const fileLimitMB = (u) => activePlan(u)?.fileMB || FREE_FILE_MB;
 export function meUser(u) {
   return {
     ...publicUser(u),
+    online: true,
+    lastSeen: u.last_seen,
+    prefs: getPrefs(u),
     email: u.email,
     isAdmin: isAdminUser(u),
     needsProfile: !u.username,
@@ -208,14 +216,19 @@ function broadcastNewMessage(chatId, msg) {
   }
   // Web push for people who are offline right now (and haven't muted the chat).
   if (msg.kind !== 'system') {
-    const targets = q('SELECT user_id FROM chat_members WHERE chat_id = ? AND muted = 0').all(chatId)
-      .map((r) => r.user_id).filter((uid) => uid !== msg.sender_id && !isOnline(uid));
-    if (targets.length) {
-      const chat = q('SELECT * FROM chats WHERE id = ?').get(chatId);
+    const chat = q('SELECT * FROM chats WHERE id = ?').get(chatId);
+    const prefKey = chat.type === 'group' ? 'notifyGroups' : chat.type === 'channel' ? 'notifyChannels' : 'notifyPrivate';
+    const rows = q(`SELECT cm.user_id, u.prefs FROM chat_members cm JOIN users u ON u.id = cm.user_id
+                    WHERE cm.chat_id = ? AND cm.muted = 0`).all(chatId)
+      .filter((r) => r.user_id !== msg.sender_id && !isOnline(r.user_id) && getPrefs(r)[prefKey]);
+    if (rows.length) {
       const sender = msg.sender_id ? q('SELECT name FROM users WHERE id = ?').get(msg.sender_id) : null;
       const title = chat.type === 'private' || chat.type === 'saved' ? sender?.name || 'Limoninior' : chat.title;
       const body = chat.type === 'group' && sender ? `${sender.name}: ${pushText(msg)}` : pushText(msg);
-      sendPush(targets, { type: 'message', chatId, title, body, tag: `chat${chatId}` });
+      const withPreview = rows.filter((r) => getPrefs(r).pushPreview).map((r) => r.user_id);
+      const noPreview = rows.filter((r) => !getPrefs(r).pushPreview).map((r) => r.user_id);
+      sendPush(withPreview, { type: 'message', chatId, title, body, tag: `chat${chatId}` });
+      sendPush(noPreview, { type: 'message', chatId, title: 'Limoninior', body: 'Новое сообщение', tag: `chat${chatId}` });
     }
   }
   return payload;
@@ -381,6 +394,10 @@ api.patch('/me', requireAuth, (req, res) => {
   const b = req.body || {};
   const name = b.name !== undefined ? clean(b.name, 64) : req.user.name;
   const bio = b.bio !== undefined ? clean(b.bio, 160) : req.user.bio;
+  if (b.profileColor !== undefined) {
+    if (b.profileColor !== null && !PROFILE_COLORS.includes(b.profileColor)) return bad(res, 'bad_color');
+    q('UPDATE users SET profile_color = ? WHERE id = ?').run(b.profileColor, req.user.id);
+  }
   let username = req.user.username;
   if (b.username !== undefined) {
     username = String(b.username).replace(/^@/, '');
@@ -413,6 +430,14 @@ api.post('/me/password', requireAuth, authLimiter, async (req, res) => {
   others.forEach((s) => disconnectSession(s.id));
   audit(req.user.id, req.ip, 'password_set');
   res.json({ user: meUser(q('SELECT * FROM users WHERE id = ?').get(req.user.id)) });
+});
+
+api.patch('/me/prefs', requireAuth, (req, res) => {
+  const prefs = { ...getPrefs(req.user), ...cleanPrefs(req.body) };
+  q('UPDATE users SET prefs = ? WHERE id = ?').run(JSON.stringify(prefs), req.user.id);
+  const user = q('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  broadcastProfile(user);
+  res.json({ user: meUser(user) });
 });
 
 api.post('/me/bonus', requireAuth, (req, res) => {
@@ -797,6 +822,15 @@ api.post('/chats/:id/read', (req, res) => {
   res.json({ ok: true });
 });
 
+// Shared photos of a chat (for the profile "media" section).
+api.get('/chats/:id/media', (req, res) => {
+  const id = int(req.params.id);
+  if (!id || !isMember(id, req.user.id)) return bad(res, 'not_found', 404);
+  const rows = q("SELECT * FROM messages WHERE chat_id = ? AND kind = 'image' ORDER BY id DESC LIMIT 60").all(id);
+  const files = q("SELECT COUNT(*) AS n FROM messages WHERE chat_id = ? AND kind = 'file'").get(id).n;
+  res.json({ media: rows.map((m) => serializeMessage(m)), files });
+});
+
 // ---------- files ----------
 
 api.post('/chats/:id/files', uploadLimiter, uploadFile.single('file'), (req, res) => {
@@ -893,6 +927,8 @@ api.get('/calls/ice', (req, res) => {
 
 setCallHooks({
   onInvite(call) {
+    const callee = q('SELECT prefs FROM users WHERE id = ?').get(call.to);
+    if (!getPrefs(callee).notifyCalls) return;
     const from = q('SELECT name FROM users WHERE id = ?').get(call.from);
     sendPush([call.to], {
       type: 'call', chatId: call.chatId, callId: call.id, title: `${call.video ? '📹 Видеозвонок' : '📞 Звонок'} от ${from?.name || 'пользователя'}`,

@@ -6,6 +6,11 @@
   if (theme === 'system') theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   document.documentElement.dataset.theme = theme;
   document.documentElement.dataset.accent = s.accent || 'lime';
+  // "Liquid Glass" is the default look; "classic" is the flat one.
+  document.documentElement.dataset.style = s.style || 'glass';
+  document.documentElement.dataset.wallpaper = s.wallpaper || 'auto';
+  document.documentElement.dataset.motion = s.reduceMotion ? 'reduced' : 'full';
+  document.documentElement.style.setProperty('--msg-size', (s.textSize || 15.5) + 'px');
 })();
 
 // Track the real visible height (keyboard, browser bars) for the app container.

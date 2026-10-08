@@ -6,6 +6,7 @@ import {
 } from './ui.js';
 import { STICKER_PACKS, stickerInfo, GIFTS, giftById, DAILY_BONUS, REACTIONS, PLANS, planById, isDangerousFile, fileExt } from './catalog.js';
 import { initCalls, startCall, inCall } from './calls.js';
+import * as Sounds from './sounds.js';
 import { EMOJI } from './emoji.js';
 
 // ============================================================ state
@@ -36,7 +37,11 @@ let tmpSeq = 0;
 function loadSettings() {
   let s = {};
   try { s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch { /* ignore */ }
-  return { theme: 'system', accent: 'lime', enterToSend: !isTouch(), notify: false, ...s };
+  return {
+    theme: 'system', accent: 'lime', enterToSend: !isTouch(), notify: false,
+    style: 'glass', wallpaper: 'auto', textSize: 15.5, reduceMotion: false,
+    ringtone: 'lemon', messageSound: 'pop', volume: 0.8, vibrate: true, inAppSounds: true, ...s,
+  };
 }
 function saveSettings() {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(S.settings)); } catch { /* ignore */ }
@@ -47,6 +52,10 @@ function applyTheme() {
   if (t === 'system') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   document.documentElement.dataset.theme = t;
   document.documentElement.dataset.accent = S.settings.accent;
+  document.documentElement.dataset.style = S.settings.style;
+  document.documentElement.dataset.wallpaper = S.settings.wallpaper;
+  document.documentElement.dataset.motion = S.settings.reduceMotion ? 'reduced' : 'full';
+  document.documentElement.style.setProperty('--msg-size', `${S.settings.textSize}px`);
   document.querySelectorAll('meta[name="theme-color"]').forEach((m) => { m.content = t === 'dark' ? '#17212b' : '#ffffff'; });
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
@@ -507,7 +516,11 @@ function connectSocket() {
       markRead();
     }
     updateBadge();
-    if (message.senderId && message.senderId !== S.me.id) notify(chat, message);
+    if (message.senderId && message.senderId !== S.me.id) {
+      notify(chat, message);
+      const viewing = message.chatId === S.current && !document.hidden;
+      if (!chat?.muted && !viewing && message.kind !== 'call') Sounds.playMessageSound();
+    }
   });
   s.on('message:edit', (m) => {
     const st = S.msgs.get(m.chatId);
@@ -2068,6 +2081,26 @@ function openInfo(c) {
   return openUserProfile(S.me.id);
 }
 
+const PROFILE_COLORS = [
+  ['lime', 'Лайм'], ['ocean', 'Океан'], ['sunset', 'Закат'], ['berry', 'Ягода'], ['violet', 'Фиалка'], ['mint', 'Мята'], ['gold', 'Золото'], ['night', 'Ночь'],
+];
+const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+const joinedText = (t) => { const d = new Date(t); return `В Limoninior с ${MONTHS_GEN[d.getMonth()]} ${d.getFullYear()}`; };
+
+/** Shared profile hero: colored cover + big avatar + name + status. */
+function profileHero(u, { avatarNode, status, onClose, extra } = {}) {
+  const color = u.profileColor || (u.official ? 'lime' : PROFILE_COLORS[Math.abs(u.id || 0) % PROFILE_COLORS.length][0]);
+  return h('div', { class: `pf-hero pc-${color}` },
+    h('div', { class: 'pf-cover' },
+      h('div', { class: 'pf-cover-shine' }),
+      h('div', { class: 'pf-cover-btns' },
+        extra || null,
+        h('button', { class: 'pf-glass-btn', 'aria-label': 'Закрыть', onclick: onClose || (() => closeTopModal()) }, icon('close')))),
+    h('div', { class: 'pf-avatar' }, avatarNode || userAvatar(u, 116)),
+    h('div', { class: 'pf-name' }, nameWithBadge(u.name, u)),
+    status ? h('div', { class: `pf-status ${u.online ? 'online' : ''}` }, status) : null);
+}
+
 async function openUserProfile(id) {
   if (!id) return;
   if (id === S.me.id) return editProfileModal();
@@ -2075,25 +2108,44 @@ async function openUserProfile(id) {
   try { u = (await api.get(`/users/${id}`)).user; mergeUser(u); } catch { /* use cache */ }
   if (!u) return toast('Пользователь не найден');
   const link = `${location.origin}/@${u.username}`;
-  const gifts = h('div', {});
+  const chat = [...S.chats.values()].find((c) => c.type === 'private' && peerOf(c)?.id === u.id);
+  const gifts = h('div', { class: 'pf-gifts' }, h('span', { class: 'spinner' }));
   giftsGrid(u.id).then((g) => gifts.replaceWith(g));
-  openModal({
-    className: 'modal-profile',
-    title: 'Профиль',
-    body: h('div', { class: 'profile' },
-      h('div', { class: 'profile-hero' }, userAvatar(u, 110),
-        h('div', { class: 'profile-name' }, nameWithBadge(u.name, u)),
-        h('div', { class: `profile-status ${u.online ? 'accent' : ''}` }, lastSeenText(u))),
-      h('div', { class: 'profile-rows' },
-        h('button', { class: 'profile-row', onclick: () => copyText(link) }, icon('at'),
-          h('div', {}, h('div', { class: 'row-main' }, `@${u.username}`), h('div', { class: 'row-sub' }, 'Юзернейм · нажмите, чтобы скопировать ссылку'))),
-        u.bio ? h('div', { class: 'profile-row' }, icon('info'), h('div', {}, h('div', { class: 'row-main' }, u.bio), h('div', { class: 'row-sub' }, 'О себе'))) : null),
-      h('div', { class: 'profile-actions' },
-        h('button', { class: 'btn btn-primary', onclick: () => { closeTopModal(); startPrivate(u.id); } }, icon('chat'), 'Написать'),
-        u.official ? null : h('button', { class: 'btn btn-ghost', onclick: () => giftFromProfile(u) }, icon('gift'), 'Подарить')),
-      h('div', { class: 'settings-label' }, `Подарки${u.giftsCount ? ` · ${u.giftsCount}` : ''}`),
-      gifts),
+  const media = h('div', { class: 'pf-media' });
+  if (chat) {
+    api.get(`/chats/${chat.id}/media`).then((r) => {
+      if (!r.media.length) { media.replaceChildren(h('div', { class: 'list-note' }, r.files ? `Фото нет · файлов: ${r.files}` : 'Пока нет общих фото')); return; }
+      media.replaceChildren(...r.media.map((m) => h('button', { class: 'pf-media-item', onclick: () => openViewer(m) },
+        h('img', { src: m.file, alt: '', loading: 'lazy', decoding: 'async' }))));
+    }).catch(() => media.replaceChildren());
+  }
+  const action = (ic, label, fn, cls = '') => h('button', { class: `pf-action ${cls}`, onclick: fn }, h('span', { class: 'pf-action-ic' }, icon(ic)), label);
+  const plan = u.sub ? planById(u.sub) : null;
+  const m = openModal({
+    className: 'modal-profile2',
+    body: h('div', { class: 'pf' },
+      profileHero(u, {
+        status: u.official ? 'официальный аккаунт' : lastSeenText(u),
+        extra: h('button', { class: 'pf-glass-btn', 'aria-label': 'Поделиться', onclick: () => shareLink(link, u.name) }, icon('share')),
+      }),
+      h('div', { class: 'pf-actions' },
+        action('chat', 'Написать', () => { closeTopModal(); startPrivate(u.id); }, 'primary'),
+        !u.official && chat ? action('phone', 'Звонок', () => { closeTopModal(); startCall(chat, u, false); }) : null,
+        !u.official && chat ? action('video', 'Видео', () => { closeTopModal(); startCall(chat, u, true); }) : null,
+        !u.official ? action('gift', 'Подарить', () => giftFromProfile(u)) : null,
+        chat ? action(chat.muted ? 'bell' : 'mute', chat.muted ? 'Звук' : 'Без звука', () => { toggleMute(chat); closeTopModal(); }) : null),
+      h('div', { class: 'pf-card' },
+        h('button', { class: 'pf-row', onclick: () => copyText(link) }, icon('at'),
+          h('div', {}, h('div', { class: 'row-main accent' }, `@${u.username}`), h('div', { class: 'row-sub' }, 'Юзернейм · нажмите, чтобы скопировать ссылку'))),
+        u.bio ? h('div', { class: 'pf-row' }, icon('info'), h('div', {}, h('div', { class: 'row-main pre' }, richText(u.bio)), h('div', { class: 'row-sub' }, 'О себе'))) : null,
+        plan ? h('div', { class: 'pf-row' }, h('span', { class: 'pf-row-emoji' }, plan.emoji), h('div', {}, h('div', { class: 'row-main' }, plan.name), h('div', { class: 'row-sub' }, 'Подписка'))) : null,
+        u.createdAt ? h('div', { class: 'pf-row' }, icon('calendar'), h('div', {}, h('div', { class: 'row-main' }, joinedText(u.createdAt)))) : null),
+      h('div', { class: 'pf-section-title' }, `Подарки${u.giftsCount ? ` · ${u.giftsCount}` : ''}`),
+      gifts,
+      chat ? h('div', { class: 'pf-section-title' }, 'Общие фото') : null,
+      chat ? media : null),
   });
+  return m;
 }
 
 async function giftFromProfile(u) {
@@ -2115,9 +2167,9 @@ function editProfileModal() {
   bio.value = me.bio || '';
   const counter = h('span', { class: 'field-counter' }, `${bio.value.length}/160`);
   bio.addEventListener('input', () => { counter.textContent = `${bio.value.length}/160`; });
+  let color = me.profileColor || PROFILE_COLORS[Math.abs(me.id) % PROFILE_COLORS.length][0];
   const avatarWrap = h('div', { class: 'avatar-edit' });
-  const renderAv = () => avatarWrap.replaceChildren(avatar({ id: me.id, name: S.me.name, src: S.me.avatar }, 110),
-    h('span', { class: 'avatar-edit-overlay' }, icon('camera')));
+  const renderAv = () => avatarWrap.replaceChildren(userAvatar(S.me, 116), h('span', { class: 'avatar-edit-overlay' }, icon('camera')));
   renderAv();
   const fileIn = h('input', { type: 'file', accept: 'image/*', class: 'hidden' });
   fileIn.addEventListener('change', async () => {
@@ -2127,7 +2179,7 @@ function editProfileModal() {
     try {
       const fd = new FormData();
       fd.append('file', await prepareImage(f, 640, true), 'avatar');
-      S.me = (await api.post('/me/avatar', fd)).user;
+      S.me = { ...S.me, ...(await api.post('/me/avatar', fd)).user };
       mergeUser(S.me);
       renderAv();
       toast('Фото обновлено');
@@ -2139,24 +2191,41 @@ function editProfileModal() {
     contextMenu(r.left + r.width / 2 - 80, r.bottom, [
       { icon: 'camera', label: 'Загрузить фото', onClick: () => fileIn.click() },
       { icon: 'trash', label: 'Удалить фото', danger: true, onClick: async () => {
-        try { S.me = (await api.del('/me/avatar')).user; mergeUser(S.me); renderAv(); } catch (e) { toast(errorText(e), 'error'); }
+        try { S.me = { ...S.me, ...(await api.del('/me/avatar')).user }; mergeUser(S.me); renderAv(); } catch (e) { toast(errorText(e), 'error'); }
       } },
     ]);
   });
+  const hero = profileHero({ ...me, profileColor: color }, {
+    avatarNode: h('div', {}, avatarWrap, fileIn),
+    status: me.email || `@${me.username}`,
+    extra: h('button', { class: 'pf-glass-btn', 'aria-label': 'Поделиться', onclick: () => shareLink(`${location.origin}/@${S.me.username}`, S.me.name) }, icon('share')),
+  });
+  const colors = h('div', { class: 'pf-colors' });
+  const renderColors = () => colors.replaceChildren(...PROFILE_COLORS.map(([v, l]) => h('button', {
+    class: `pf-color pc-${v} ${color === v ? 'on' : ''}`, title: l, 'aria-label': l,
+    onclick: () => { color = v; hero.className = `pf-hero pc-${v}`; renderColors(); },
+  })));
+  renderColors();
+  const plan = me.sub ? planById(me.sub) : null;
   openModal({
-    title: 'Мой профиль',
-    className: 'modal-profile',
-    body: h('div', { class: 'profile-form' },
-      h('div', { class: 'profile-hero' }, avatarWrap, fileIn, h('div', { class: 'profile-email' }, me.email)),
-      h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Имя'), name),
-      uname.wrap,
-      h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'О себе'), bio, counter),
-      h('button', { class: 'link-btn', onclick: () => copyText(`${location.origin}/@${S.me.username}`) }, icon('at'), 'Скопировать ссылку на профиль')),
+    className: 'modal-profile2',
+    body: h('div', { class: 'pf' },
+      hero,
+      h('div', { class: 'pf-stats' },
+        h('button', { class: 'pf-stat', onclick: myGiftsModal }, h('b', {}, `🍋 ${me.coins ?? 0}`), h('span', {}, 'лимонов')),
+        h('button', { class: 'pf-stat', onclick: myGiftsModal }, h('b', {}, `🎁 ${me.giftsCount || 0}`), h('span', {}, 'подарков')),
+        h('button', { class: 'pf-stat', onclick: subscriptionsModal }, h('b', {}, plan ? plan.emoji : '👑'), h('span', {}, plan ? plan.short : 'Подписка'))),
+      h('div', { class: 'pf-card pf-form' },
+        h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Имя'), name),
+        uname.wrap,
+        h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'О себе'), bio, counter),
+        h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Цвет профиля'), colors)),
+      me.createdAt ? h('div', { class: 'pf-joined' }, icon('calendar'), joinedText(me.createdAt)) : null),
     actions: [
       { label: 'Отмена', onClick: (c) => c() },
       { label: 'Сохранить', primary: true, onClick: async (close) => {
         try {
-          S.me = (await api.patch('/me', { name: name.value, username: uname.input.value, bio: bio.value })).user;
+          S.me = { ...S.me, ...(await api.patch('/me', { name: name.value, username: uname.input.value, bio: bio.value, profileColor: color })).user };
           mergeUser(S.me);
           close();
           toast('Профиль сохранён');
@@ -2171,46 +2240,156 @@ const ACCENTS = [
   ['lime', 'Лайм'], ['blue', 'Синий'], ['violet', 'Фиолетовый'], ['orange', 'Апельсин'], ['pink', 'Розовый'], ['teal', 'Бирюза'],
 ];
 
+const WALLPAPERS = [
+  ['auto', 'Авто'], ['pattern', 'Узор'], ['mesh', 'Сияние'], ['aurora', 'Аврора'], ['sunset', 'Закат'], ['ocean', 'Океан'], ['plain', 'Без узора'],
+];
+
 function settingsModal() {
-  const seg = h('div', { class: 'segmented' });
-  const renderSeg = () => seg.replaceChildren(...[['system', 'Как в системе'], ['light', 'Светлая'], ['dark', 'Тёмная']].map(([v, l]) =>
-    h('button', { class: S.settings.theme === v ? 'on' : '', onclick: () => { S.settings.theme = v; saveSettings(); renderSeg(); } }, l)));
-  renderSeg();
-  const swatches = h('div', { class: 'swatches' });
-  const renderSw = () => swatches.replaceChildren(...ACCENTS.map(([v, l]) =>
-    h('button', { class: `swatch sw-${v} ${S.settings.accent === v ? 'on' : ''}`, title: l, 'aria-label': l, onclick: () => { S.settings.accent = v; saveSettings(); renderSw(); } })));
-  renderSw();
-  const toggle = (label, sub, key, onChange) => {
+  const body = h('div', { class: 'settings' });
+  const section = (ic, title, ...rows) => h('section', { class: 'set-section' },
+    h('div', { class: 'set-title' }, h('span', { class: 'set-ic' }, icon(ic)), title),
+    h('div', { class: 'set-card' }, rows.flat().filter(Boolean)));
+  const save = () => { saveSettings(); };
+  // Segmented control bound to a local setting.
+  const seg = (key, options, onChange) => {
+    const el = h('div', { class: 'segmented' });
+    const render = () => el.replaceChildren(...options.map(([v, l]) => h('button', {
+      class: S.settings[key] === v ? 'on' : '',
+      onclick: () => { S.settings[key] = v; save(); render(); onChange?.(v); },
+    }, l)));
+    render();
+    return el;
+  };
+  const row = (title, sub, control) => h('div', { class: 'set-row' },
+    h('div', { class: 'set-text' }, h('div', { class: 'row-main' }, title), sub ? h('div', { class: 'row-sub' }, sub) : null), control);
+  const toggleLocal = (title, sub, key, onChange) => {
     const sw = h('span', { class: `switch ${S.settings[key] ? 'on' : ''}` });
     return h('button', {
-      class: 'setting-row',
+      class: 'set-row clickable',
       onclick: async () => {
         let v = !S.settings[key];
         if (onChange) v = await onChange(v);
         S.settings[key] = v;
-        saveSettings();
+        save();
         sw.classList.toggle('on', v);
       },
-    }, h('div', {}, h('div', { class: 'row-main' }, label), h('div', { class: 'row-sub' }, sub)), sw);
+    }, h('div', { class: 'set-text' }, h('div', { class: 'row-main' }, title), sub ? h('div', { class: 'row-sub' }, sub) : null), sw);
   };
-  openModal({
-    title: 'Настройки',
-    body: h('div', { class: 'settings' },
-      h('div', { class: 'settings-label' }, 'Тема'), seg,
-      h('div', { class: 'settings-label' }, 'Цвет акцента'), swatches,
-      h('div', { class: 'settings-label' }, 'Чаты'),
-      toggle('Отправка по Enter', 'Shift+Enter — новая строка', 'enterToSend'),
-      toggle('Push-уведомления', 'Сообщения и звонки, даже когда приложение закрыто', 'notify', async (v) => {
+  // Server-side preference (sync between devices).
+  const prefs = { ...(S.me.prefs || {}) };
+  const savePrefs = async (patch) => {
+    Object.assign(prefs, patch);
+    try { S.me = { ...S.me, ...(await api.patch('/me/prefs', patch)).user }; } catch (e) { toast(errorText(e), 'error'); }
+  };
+  const togglePref = (title, sub, key) => {
+    const sw = h('span', { class: `switch ${prefs[key] ? 'on' : ''}` });
+    return h('button', {
+      class: 'set-row clickable',
+      onclick: () => { const v = !prefs[key]; sw.classList.toggle('on', v); savePrefs({ [key]: v }); },
+    }, h('div', { class: 'set-text' }, h('div', { class: 'row-main' }, title), sub ? h('div', { class: 'row-sub' }, sub) : null), sw);
+  };
+  const segPref = (key, options) => {
+    const el = h('div', { class: 'segmented' });
+    const render = () => el.replaceChildren(...options.map(([v, l]) => h('button', {
+      class: prefs[key] === v ? 'on' : '', onclick: () => { savePrefs({ [key]: v }); render(); },
+    }, l)));
+    render();
+    return el;
+  };
+
+  // Sound pickers: built-in list + "own file".
+  const soundPicker = (kind) => {
+    const key = kind === 'ring' ? 'ringtone' : 'messageSound';
+    const store = kind === 'ring' ? 'ringtone' : 'message';
+    const list = kind === 'ring' ? Sounds.RINGTONES : Sounds.MESSAGE_SOUNDS;
+    const wrap = h('div', { class: 'sound-list' });
+    const fileIn = h('input', { type: 'file', accept: 'audio/*', class: 'hidden' });
+    fileIn.addEventListener('change', async () => {
+      const f = fileIn.files[0];
+      fileIn.value = '';
+      if (!f) return;
+      try {
+        await Sounds.setCustomSound(store, f);
+        S.settings[key] = 'custom';
+        save();
+        render();
+        Sounds.preview(kind, 'custom');
+        toast('Свой звук сохранён на этом устройстве 🎵');
+      } catch (e) { toast(e.message === 'too_big' ? 'Файл больше 3 МБ' : 'Нужен аудиофайл (mp3, ogg, wav, m4a)', 'error'); }
+    });
+    const render = async () => {
+      const customName = await Sounds.customSoundName(store);
+      wrap.replaceChildren(
+        ...Object.entries(list).map(([id, d]) => h('button', {
+          class: `sound-opt ${S.settings[key] === id ? 'on' : ''}`,
+          onclick: () => { S.settings[key] = id; save(); render(); Sounds.preview(kind, id); },
+        }, h('span', { class: 'radio' }), d.name)),
+        h('button', {
+          class: `sound-opt ${S.settings[key] === 'custom' ? 'on' : ''}`,
+          onclick: () => { if (customName) { S.settings[key] = 'custom'; save(); render(); Sounds.preview(kind, 'custom'); } else fileIn.click(); },
+        }, h('span', { class: 'radio' }), customName ? `Свой: ${customName}` : 'Свой звук…'),
+        h('button', { class: 'link-btn sm', onclick: () => fileIn.click() }, icon('music'), customName ? 'Выбрать другой файл' : 'Загрузить свой файл'),
+        fileIn);
+    };
+    render();
+    return wrap;
+  };
+
+  const volume = h('input', { type: 'range', min: 0, max: 1, step: 0.05, value: S.settings.volume, class: 'range' });
+  volume.addEventListener('change', () => { S.settings.volume = Number(volume.value); save(); Sounds.preview('msg', S.settings.messageSound); });
+  const textSize = h('input', { type: 'range', min: 13, max: 21, step: 0.5, value: S.settings.textSize, class: 'range' });
+  const sizeLabel = h('span', { class: 'range-val' }, `${S.settings.textSize}px`);
+  textSize.addEventListener('input', () => { S.settings.textSize = Number(textSize.value); sizeLabel.textContent = `${textSize.value}px`; applyTheme(); });
+  textSize.addEventListener('change', save);
+
+  const swatches = h('div', { class: 'swatches' });
+  const renderSw = () => swatches.replaceChildren(...ACCENTS.map(([v, l]) =>
+    h('button', { class: `swatch sw-${v} ${S.settings.accent === v ? 'on' : ''}`, title: l, 'aria-label': l, onclick: () => { S.settings.accent = v; save(); renderSw(); } })));
+  renderSw();
+  const walls = h('div', { class: 'walls' });
+  const renderWalls = () => walls.replaceChildren(...WALLPAPERS.map(([v, l]) =>
+    h('button', { class: `wall wall-${v} ${S.settings.wallpaper === v ? 'on' : ''}`, onclick: () => { S.settings.wallpaper = v; save(); renderWalls(); } }, h('span', {}, l))));
+  renderWalls();
+
+  body.append(
+    section('sparkles', 'Оформление',
+      row('Стиль', 'Liquid Glass — полупрозрачное «жидкое стекло»', seg('style', [['glass', 'Liquid Glass'], ['classic', 'Классический']])),
+      row('Тема', null, seg('theme', [['system', 'Авто'], ['light', 'Светлая'], ['dark', 'Тёмная']])),
+      h('div', { class: 'set-row col' }, h('div', { class: 'row-main' }, 'Цвет акцента'), swatches),
+      h('div', { class: 'set-row col' }, h('div', { class: 'row-main' }, 'Обои чата'), walls),
+      h('div', { class: 'set-row col' }, h('div', { class: 'row-main' }, 'Размер текста ', sizeLabel), textSize,
+        h('div', { class: 'size-preview', style: { fontSize: 'var(--msg-size)' } }, 'Так будут выглядеть сообщения 🍋')),
+      toggleLocal('Меньше анимаций', 'Для слабых устройств и экономии батареи', 'reduceMotion')),
+    section('bell', 'Уведомления и звуки',
+      toggleLocal('Push-уведомления', 'Сообщения и звонки, даже когда приложение закрыто', 'notify', async (v) => {
         if (!v) { await disablePush(); return false; }
         return enablePush();
       }),
-      h('div', { class: 'settings-label' }, 'Безопасность'),
-      h('button', { class: 'setting-row', onclick: passwordModal },
-        h('div', {}, h('div', { class: 'row-main' }, S.me.hasPassword ? 'Сменить пароль' : 'Задать пароль'),
+      togglePref('Личные чаты', null, 'notifyPrivate'),
+      togglePref('Группы', null, 'notifyGroups'),
+      togglePref('Каналы', null, 'notifyChannels'),
+      togglePref('Звонки', 'Уведомление о входящем звонке', 'notifyCalls'),
+      togglePref('Показывать текст', 'Если выключить — в уведомлении будет просто «Новое сообщение»', 'pushPreview'),
+      toggleLocal('Звуки в приложении', 'Звук при новом сообщении', 'inAppSounds'),
+      toggleLocal('Вибрация', null, 'vibrate'),
+      h('div', { class: 'set-row col' }, h('div', { class: 'row-main' }, 'Громкость'), volume),
+      h('div', { class: 'set-row col' }, h('div', { class: 'row-main' }, 'Звук сообщений'), soundPicker('msg')),
+      h('div', { class: 'set-row col' }, h('div', { class: 'row-main' }, 'Рингтон звонков'), soundPicker('ring'))),
+    section('lock', 'Конфиденциальность',
+      h('div', { class: 'set-row col' }, h('div', { class: 'row-main' }, 'Кто видит время последнего входа'),
+        segPref('lastSeen', [['all', 'Все'], ['nobody', 'Никто']])),
+      h('div', { class: 'set-row col' }, h('div', { class: 'row-main' }, 'Кто может мне звонить'),
+        segPref('calls', [['all', 'Все'], ['contacts', 'Кому я писал'], ['nobody', 'Никто']]))),
+    section('chat', 'Чаты',
+      toggleLocal('Отправка по Enter', 'Shift+Enter — новая строка', 'enterToSend')),
+    section('shield', 'Безопасность',
+      h('button', { class: 'set-row clickable', onclick: passwordModal },
+        h('div', { class: 'set-text' }, h('div', { class: 'row-main' }, S.me.hasPassword ? 'Сменить пароль' : 'Задать пароль'),
           h('div', { class: 'row-sub' }, S.me.hasPassword ? `Вход по @${S.me.username} и паролю` : 'Чтобы входить без Google')), icon('key')),
-      h('button', { class: 'setting-row', onclick: sessionsModal },
-        h('div', {}, h('div', { class: 'row-main' }, 'Активные сеансы'), h('div', { class: 'row-sub' }, 'Где выполнен вход')), icon('devices'))),
-  });
+      h('button', { class: 'set-row clickable', onclick: sessionsModal },
+        h('div', { class: 'set-text' }, h('div', { class: 'row-main' }, 'Активные сеансы'), h('div', { class: 'row-sub' }, 'Где выполнен вход')), icon('devices'))),
+    h('div', { class: 'set-foot' }, `Limoninior · ${S.config.version || 'dev'}`));
+  openModal({ title: 'Настройки', className: 'modal-settings', body });
 }
 
 async function sessionsModal() {

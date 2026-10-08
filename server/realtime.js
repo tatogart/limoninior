@@ -3,6 +3,7 @@ import { Server } from 'socket.io';
 import { config } from './config.js';
 import { q, now } from './db.js';
 import { sessionFromCookie } from './auth.js';
+import { getPrefs } from './prefs.js';
 
 let io = null;
 const online = new Map(); // userId -> number of open sockets
@@ -43,6 +44,7 @@ function contactsOf(userId) {
 function broadcastPresence(userId, isOn) {
   const lastSeen = now();
   q('UPDATE users SET last_seen = ? WHERE id = ?').run(lastSeen, userId);
+  if (getPrefs(q('SELECT prefs FROM users WHERE id = ?').get(userId)).lastSeen === 'nobody') return;
   emitToUsers(contactsOf(userId), 'presence', { userId, online: isOn, lastSeen });
 }
 
@@ -77,6 +79,10 @@ function registerCallHandlers(socket, userId) {
     const peer = chat && q('SELECT u.* FROM chat_members cm JOIN users u ON u.id = cm.user_id WHERE cm.chat_id = ? AND cm.user_id != ?').get(chatId, userId);
     if (!chat || !peer || !q('SELECT 1 FROM chat_members WHERE chat_id = ? AND user_id = ?').get(chatId, userId)) return reply(ack, { error: 'not_found' });
     if (peer.banned || String(peer.google_sub).startsWith('system:')) return reply(ack, { error: 'unavailable' });
+    // Callee's privacy: who may call them.
+    const who = getPrefs(peer).calls;
+    const isContact = !!q('SELECT 1 FROM messages WHERE chat_id = ? AND sender_id = ? LIMIT 1').get(chatId, peer.id);
+    if (who === 'nobody' || (who === 'contacts' && !isContact)) return reply(ack, { error: 'calls_disabled' });
     if (userCall.has(userId)) return reply(ack, { error: 'busy_self' });
     const call = {
       id: crypto.randomUUID(), chatId, from: userId, to: peer.id, video: !!p?.video,
