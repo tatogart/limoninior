@@ -147,7 +147,7 @@ function registerCallHandlers(socket, userId) {
     const c = own(p?.callId);
     if (!c) return;
     const target = socket.id === c.callerSocket ? c.calleeSocket : c.callerSocket;
-    if (target) io.to(target).emit('call:state', { callId: c.id, mic: !!p.mic, cam: !!p.cam });
+    if (target) io.to(target).emit('call:state', { callId: c.id, mic: !!p.mic, cam: !!p.cam, screen: !!p.screen });
   });
 
   socket.on('disconnect', () => {

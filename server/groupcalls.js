@@ -78,7 +78,7 @@ function accessibleRoom({ roomId, token }, userId) {
 
 export function registerGroupCallHandlers(io, socket, userId, { inOneToOne }) {
   const reply = (ack, data) => typeof ack === 'function' && ack(data);
-  const peersOf = (room) => [...room.peers.entries()].map(([sid, p]) => ({ sid, userId: p.userId, mic: p.mic, cam: p.cam }));
+  const peersOf = (room) => [...room.peers.entries()].map(([sid, p]) => ({ sid, userId: p.userId, mic: p.mic, cam: p.cam, screen: !!p.screen }));
 
   function leave() {
     const roomId = socketRoom.get(socket.id);
@@ -159,7 +159,8 @@ export function registerGroupCallHandlers(io, socket, userId, { inOneToOne }) {
     if (!me) return;
     me.mic = !!p?.mic;
     me.cam = !!p?.cam;
-    socket.to(`gc:${room.id}`).emit('gc:peer-state', { sid: socket.id, mic: me.mic, cam: me.cam });
+    me.screen = !!p?.screen;
+    socket.to(`gc:${room.id}`).emit('gc:peer-state', { sid: socket.id, mic: me.mic, cam: me.cam, screen: me.screen });
   });
 
   socket.on('gc:leave', leave);

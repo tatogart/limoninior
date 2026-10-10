@@ -2,6 +2,7 @@
 // Uses the "perfect negotiation" pattern so both sides can add tracks at any time.
 import { api, errorText } from './api.js';
 import { h, icon, avatar, toast, registerOverlay } from './ui.js';
+import { canShareScreen, getScreenTrack } from './calls.js';
 
 const ERR = {
   room_full: 'В звонке уже 8 человек — это максимум',
@@ -23,7 +24,7 @@ export function initGroupCalls(o) {
   const s = ctx.socket;
   s.on('gc:peer-joined', (p) => {
     if (!gc || p.roomId !== gc.roomId) return;
-    addPeer(p.sid, p.userId, p.mic, p.cam);
+    addPeer(p.sid, p.userId, p.mic, p.cam, p.screen);
     render();
   });
   s.on('gc:peer-left', (p) => {
@@ -34,7 +35,7 @@ export function initGroupCalls(o) {
   s.on('gc:peer-state', (p) => {
     const peer = gc?.peers.get(p.sid);
     if (!peer) return;
-    peer.mic = p.mic; peer.cam = p.cam;
+    peer.mic = p.mic; peer.cam = p.cam; peer.screen = !!p.screen;
     render();
   });
   s.on('gc:signal', onSignal);
@@ -108,7 +109,7 @@ export async function joinGroupCall({ roomId, token, video = false, title = '' }
     return toast(ERR[r.error] || errorText({ code: r.error }), 'error');
   }
   Object.assign(gc, { roomId: r.roomId, token: r.token, chatId: r.chatId, title: r.title || title, sid: r.sid });
-  for (const p of r.peers) addPeer(p.sid, p.userId, p.mic, p.cam);
+  for (const p of r.peers) addPeer(p.sid, p.userId, p.mic, p.cam, p.screen);
   startMeter();
   render();
   ctx.onChange?.();
@@ -121,6 +122,7 @@ export function leaveGroupCall() {
   ctx.socket.emit('gc:leave');
   for (const p of g.peers.values()) { try { p.pc.close(); } catch { /* ignore */ } }
   g.local.getTracks().forEach((t) => t.stop());
+  g.screen?.stop();
   clearInterval(g.meterTimer);
   clearInterval(g.timer);
   g.audioCtx?.close?.().catch(() => {});
@@ -137,23 +139,26 @@ async function rejoin() {
   if (r?.error) { toast(ERR[r.error] || 'Звонок прерван', 'error'); return leaveGroupCall(); }
   g.sid = r.sid;
   for (const p of [...g.peers.keys()]) dropPeer(p);
-  for (const p of r.peers) addPeer(p.sid, p.userId, p.mic, p.cam);
+  for (const p of r.peers) addPeer(p.sid, p.userId, p.mic, p.cam, p.screen);
   render();
 }
 
 // ------------------------------------------------------------------ peers
 
-function addPeer(sid, userId, mic, cam) {
+function addPeer(sid, userId, mic, cam, screen = false) {
   if (!gc || sid === gc.sid) return;
   if (gc.peers.has(sid)) dropPeer(sid);
   ctx.ensureUser?.(userId);
   const pc = new RTCPeerConnection({ iceServers: gc.ice });
-  const peer = { sid, userId, pc, stream: new MediaStream(), mic, cam, makingOffer: false, ignoreOffer: false, polite: gc.sid > sid, el: null };
+  const peer = { sid, userId, pc, stream: new MediaStream(), mic, cam, screen, makingOffer: false, ignoreOffer: false, polite: gc.sid > sid, el: null };
   gc.peers.set(sid, peer);
-  for (const t of gc.local.getTracks()) pc.addTrack(t, gc.local);
+  for (const t of gc.local.getAudioTracks()) pc.addTrack(t, gc.local);
+  // Outgoing video: the shared screen wins over the camera.
+  const v = gc.screen || gc.local.getVideoTracks()[0];
+  if (v) pc.addTrack(v, gc.local);
   // Always be ready to receive audio + video even if we send none.
   if (!gc.local.getAudioTracks().length) pc.addTransceiver('audio', { direction: 'recvonly' });
-  if (!gc.local.getVideoTracks().length) pc.addTransceiver('video', { direction: 'recvonly' });
+  if (!v) pc.addTransceiver('video', { direction: 'recvonly' });
   pc.ontrack = ({ track }) => {
     if (!peer.stream.getTracks().includes(track)) peer.stream.addTrack(track);
     track.onunmute = () => render();
@@ -209,7 +214,43 @@ async function onSignal({ from, userId, data }) {
 
 // ------------------------------------------------------------------ controls
 
-function sendState() { ctx.socket.emit('gc:state', { mic: gc.mic, cam: gc.cam }); }
+function sendState() { ctx.socket.emit('gc:state', { mic: gc.mic, cam: gc.cam, screen: !!gc.screen }); }
+
+/** Send `track` as our video to every peer (reusing the video transceiver). */
+async function setOutgoingVideo(track) {
+  for (const p of gc.peers.values()) {
+    const trs = p.pc.getTransceivers().filter((t) => t.receiver.track?.kind === 'video');
+    const tr = trs.find((t) => t.sender.track || /send/.test(t.direction)) || trs.find((t) => t.direction === 'recvonly');
+    if (tr) {
+      if (track && !/send/.test(tr.direction)) tr.direction = 'sendrecv';
+      await tr.sender.replaceTrack(track);
+    } else if (track) p.pc.addTrack(track, gc.local);
+  }
+}
+
+async function toggleScreen() {
+  if (gc.screen) return stopScreen();
+  let track;
+  try { track = await getScreenTrack(); } catch { return; } // cancelled
+  if (!gc) { track.stop(); return; }
+  gc.screen = track;
+  track.onended = () => { if (gc?.screen === track) stopScreen(); };
+  await setOutgoingVideo(track);
+  sendState();
+  toast('Вы показываете экран');
+  render();
+}
+
+async function stopScreen() {
+  const track = gc?.screen;
+  if (!track) return;
+  gc.screen = null;
+  track.stop();
+  gc.selfScreen = null;
+  await setOutgoingVideo(gc.local.getVideoTracks()[0] || null);
+  sendState();
+  render();
+}
 
 function toggleMic() {
   const tracks = gc.local.getAudioTracks();
@@ -230,11 +271,7 @@ async function toggleCam() {
       const s = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' } });
       const track = s.getVideoTracks()[0];
       gc.local.addTrack(track);
-      for (const p of gc.peers.values()) {
-        // Reuse the receive-only video transceiver if there is one, otherwise add a track.
-        const tr = p.pc.getTransceivers().find((t) => t.receiver.track.kind === 'video' && !t.sender.track);
-        if (tr) { tr.direction = 'sendrecv'; await tr.sender.replaceTrack(track); } else p.pc.addTrack(track, gc.local);
-      }
+      if (!gc.screen) await setOutgoingVideo(track); // while sharing, peers keep seeing the screen
       gc.cam = true;
     } catch { return toast('Нет доступа к камере', 'error'); }
   }
@@ -343,15 +380,25 @@ function render() {
     return;
   }
 
-  const grid = h('div', { class: `gc-grid n${Math.min(count, 9)}` });
   const items = [
-    { key: 'me', user: me, stream: gc.local, mic: gc.mic, cam: gc.cam, self: true },
-    ...[...gc.peers.values()].map((p) => ({ key: p.sid, user: ctx.user(p.userId) || { id: p.userId, name: '…' }, stream: p.stream, mic: p.mic, cam: p.cam, peer: p })),
+    { key: 'me', user: me, stream: gc.local, mic: gc.mic, cam: gc.cam, screen: !!gc.screen, self: true },
+    ...[...gc.peers.values()].map((p) => ({ key: p.sid, user: ctx.user(p.userId) || { id: p.userId, name: '…' }, stream: p.stream, mic: p.mic, cam: p.cam, screen: p.screen, peer: p })),
   ];
+  // Whoever shares the screen goes first and big (spotlight layout).
+  const sharer = items.find((it) => it.screen && !it.self) || items.find((it) => it.screen);
+  if (sharer) items.sort((x, y) => (y === sharer) - (x === sharer));
+  const grid = h('div', { class: `gc-grid n${Math.min(count, 9)} ${sharer ? 'spotlight' : ''}` });
   for (const it of items) {
-    const hasVideo = it.cam && it.stream.getVideoTracks().some((t) => t.readyState === 'live' && (it.self || !t.muted));
+    const hasVideo = it.self && it.screen ? true
+      : (it.cam || it.screen) && it.stream.getVideoTracks().some((t) => t.readyState === 'live' && (it.self || !t.muted));
     let video;
-    if (it.self) {
+    if (it.self && it.screen) {
+      if (!gc.selfScreen) {
+        gc.selfScreen = h('video', { autoplay: true, playsInline: true, muted: true, class: 'gc-video' });
+        gc.selfScreen.srcObject = new MediaStream([gc.screen]);
+      }
+      video = gc.selfScreen;
+    } else if (it.self) {
       gc.selfVideo ||= h('video', { autoplay: true, playsInline: true, muted: true, class: 'gc-video mirror' });
       gc.selfVideo.muted = true;
       if (gc.selfVideo.srcObject !== gc.local) gc.selfVideo.srcObject = gc.local;
@@ -366,9 +413,10 @@ function render() {
       video = it.peer.media;
       video.play?.().catch(() => {});
     }
-    const t = h('div', { class: `gc-tile ${hasVideo ? 'has-video' : ''}`, dataset: { tile: it.key } },
+    const t = h('div', { class: `gc-tile ${hasVideo ? 'has-video' : ''} ${it === sharer ? 'screen' : ''}`, dataset: { tile: it.key } },
       video,
       hasVideo ? null : h('div', { class: 'gc-ava' }, avatar(it.user, 84)),
+      it.screen ? h('div', { class: 'gc-screen-tag' }, icon('screen'), it.self ? 'Вы показываете экран' : 'Экран') : null,
       h('div', { class: 'gc-name' }, it.mic ? null : icon('micOff', 'gc-mute'), h('span', {}, it.self ? 'Вы' : it.user.name),
         !it.self && it.peer.pc.connectionState && !['connected', 'new'].includes(it.peer.pc.connectionState) ? h('span', { class: 'gc-conn' }, 'соединение…') : null));
     if (it.peer) it.peer.el = t;
@@ -391,6 +439,7 @@ function render() {
       btn(`glass ${gc.mic ? '' : 'off'}`, gc.mic ? 'mic' : 'micOff', gc.mic ? 'Микрофон' : 'Микр. выкл.', toggleMic),
       btn(`glass ${gc.cam ? 'lit' : ''}`, gc.cam ? 'video' : 'videoOff', 'Камера', toggleCam),
       gc.cam && phone ? btn('glass', 'refresh', 'Повернуть', flipCam) : null,
+      canShareScreen() ? btn(`glass ${gc.screen ? 'lit' : ''}`, 'screen', gc.screen ? 'Остановить' : 'Экран', toggleScreen) : null,
       btn(`glass ${gc.muted ? 'off' : ''}`, gc.muted ? 'volumeOff' : 'volume', gc.muted ? 'Звук выкл.' : 'Звук', toggleSound),
       btn('red', 'phoneDown', 'Выйти', leaveGroupCall))].filter(Boolean));
 }
