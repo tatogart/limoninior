@@ -1,5 +1,5 @@
 // Limoninior service worker: app-shell caching + notification clicks.
-const VERSION = 'v9';
+const VERSION = 'v10';
 const SHELL = `shell-${VERSION}`;
 const ASSETS = [
   '/', '/css/app.css', '/js/app.js', '/js/ui.js', '/js/api.js', '/js/theme.js', '/js/calls.js', '/js/catalog.js', '/js/emoji.js', '/js/sounds.js',

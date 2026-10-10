@@ -322,25 +322,71 @@ export function toast(text, kind = '') {
   }, 2800);
 }
 
+// ---------- system "Back" button (Android) ----------
+// Every overlay (modal, story, drawer, menu) adds a history entry, so Back closes the
+// top overlay instead of leaving the chat or the app. Closing an overlay any other way
+// removes its entry again (history.go is batched, and the popstate it causes is ignored).
+const overlays = []; // close functions to call when Back is pressed
+let pendingBack = 0;
+let ignorePops = 0;
+
+/** Register an overlay; returns `release()` to call when it closes by itself. */
+export function registerOverlay(closeOnBack) {
+  overlays.push(closeOnBack);
+  try { history.pushState({ ...(history.state || {}), overlay: (history.state?.overlay || 0) + 1 }, ''); } catch { /* ignore */ }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const i = overlays.lastIndexOf(closeOnBack);
+    if (i < 0) return; // already closed by Back
+    overlays.splice(i, 1);
+    goBack();
+  };
+}
+
+/** history.back() that the popstate handler ignores, batched with overlay closes. */
+export function goBack() {
+  if (pendingBack++ === 0) {
+    queueMicrotask(() => {
+      const n = pendingBack;
+      pendingBack = 0;
+      ignorePops++;
+      history.go(-n);
+    });
+  }
+}
+
+/** Call first in the popstate handler: true when the event was about an overlay. */
+export function handleBack() {
+  if (ignorePops) { ignorePops--; return true; }
+  const top = overlays.pop();
+  if (!top) return false;
+  top();
+  return true;
+}
+
 let modalStack = [];
 export function openModal({ title, body, actions = [], className = '', onClose } = {}) {
   const root = document.getElementById('modals');
-  const close = () => {
+  let release = null;
+  const close = (fromBack = false) => {
     if (!backdrop.isConnected) return;
     backdrop.classList.remove('show');
     modalStack = modalStack.filter((m) => m !== close);
     setTimeout(() => backdrop.remove(), 220);
+    if (fromBack !== true) release?.();
     onClose?.();
   };
   const header = title !== undefined
     ? h('div', { class: 'modal-header' },
       h('div', { class: 'modal-title' }, title),
-      h('button', { class: 'icon-btn', 'aria-label': 'Закрыть', onclick: close }, icon('close')))
+      h('button', { class: 'icon-btn', 'aria-label': 'Закрыть', onclick: () => close() }, icon('close')))
     : null;
   const footer = actions.length
     ? h('div', { class: 'modal-actions' }, actions.map((a) => h('button', {
       class: `btn ${a.primary ? 'btn-primary' : ''} ${a.danger ? 'btn-danger' : ''}`,
-      onclick: (e) => a.onClick?.(close, e.currentTarget),
+      onclick: (e) => a.onClick?.(() => close(), e.currentTarget),
     }, a.label)))
     : null;
   const dialog = h('div', { class: `modal ${className}`, role: 'dialog', 'aria-modal': 'true' }, header, h('div', { class: 'modal-body' }, body), footer);
@@ -348,7 +394,8 @@ export function openModal({ title, body, actions = [], className = '', onClose }
   root.append(backdrop);
   requestAnimationFrame(() => backdrop.classList.add('show'));
   modalStack.push(close);
-  return { close, dialog };
+  release = registerOverlay(() => close(true));
+  return { close: () => close(), dialog };
 }
 
 export function closeTopModal() {
@@ -374,9 +421,14 @@ export function confirmDialog(text, { ok = 'OK', danger = false } = {}) {
 }
 
 let activeMenu = null;
-export function closeMenu() {
-  activeMenu?.remove();
+let menuRelease = null;
+export function closeMenu(fromBack = false) {
+  if (!activeMenu) return;
+  activeMenu.remove();
   activeMenu = null;
+  const r = menuRelease;
+  menuRelease = null;
+  if (fromBack !== true) r?.();
 }
 
 /** Context menu at (x, y). items: [{ icon, label, danger, onClick }] */
@@ -395,6 +447,7 @@ export function contextMenu(x, y, items) {
   menu.style.top = `${top}px`;
   requestAnimationFrame(() => menu.classList.add('show'));
   activeMenu = menu;
+  menuRelease = registerOverlay(() => closeMenu(true));
 }
 
 document.addEventListener('mousedown', (e) => {
@@ -403,6 +456,6 @@ document.addEventListener('mousedown', (e) => {
 document.addEventListener('touchstart', (e) => {
   if (activeMenu && !activeMenu.contains(e.target)) closeMenu();
 }, { capture: true, passive: true });
-window.addEventListener('resize', closeMenu);
+window.addEventListener('resize', () => closeMenu());
 
 export const isTouch = () => matchMedia('(pointer: coarse)').matches;

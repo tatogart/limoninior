@@ -1,6 +1,6 @@
 // Stories: 24-hour photos / text cards from your contacts (like Telegram).
 import { api, errorText } from './api.js';
-import { h, icon, avatar, timeHM, plural, toast, openModal, confirmDialog, isTouch, nameWithBadge } from './ui.js';
+import { h, icon, avatar, timeHM, plural, toast, openModal, confirmDialog, isTouch, nameWithBadge, registerOverlay } from './ui.js';
 
 export const STORY_BGS = [
   ['#a8e063', '#56ab2f'], ['#f7971e', '#ffd200'], ['#ff6a88', '#ff99ac'], ['#7f7fd5', '#86a8e7'],
@@ -98,6 +98,7 @@ function openViewer(groupIndex, storyIndex = null) {
   document.body.append(root);
   requestAnimationFrame(() => root.classList.add('show'));
   v.root = root;
+  v.release = registerOverlay(() => closeViewer(true));
 
   const group = () => feed[v.gi];
   const story = () => group()?.stories[v.si];
@@ -235,10 +236,11 @@ function openViewer(groupIndex, storyIndex = null) {
   show();
 }
 
-export function closeViewer() {
+export function closeViewer(fromBack = false) {
   const v = viewer;
   if (!v) return false;
   viewer = null;
+  if (fromBack !== true) v.release?.();
   cancelAnimationFrame(v.raf);
   clearTimeout(v.holdTimer);
   document.removeEventListener('keydown', v.onKey, true);

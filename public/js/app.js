@@ -2,13 +2,13 @@ import { io } from '/vendor/socket.io.esm.min.js';
 import { api, errorText } from './api.js';
 import {
   h, icon, avatar, timeHM, listTime, dayLabel, lastSeenText, plural, richText, emojiCount,
-  toast, openModal, closeTopModal, confirmDialog, contextMenu, closeMenu, isTouch, badge, nameWithBadge, linkRisk, bytes,
+  toast, openModal, closeTopModal, confirmDialog, contextMenu, closeMenu, registerOverlay, handleBack, goBack, isTouch, badge, nameWithBadge, linkRisk, bytes,
 } from './ui.js';
 import { STICKER_PACKS, stickerInfo, GIFTS, giftById, DAILY_BONUS, REACTIONS, PLANS, planById, isDangerousFile, fileExt } from './catalog.js';
 import { initCalls, startCall, inCall } from './calls.js';
 import * as Sounds from './sounds.js';
 import { EMOJI } from './emoji.js';
-import { initStories, storiesChanged, storyViewEvent, setStripVisible, openComposer as newStory, openStoryById, storyQuote, closeViewer as closeStoryViewer } from './stories.js';
+import { initStories, storiesChanged, storyViewEvent, setStripVisible, openComposer as newStory, openStoryById, storyQuote } from './stories.js';
 
 // ============================================================ state
 
@@ -861,6 +861,7 @@ function openChat(id, { fromHistory = false } = {}) {
   if (S.current && V.input) S.drafts.set(S.current, V.input.value);
   cancelRecording();
   closeChatSearch();
+  if (V.panel && panelRelease) togglePanel(false);
   const wasOpen = !!S.current;
   S.current = id;
   S.reply = null;
@@ -931,24 +932,18 @@ function closeChat({ fromHistory = false } = {}) {
   if (!S.current) return;
   cancelRecording();
   closeChatSearch();
+  if (V.panel && panelRelease) togglePanel(false);
   if (V.input) S.drafts.set(S.current, V.input.value);
   S.current = null;
   V.layout.classList.remove('chat-open');
   renderChatList();
   setTimeout(() => { if (!S.current) V.pane.replaceChildren(emptyPane()); }, 260);
-  if (!fromHistory && history.state?.chat) history.back();
+  if (!fromHistory && history.state?.chat) goBack();
 }
 
 window.addEventListener('popstate', (e) => {
-  closeMenu();
-  if (closeStoryViewer()) {
-    if (S.current) history.pushState({ chat: S.current }, '', '/');
-    return;
-  }
-  if (closeTopModal()) {
-    if (S.current) history.pushState({ chat: S.current }, '', '/');
-    return;
-  }
+  // Back closes the top overlay (story, window, menu, drawer) first.
+  if (handleBack()) return;
   if (e.state?.chat && S.chats.has(e.state.chat)) openChat(e.state.chat, { fromHistory: true });
   else closeChat({ fromHistory: true });
 });
@@ -1874,9 +1869,13 @@ function canGift(c) {
   return c?.type === 'private' && !peerOf(c)?.official;
 }
 
-function togglePanel(force) {
+let panelRelease = null;
+function togglePanel(force, fromBack = false) {
   const open = force ?? V.panel.classList.contains('hidden');
   const stick = isViewingBottom();
+  // Phone Back closes the panel first (like Telegram).
+  if (open && !panelRelease && isTouch()) panelRelease = registerOverlay(() => togglePanel(false, true));
+  if (!open && panelRelease) { const r = panelRelease; panelRelease = null; if (fromBack !== true) r(); }
   // On phones the panel replaces the keyboard instead of stacking on top of it.
   if (open && isTouch() && document.activeElement === V.input) V.input.blur();
   V.panel.classList.toggle('hidden', !open);
@@ -2172,6 +2171,7 @@ function openChatSearch() {
   V.searchBar.replaceChildren(h('div', { class: 'chat-search-row' }, icon('search', 'cs-ic'), input,
     h('button', { class: 'icon-btn', 'aria-label': 'Закрыть поиск', onclick: closeChatSearch }, icon('close'))), results);
   V.searchBar.classList.remove('hidden');
+  if (!searchRelease) searchRelease = registerOverlay(() => closeChatSearch(true));
   V.view?.classList.add('searching');
   input.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeChatSearch(); } });
   input.addEventListener('input', () => {
@@ -2193,8 +2193,12 @@ function openChatSearch() {
   setTimeout(() => input.focus(), 30);
 }
 
-function closeChatSearch() {
+let searchRelease = null;
+function closeChatSearch(fromBack = false) {
   if (!V.searchBar || V.searchBar.classList.contains('hidden')) return;
+  const r = searchRelease;
+  searchRelease = null;
+  if (r && fromBack !== true) r();
   V.searchBar.classList.add('hidden');
   V.searchBar.replaceChildren();
   V.view?.classList.remove('searching');
@@ -2632,9 +2636,12 @@ async function deleteChannel(c) {
 function openDrawer() {
   const me = S.me;
   let backdrop;
-  const close = () => {
+  let release = null;
+  const close = (fromBack = false) => {
+    if (!backdrop.classList.contains('show')) return;
     backdrop.classList.remove('show');
     setTimeout(() => backdrop.remove(), 250);
+    if (fromBack !== true) release?.();
   };
   const item = (ic, label, onClick, cls = '') => h('button', { class: `drawer-item ${cls}`, onclick: () => { close(); onClick(); } }, icon(ic), label);
   const themeToggle = h('button', {
@@ -2677,6 +2684,7 @@ function openDrawer() {
   backdrop = h('div', { class: 'drawer-backdrop', onclick: (e) => { if (e.target === backdrop) close(); } }, panel);
   document.body.append(backdrop);
   requestAnimationFrame(() => backdrop.classList.add('show'));
+  release = registerOverlay(() => close(true));
 }
 
 function openInfo(c) {
