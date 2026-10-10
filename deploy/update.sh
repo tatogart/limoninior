@@ -24,10 +24,12 @@ main() {
     write_status false "не удалось связаться с GitHub"
     exit 0
   fi
-  local local_rev remote_rev
-  local_rev=$(git rev-parse HEAD)
+  local deployed_rev remote_rev
+  # Сравниваем с тем, что реально установлено (а не с git): если прошлая установка
+  # упала, она повторится при следующем запуске таймера.
+  deployed_rev=$(cat /opt/limoninior/.deployed-rev 2>/dev/null)
   remote_rev=$(git rev-parse "origin/$BRANCH")
-  if [[ "$local_rev" == "$remote_rev" && ! -f $flag ]]; then
+  if [[ "$deployed_rev" == "$remote_rev" && ! -f $flag ]]; then
     write_status true "актуальная версия"
     exit 0
   fi

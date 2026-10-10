@@ -162,6 +162,39 @@ function updateBadge() {
 
 // ============================================================ boot
 
+// ?ref=<username> from an invite link: remember it until the new account is ready.
+const REF_KEY = 'limoninior.ref';
+(function captureRef() {
+  try {
+    const u = new URL(location.href);
+    const ref = u.searchParams.get('ref');
+    if (ref && /^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(ref)) localStorage.setItem(REF_KEY, ref);
+    if (ref !== null) { u.searchParams.delete('ref'); history.replaceState(history.state, '', u.pathname + u.search + u.hash); }
+  } catch { /* ignore */ }
+})();
+const storedRef = () => { try { return localStorage.getItem(REF_KEY); } catch { return null; } };
+
+async function claimReferral() {
+  const ref = storedRef();
+  if (!ref || !S.me || S.me.needsProfile) return;
+  try {
+    const r = await api.post('/me/referral', { ref });
+    S.me = r.user;
+    localStorage.removeItem(REF_KEY);
+    openModal({
+      className: 'modal-small',
+      body: h('div', { class: 'ref-welcome' }, h('div', { class: 'ref-gift' }, '🎁'),
+        h('h2', {}, 'Подарок за приглашение!'),
+        h('p', {}, `Вас пригласил @${r.inviter}. Вам начислена подписка Plus на месяц — бонусы ×2 и файлы до 50 МБ.`)),
+      actions: [{ label: 'Круто!', primary: true, onClick: (c) => c() }],
+    });
+  } catch (e) {
+    if (!e.status) return; // offline: try next time
+    try { localStorage.removeItem(REF_KEY); } catch { /* ignore */ }
+    if (e.code !== 'ref_used' && e.code !== 'ref_too_late') toast(errorText(e), 'error');
+  }
+}
+
 async function boot() {
   registerServiceWorker();
   applyTheme();
@@ -292,6 +325,15 @@ function renderLogin() {
     S.config.googleClientId ? h('div', { class: 'or' }, h('span', {}, 'или')) : null,
     gbtn,
   );
+  const ref = storedRef();
+  if (ref) {
+    api.get(`/ref/${encodeURIComponent(ref)}`).then(({ user }) => {
+      card.insertBefore(h('div', { class: 'ref-banner' }, avatar(user, 40),
+        h('div', {}, h('b', {}, `${user.name} приглашает вас`), h('span', {}, '🎁 Зарегистрируйтесь — и получите Plus на месяц в подарок')),
+      ), card.querySelector('form') || card.firstChild.nextSibling);
+      setMode('register');
+    }).catch(() => {});
+  }
   if (S.config.devLogin) {
     const inp = h('input', { class: 'input', placeholder: 'Имя для dev-входа (латиница)', maxLength: 32 });
     const go = async () => {
@@ -404,6 +446,7 @@ async function logout() {
 
 function startApp() {
   mergeUser(S.me);
+  setTimeout(claimReferral, 1200);
   buildLayout();
   connectSocket();
   loadChats().then(handleDeepLink);
@@ -2060,6 +2103,39 @@ document.addEventListener('mousedown', (e) => {
   togglePanel(false);
 });
 
+// ============================================================ referrals
+
+async function referralModal() {
+  const link = `${location.origin}/?ref=${S.me.username}`;
+  const list = h('div', { class: 'ref-list' }, h('span', { class: 'spinner' }));
+  const stats = h('div', { class: 'ref-stats' });
+  openModal({
+    title: 'Пригласить друзей',
+    className: 'modal-ref',
+    body: h('div', { class: 'stack' },
+      h('div', { class: 'ref-hero' },
+        h('div', { class: 'ref-gift' }, '🎁'),
+        h('div', { class: 'ref-hero-title' }, 'Месяц подписки — вам и другу'),
+        h('div', { class: 'ref-hero-sub' }, 'Друг регистрируется по вашей ссылке и получает Plus на месяц. А вам продлеваем подписку на месяц — или дарим Plus, если подписки нет.')),
+      h('button', { class: 'ref-link', onclick: () => copyText(link) }, h('span', { class: 'ellipsis' }, link.replace(/^https?:\/\//, '')), icon('copy')),
+      h('div', { class: 'ref-actions' },
+        h('button', { class: 'btn btn-primary', onclick: () => shareLink(link, 'Залетай в Limoninior — по моей ссылке Plus на месяц в подарок 🍋') }, icon('share'), 'Поделиться'),
+        h('button', { class: 'btn btn-ghost', onclick: () => copyText(link) }, icon('copy'), 'Копировать')),
+      stats,
+      list),
+  });
+  try {
+    const r = await api.get('/referrals');
+    stats.replaceChildren(
+      h('div', { class: 'ref-stat' }, h('b', {}, String(r.invited.length)), h('span', {}, plural(r.invited.length, 'приглашён', 'приглашено', 'приглашено'))),
+      h('div', { class: 'ref-stat' }, h('b', {}, `+${r.rewarded}`), h('span', {}, `${plural(r.rewarded, 'месяц', 'месяца', 'месяцев')} подписки`)));
+    list.replaceChildren(...(r.invited.length ? r.invited.map((u) => h('div', { class: 'ref-row' }, avatar(u, 40),
+      h('div', { class: 'grow' }, h('div', { class: 'row-main' }, nameWithBadge(u.name, u)), h('div', { class: 'row-sub' }, `@${u.username} · ${dayLabel(u.joinedAt)}`)),
+      h('span', { class: `pill ${u.rewarded ? '' : 'muted'}` }, u.rewarded ? '+1 месяц' : 'без бонуса')))
+      : [h('div', { class: 'list-note' }, 'Пока никого — отправьте ссылку друзьям!')]));
+  } catch (e) { list.replaceChildren(h('div', { class: 'list-note' }, errorText(e))); }
+}
+
 // ============================================================ Telegram-style extras
 
 const FORWARDABLE = new Set(['text', 'image', 'sticker', 'file', 'voice']);
@@ -2669,6 +2745,7 @@ function openDrawer() {
       item('gift', 'Подарки и лимоны', myGiftsModal),
       item('crown', S.me.subUntil ? `${planById(S.me.sub)?.name || 'Подписка'} ✓` : 'Limoninior Premium', subscriptionsModal, 'premium-item'),
       item('group', 'Создать группу', newGroupModal),
+      item('gift', 'Пригласить друзей', referralModal, 'ref-item'),
       item('sparkles', 'Новая история', newStory),
       item('megaphone', 'Создать канал', newChannelModal),
       item('search', 'Каталог каналов', popularChannelsModal),

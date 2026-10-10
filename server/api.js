@@ -14,6 +14,7 @@ import { sendPush, saveSubscription, removeSubscription, vapidPublicKey } from '
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { getPrefs, cleanPrefs, PROFILE_COLORS } from './prefs.js';
+import { normIp } from './ipban.js';
 import { isOnline, emitToUser, emitToUsers, emitToChat, memberIds, disconnectSession, setCallHooks } from './realtime.js';
 
 export const api = express.Router();
@@ -518,8 +519,92 @@ api.delete('/sessions', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- referral program ----------
+// Invite link: https://domain/?ref=<username>. A new account that comes through it gets
+// Plus for a month; the inviter gets a month added to their current subscription (or Plus).
+
+const REF_DAYS = 30;
+const REF_WINDOW = 7 * 864e5; // the new account must claim within a week of registering
+const REF_MAX_REWARDS = 100; // per inviter
+
+/** The official "Limoninior" account used for announcements. */
+export function officialUser() {
+  let u = q('SELECT * FROM users WHERE google_sub = ?').get(OFFICIAL_SUB);
+  if (!u) {
+    const t = now();
+    const taken = q("SELECT 1 FROM users WHERE username = 'limoninior'").get();
+    q(`INSERT INTO users (google_sub, email, username, name, bio, verified, created_at, last_seen)
+       VALUES (?, '', ?, 'Limoninior', 'Официальный аккаунт мессенджера', 1, ?, ?)`)
+      .run(OFFICIAL_SUB, taken ? null : 'limoninior', t, t);
+    u = q('SELECT * FROM users WHERE google_sub = ?').get(OFFICIAL_SUB);
+  }
+  return u;
+}
+
+/** Add `days` to the user's subscription: extends the active plan, otherwise starts Plus. */
+function addSubscriptionDays(userId, days) {
+  const u = q('SELECT * FROM users WHERE id = ?').get(userId);
+  const active = activePlan(u);
+  const tier = active ? u.sub_tier : 'plus';
+  const until = (active ? u.sub_until : now()) + days * 864e5;
+  q('UPDATE users SET sub_tier = ?, sub_until = ? WHERE id = ?').run(tier, until, userId);
+  return { plan: planById(tier), until };
+}
+
+function officialNote(userId, text) {
+  const off = officialUser();
+  postMessage(ensurePrivateChat(off.id, userId), off.id, { kind: 'text', text });
+  pushMe(userId);
+}
+
+// Public: who invited you (for the banner on the sign-in screen).
+api.get('/ref/:username', checkLimiter, (req, res) => {
+  const u = q('SELECT * FROM users WHERE username = ? AND banned = 0').get(String(req.params.username || '').replace(/^@/, ''));
+  if (!u || u.google_sub === OFFICIAL_SUB) return bad(res, 'not_found', 404);
+  res.json({ user: { name: u.name, username: u.username, avatar: mediaUrl(u.avatar), id: u.id } });
+});
+
+api.post('/me/referral', requireAuth, requireProfile, (req, res) => {
+  const me = q('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  if (me.referred_by) return bad(res, 'ref_used');
+  if (now() - me.created_at > REF_WINDOW) return bad(res, 'ref_too_late');
+  const inviter = q('SELECT * FROM users WHERE username = ? AND banned = 0').get(String(req.body?.ref || '').replace(/^@/, ''));
+  if (!inviter || inviter.id === me.id || inviter.google_sub === OFFICIAL_SUB) return bad(res, 'ref_invalid');
+  if (inviter.created_at > me.created_at) return bad(res, 'ref_invalid');
+  // Anti-abuse: no reward when the new account comes from the inviter's own network.
+  const ip = normIp(req.ip);
+  const sameIp = q('SELECT 1 FROM user_ips WHERE user_id = ? AND ip = ?').get(inviter.id, ip)
+    || q('SELECT 1 FROM sessions WHERE user_id = ? AND ip = ?').get(inviter.id, req.ip)
+    || q('SELECT 1 FROM users u JOIN user_ips i ON i.user_id = u.id WHERE u.referred_by = ? AND i.ip = ?').get(inviter.id, ip);
+  q('UPDATE users SET referred_by = ? WHERE id = ?').run(inviter.id, me.id);
+  if (sameIp) {
+    audit(me.id, req.ip, 'referral_suspicious', { inviter: inviter.id });
+    return bad(res, 'ref_same_network');
+  }
+  q('UPDATE users SET ref_rewarded = 1 WHERE id = ?').run(me.id);
+  const mine = addSubscriptionDays(me.id, REF_DAYS);
+  officialNote(me.id, `🎁 Вы пришли по приглашению @${inviter.username} — дарим ${mine.plan.emoji} ${mine.plan.name} на месяц (до ${new Date(mine.until).toLocaleDateString('ru-RU')}). Приглашайте друзей — и получайте ещё!`);
+  const rewarded = q('SELECT COUNT(*) AS n FROM users WHERE referred_by = ? AND ref_rewarded = 1').get(inviter.id).n;
+  if (rewarded <= REF_MAX_REWARDS) {
+    const theirs = addSubscriptionDays(inviter.id, REF_DAYS);
+    officialNote(inviter.id, `🎉 По вашей ссылке зарегистрировался ${me.name} (@${me.username})! ${theirs.plan.emoji} ${theirs.plan.name} продлена на месяц — до ${new Date(theirs.until).toLocaleDateString('ru-RU')}.`);
+  }
+  audit(me.id, req.ip, 'referral', { inviter: inviter.id });
+  res.json({ user: meUser(q('SELECT * FROM users WHERE id = ?').get(me.id)), inviter: inviter.username });
+});
+
 // Everything below needs a completed profile (username chosen).
 api.use(requireAuth, requireProfile);
+
+api.get('/referrals', (req, res) => {
+  const rows = q('SELECT * FROM users WHERE referred_by = ? ORDER BY created_at DESC LIMIT 200').all(req.user.id);
+  res.json({
+    code: req.user.username,
+    invited: rows.map((u) => ({ ...publicUser(u), rewarded: !!u.ref_rewarded, joinedAt: u.created_at })),
+    rewarded: rows.filter((u) => u.ref_rewarded).length,
+    days: REF_DAYS,
+  });
+});
 
 // ---------- users ----------
 

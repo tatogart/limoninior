@@ -319,3 +319,6 @@ db.exec(`
     PRIMARY KEY (story_id, user_id)
   ) WITHOUT ROWID;
 `);
+
+addColumn('users', 'referred_by', 'INTEGER');
+addColumn('users', 'ref_rewarded', 'INTEGER NOT NULL DEFAULT 0');

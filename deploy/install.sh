@@ -46,13 +46,19 @@ fi
 echo "==> Файлы"
 id limoninior >/dev/null 2>&1 || useradd --system --home "$APP_DIR" --shell /usr/sbin/nologin limoninior
 mkdir -p "$APP_DIR/data" "$CONF_DIR"
-rsync -a --delete --exclude node_modules --exclude data --exclude .env --exclude .git --exclude VERSION "$SRC_DIR/" "$APP_DIR/"
+rsync -a --delete --exclude node_modules --exclude data --exclude .env --exclude .git --exclude VERSION --exclude .deployed-rev --exclude .lock-hash "$SRC_DIR/" "$APP_DIR/"
 if git -C "$SRC_DIR" rev-parse HEAD >/dev/null 2>&1; then
   git -C "$SRC_DIR" log -1 --format='%h от %cd' --date=format:'%d.%m.%Y %H:%M' > "$APP_DIR/VERSION"
   BRANCH=$(git -C "$SRC_DIR" rev-parse --abbrev-ref HEAD)
 fi
 cd "$APP_DIR"
-npm ci --omit=dev --no-audit --no-fund --loglevel=error
+# Зависимости ставим заново только если они поменялись (и сначала из локального кэша) —
+# так обновление не ломается, когда npm временно недоступен.
+lock_hash=$(sha256sum package-lock.json | cut -d' ' -f1)
+if [[ ! -d node_modules || "$(cat .lock-hash 2>/dev/null)" != "$lock_hash" ]]; then
+  npm ci --omit=dev --no-audit --no-fund --loglevel=error --prefer-offline || npm ci --omit=dev --no-audit --no-fund --loglevel=error
+  echo "$lock_hash" > .lock-hash
+fi
 
 cat > $CONF_DIR/deploy.conf <<EOF
 DOMAIN=$DOMAIN
@@ -170,6 +176,8 @@ if [[ -n "${NEW_SECRET:-}" ]]; then
   echo "========================================="
 fi
 echo
+# Отметка «эта версия установлена» — автообновление повторит попытку, если установка упала.
+git -C "$SRC_DIR" rev-parse HEAD > "$APP_DIR/.deployed-rev" 2>/dev/null || true
 echo "Готово: https://$DOMAIN  (версия $(cat "$APP_DIR/VERSION" 2>/dev/null || echo dev))"
 echo "Автообновление включено: сервер сам подтягивает новые версии с GitHub каждые 2 минуты."
 }

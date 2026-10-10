@@ -8,7 +8,7 @@ import { requireAuth, isAdminUser } from './auth.js';
 import { verifyTotp } from './totp.js';
 import { isOnline, disconnectUser, disconnectSession, sessionOnline, disconnectIp } from './realtime.js';
 import { banIp, unbanIp, listIpBans, userIps, normIp, validIp } from './ipban.js';
-import { ensurePrivateChat, postMessage, pushMe, pushChat, deleteChat, OFFICIAL_SUB, sellerUser, activePlan } from './api.js';
+import { ensurePrivateChat, postMessage, pushMe, pushChat, deleteChat, OFFICIAL_SUB, sellerUser, activePlan, officialUser } from './api.js';
 import { planById } from '../public/js/catalog.js';
 
 /**
@@ -245,20 +245,6 @@ admin.post('/users/:id/coins', (req, res) => {
   pushMe(u.id);
   res.json({ ok: true });
 });
-
-/** The official "Limoninior" account used for announcements. */
-function officialUser() {
-  let u = q('SELECT * FROM users WHERE google_sub = ?').get(OFFICIAL_SUB);
-  if (!u) {
-    const t = now();
-    const taken = q("SELECT 1 FROM users WHERE username = 'limoninior'").get();
-    q(`INSERT INTO users (google_sub, email, username, name, bio, verified, created_at, last_seen)
-       VALUES (?, '', ?, 'Limoninior', 'Официальный аккаунт мессенджера', 1, ?, ?)`)
-      .run(OFFICIAL_SUB, taken ? null : 'limoninior', t, t);
-    u = q('SELECT * FROM users WHERE google_sub = ?').get(OFFICIAL_SUB);
-  }
-  return u;
-}
 
 admin.post('/broadcast', (req, res) => {
   const text = String(req.body?.text || '').trim().slice(0, 4096);
