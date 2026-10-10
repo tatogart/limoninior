@@ -95,7 +95,7 @@ const signal = (data) => ctx.socket.emit('call:signal', { callId: call?.id, data
 // ---------------------------------------------------------------- outgoing
 
 export async function startCall(chat, peer, video) {
-  if (call) return toast('Сначала завершите текущий звонок');
+  if (call || ctx?.busy?.()) return toast('Сначала завершите текущий звонок');
   if (!window.RTCPeerConnection || !navigator.mediaDevices?.getUserMedia) return toast('Браузер не поддерживает звонки', 'error');
   call = { id: null, chatId: chat.id, peer, video, role: 'caller', status: 'calling', mic: true, cam: video, peerMic: true, peerCam: video, speaker: true, loud: video || !isPhone() };
   render();

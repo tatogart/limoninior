@@ -6,6 +6,7 @@ import {
 } from './ui.js';
 import { STICKER_PACKS, stickerInfo, GIFTS, giftById, DAILY_BONUS, REACTIONS, PLANS, planById, isDangerousFile, fileExt } from './catalog.js';
 import { initCalls, startCall, inCall } from './calls.js';
+import { initGroupCalls, startGroupCall, joinGroupCall, leaveGroupCall, inGroupCall, currentRoomId, createCallLink, callLink, callInfo } from './groupcall.js';
 import * as Sounds from './sounds.js';
 import { EMOJI } from './emoji.js';
 import { initStories, storiesChanged, storyViewEvent, setStripVisible, openComposer as newStory, openStoryById, storyQuote } from './stories.js';
@@ -96,7 +97,7 @@ async function ensureUser(id) {
   pendingUsers.add(id);
   try {
     mergeUser((await api.get(`/users/${id}`)).user);
-    if (S.current) renderMessages();
+    if (S.current) { renderMessages(); renderGcBar(); }
   } catch { /* deleted user */ }
 }
 function chatAvatar(c, size) {
@@ -133,6 +134,7 @@ function messagePreview(m) {
   if (m.kind === 'file') return `📎 ${m.extra?.name || 'Файл'}`;
   if (m.kind === 'call') return callText(m);
   if (m.kind === 'voice') return `🎤 Голосовое ${fmtDur(m.extra?.duration || 0)}`;
+  if (m.kind === 'gcall') return m.extra?.status === 'active' ? '📞 Идёт групповой звонок' : '📞 Групповой звонок';
   return m.text.replace(/\s+/g, ' ');
 }
 
@@ -453,7 +455,7 @@ function startApp() {
   maybeOfferPush();
   setInterval(() => { if (S.current) renderHeaderStatus(); }, 30_000);
   setInterval(refreshChannelStats, 20_000);
-  history.replaceState({ root: true }, '', /^\/(@|join\/)/.test(location.pathname) ? location.pathname : '/');
+  history.replaceState({ root: true }, '', /^\/(@|join\/|call\/)/.test(location.pathname) ? location.pathname : '/');
 }
 
 function buildLayout() {
@@ -522,9 +524,11 @@ function upsertChat(c) {
 
 async function handleDeepLink() {
   const inv = location.pathname.match(/^\/join\/([A-Za-z0-9_-]{8,32})$/);
+  const callTok = location.pathname.match(/^\/call\/([A-Za-z0-9_-]{10,40})$/);
   const m = location.pathname.match(/^\/@([A-Za-z][A-Za-z0-9_]{4,31})$/);
   history.replaceState({ root: true }, '', '/');
   if (inv) return openInvite(inv[1]);
+  if (callTok) return callLinkPreview(callTok[1]);
   if (!m) return;
   try {
     if (m[1].toLowerCase() === S.me.username.toLowerCase()) return openSaved();
@@ -600,14 +604,23 @@ function connectSocket() {
     upsertChat(c);
     renderChatList();
     updateBadge();
-    if (c.id === S.current) { renderHeader(); renderComposerMode(); renderPinBar(); }
+    if (c.id === S.current) { renderHeader(); renderComposerMode(); renderPinBar(); renderGcBar(); }
   });
   s.on('message:reactions', applyReactions);
   s.on('stories', storiesChanged);
   s.on('story:view', storyViewEvent);
   s.on('comment', onCommentEvent);
   s.on('comment:delete', onCommentEvent);
-  initCalls({ socket: s, userById: (id) => S.users.get(id) });
+  initCalls({ socket: s, userById: (id) => S.users.get(id), busy: inGroupCall });
+  initGroupCalls({
+    socket: s,
+    me: () => S.me,
+    user: (id) => (id === S.me.id ? S.me : S.users.get(id)),
+    ensureUser,
+    inOneToOne: inCall,
+    onChange: () => { if (isGroup(curChat())) renderGcBar(); },
+  });
+  s.on('gc:chat', onGroupCallChat);
   s.on('chat:removed', ({ chatId }) => {
     S.chats.delete(chatId);
     S.msgs.delete(chatId);
@@ -1011,9 +1024,15 @@ function buildChatView(c) {
     V.callBtns = h('div', { class: 'header-calls' }),
     h('button', { class: 'icon-btn', 'aria-label': 'Поиск по чату', title: 'Поиск по чату', onclick: openChatSearch }, icon('search')),
     h('button', { class: 'icon-btn', 'aria-label': 'Ещё', onclick: (e) => chatMoreMenu(e.currentTarget) }, icon('more')),
+    V.gcBar = h('div', { class: 'gc-bar hidden' }),
     V.pinBar = h('div', { class: 'pin-bar hidden' }),
     V.searchBar = h('div', { class: 'chat-search hidden' }));
   const cc = c;
+  if (c.type === 'group') {
+    V.callBtns.append(
+      h('button', { class: 'icon-btn', 'aria-label': 'Групповой звонок', title: 'Групповой звонок', onclick: () => groupCallFromChat(cc, false) }, icon('phone')),
+      h('button', { class: 'icon-btn', 'aria-label': 'Групповой видеозвонок', title: 'Групповой видеозвонок', onclick: () => groupCallFromChat(cc, true) }, icon('video')));
+  }
   if (c.type === 'private' && !peerOf(c)?.official) {
     V.callBtns.append(
       h('button', { class: 'icon-btn', 'aria-label': 'Позвонить', title: 'Голосовой звонок', onclick: () => startCall(cc, peerOf(cc), false) }, icon('phone')),
@@ -1064,6 +1083,7 @@ function buildChatView(c) {
   renderHeader();
   renderComposerMode();
   renderPinBar();
+  renderGcBar();
   autosize();
   updateSendBtn();
 }
@@ -1198,7 +1218,8 @@ function renderMessages({ stick = false, keepOffset = false } = {}) {
     const sender = S.users.get(m.senderId);
     const read = m.senderId === S.me.id && typeof m.id === 'number' && m.id <= c.peerReadId;
     const sig = [m.editedAt, m.text, first, last, read, m.pending, m.views, m.comments, m.myReaction, JSON.stringify(m.reactions || []), sender?.name, sender?.avatar,
-      m.replyTo?.id, m.replyTo && userName(m.replyTo.senderId)].join('|');
+      m.replyTo?.id, m.replyTo && userName(m.replyTo.senderId),
+      m.kind === 'gcall' ? `${m.extra?.status}:${m.extra?.duration}:${c.groupCall?.roomId === m.extra?.roomId}` : ''].join('|');
     let cached = nodeCache.get(key);
     if (!cached || cached.sig !== sig) {
       if (!cached && m.pending && !animKeys.has(key)) animKeys.set(key, { type: 'send', t: performance.now() });
@@ -1337,6 +1358,17 @@ function messageEl(c, m, first, last, read) {
   if (m.kind === 'voice') {
     bubble.classList.add('voice-bubble');
     bubble.append(voiceEl(m), meta);
+    return finishRow(c, m, bubble, { mine, group, first, last });
+  }
+  if (m.kind === 'gcall') {
+    const x = m.extra || {};
+    const live = x.status === 'active' && curChat()?.groupCall?.roomId === x.roomId;
+    bubble.classList.add('call-bubble');
+    bubble.append(h('button', { class: 'call-card', onclick: () => (live ? joinGroupCall({ roomId: x.roomId, title: chatTitle(c) }) : groupCallFromChat(c, false)) },
+      h('div', { class: `call-ic ${live ? 'live' : ''}` }, icon(x.video ? 'video' : 'phone')),
+      h('div', {}, h('div', { class: 'call-title' }, live ? 'Идёт групповой звонок' : 'Групповой звонок'),
+        h('div', { class: 'call-sub' }, live ? 'Нажмите, чтобы присоединиться'
+          : x.duration ? `${fmtDur(x.duration)}${x.peak ? ` · ${x.peak} ${plural(x.peak, 'участник', 'участника', 'участников')}` : ''}` : 'Завершён'))), meta);
     return finishRow(c, m, bubble, { mine, group, first, last });
   }
   if (m.kind === 'call') {
@@ -2103,6 +2135,100 @@ document.addEventListener('mousedown', (e) => {
   togglePanel(false);
 });
 
+// ============================================================ group calls
+
+function groupCallFromChat(c, video) {
+  if (inCall()) return toast('Сначала завершите текущий звонок');
+  if (!window.RTCPeerConnection || !navigator.mediaDevices?.getUserMedia) return toast('Браузер не поддерживает звонки', 'error');
+  if (c.groupCall) return joinGroupCall({ roomId: c.groupCall.roomId, video, title: chatTitle(c) });
+  return startGroupCall({ id: c.id, title: chatTitle(c) }, video);
+}
+
+function renderGcBar() {
+  const c = curChat();
+  if (!V.gcBar || !c) return;
+  const gcall = isGroup(c) ? c.groupCall : null;
+  const mine = gcall && currentRoomId() === gcall.roomId;
+  V.gcBar.classList.toggle('hidden', !gcall);
+  V.view?.classList.toggle('has-gc', !!gcall);
+  if (!gcall) return V.gcBar.replaceChildren();
+  V.gcBar.replaceChildren(
+    h('div', { class: 'gc-bar-ava' }, ...gcall.users.slice(0, 3).map((id) => avatar(id === S.me.id ? S.me : S.users.get(id) || { id, name: '?' }, 26))),
+    h('div', { class: 'gc-bar-text' }, h('b', {}, 'Групповой звонок'), h('span', {}, `${gcall.count} ${plural(gcall.count, 'участник', 'участника', 'участников')}`)),
+    mine ? h('span', { class: 'pill' }, 'вы в звонке')
+      : h('button', { class: 'btn btn-sm btn-primary', onclick: () => joinGroupCall({ roomId: gcall.roomId, title: chatTitle(c) }) }, 'Присоединиться'));
+  gcall.users.forEach(ensureUser);
+}
+
+function onGroupCallChat({ chatId, call, started, starterName }) {
+  const c = S.chats.get(chatId);
+  if (!c) return;
+  c.groupCall = call;
+  if (S.current === chatId) { renderGcBar(); renderMessages(); }
+  if (started && call && call.startedBy !== S.me.id && !inGroupCall() && !inCall() && !c.muted) {
+    const who = starterName || S.users.get(call.startedBy)?.name || 'Участник группы';
+    const el = h('div', { class: 'gc-invite' },
+      avatar({ id: c.id, name: chatTitle(c), src: c.avatar }, 40),
+      h('div', { class: 'grow' }, h('b', {}, chatTitle(c)), h('span', {}, `${who} начинает групповой звонок`)),
+      h('button', { class: 'btn btn-sm btn-primary', onclick: () => { el.remove(); joinGroupCall({ roomId: call.roomId, title: chatTitle(c) }); } }, 'Войти'),
+      h('button', { class: 'icon-btn', 'aria-label': 'Закрыть', onclick: () => el.remove() }, icon('close')));
+    document.body.append(el);
+    Sounds.playMessageSound?.();
+    setTimeout(() => el.remove(), 30_000);
+  }
+}
+
+function newCallLinkModal() {
+  const title = h('input', { class: 'input', maxLength: 64, placeholder: 'Название (необязательно)' });
+  openModal({
+    title: 'Звонок по ссылке',
+    className: 'modal-small',
+    body: h('div', { class: 'stack' },
+      h('div', { class: 'gc-link-hero' }, icon('phone'), h('div', {}, 'Создайте звонок и отправьте ссылку — присоединиться сможет любой, у кого есть аккаунт. До 8 человек.')),
+      title),
+    actions: [
+      { label: 'Отмена', onClick: (c) => c() },
+      { label: 'Создать', primary: true, onClick: async (close) => {
+        const token = await createCallLink(title.value.trim());
+        if (!token) return;
+        close();
+        callLinkReady(token, title.value.trim());
+      } },
+    ],
+  });
+  if (!isTouch()) setTimeout(() => title.focus(), 50);
+}
+
+function callLinkReady(token, titleText) {
+  const link = callLink(token);
+  const m = openModal({
+    title: 'Ссылка готова',
+    className: 'modal-small',
+    body: h('div', { class: 'stack' },
+      h('button', { class: 'ref-link', onclick: () => copyText(link) }, h('span', { class: 'ellipsis' }, link.replace(/^https?:\/\//, '')), icon('copy')),
+      h('div', { class: 'ref-actions' },
+        h('button', { class: 'btn btn-ghost', onclick: () => shareLink(link, titleText || 'Звонок в Limoninior') }, icon('share'), 'Поделиться'),
+        h('button', { class: 'btn btn-primary', onclick: () => { m.close(); joinGroupCall({ token, title: titleText }); } }, icon('phone'), 'Начать')),
+      h('div', { class: 'muted small' }, 'Ссылка работает, пока вы её не удалите из звонка — в неё можно заходить снова.')),
+  });
+}
+
+async function callLinkPreview(token) {
+  const info = await callInfo({ token });
+  if (info?.error) return toast(info.error === 'not_found' ? 'Ссылка на звонок недействительна' : 'Не удалось открыть звонок', 'error');
+  const cnt = info.call?.count || 0;
+  const m = openModal({
+    className: 'modal-small',
+    body: h('div', { class: 'gc-preview' },
+      h('div', { class: 'gc-preview-ic' }, icon('phone')),
+      h('h2', {}, info.title || 'Групповой звонок'),
+      h('p', { class: 'muted' }, [info.creator ? `Создатель: ${info.creator}` : null, cnt ? `сейчас в звонке: ${cnt}` : 'пока никого нет'].filter(Boolean).join(' · ')),
+      h('div', { class: 'ref-actions' },
+        h('button', { class: 'btn btn-ghost', onclick: () => { m.close(); joinGroupCall({ token, title: info.title }); } }, icon('phone'), 'Со звуком'),
+        h('button', { class: 'btn btn-primary', onclick: () => { m.close(); joinGroupCall({ token, video: true, title: info.title }); } }, icon('video'), 'С видео'))),
+  });
+}
+
 // ============================================================ referrals
 
 async function referralModal() {
@@ -2779,6 +2905,7 @@ function openDrawer() {
       item('group', 'Создать группу', newGroupModal),
       item('gift', 'Пригласить друзей', referralModal, 'ref-item'),
       item('sparkles', 'Новая история', newStory),
+      item('phone', 'Звонок по ссылке', newCallLinkModal),
       item('megaphone', 'Создать канал', newChannelModal),
       item('search', 'Каталог каналов', popularChannelsModal),
       item('bookmark', 'Избранное', openSaved),

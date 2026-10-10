@@ -7,6 +7,7 @@ import proxyaddr from 'proxy-addr';
 import { getPrefs } from './prefs.js';
 import { normIp, isIpBanned, trackIp } from './ipban.js';
 import { blockedBetween } from './db.js';
+import { registerGroupCallHandlers, userInGroupCall } from './groupcalls.js';
 
 let io = null;
 const online = new Map(); // userId -> number of open sockets
@@ -92,12 +93,12 @@ function registerCallHandlers(socket, userId) {
     const isContact = !!q('SELECT 1 FROM messages WHERE chat_id = ? AND sender_id = ? LIMIT 1').get(chatId, peer.id);
     if (who === 'nobody' || (who === 'contacts' && !isContact)) return reply(ack, { error: 'calls_disabled' });
     if (blockedBetween(userId, peer.id)) return reply(ack, { error: 'calls_disabled' });
-    if (userCall.has(userId)) return reply(ack, { error: 'busy_self' });
+    if (userCall.has(userId) || userInGroupCall(userId)) return reply(ack, { error: 'busy_self' });
     const call = {
       id: crypto.randomUUID(), chatId, from: userId, to: peer.id, video: !!p?.video,
       callerSocket: socket.id, calleeSocket: null, startedAt: 0, createdAt: Date.now(),
     };
-    if (userCall.has(peer.id)) {
+    if (userCall.has(peer.id) || userInGroupCall(peer.id)) {
       try { callHooks.onEnd({ ...call, status: 'busy', duration: 0 }); } catch { /* ignore */ }
       return reply(ack, { error: 'busy' });
     }
@@ -208,6 +209,7 @@ export function initRealtime(httpServer, trustFn) {
     });
 
     registerCallHandlers(socket, userId);
+    registerGroupCallHandlers(io, socket, userId, { inOneToOne: (id) => userCall.has(id) });
     // App opened from a call push: deliver the still-ringing call.
     for (const c of calls.values()) {
       if (c.to === userId && !c.startedAt) socket.emit('call:incoming', { callId: c.id, chatId: c.chatId, from: c.from, video: c.video });

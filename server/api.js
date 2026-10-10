@@ -15,6 +15,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { getPrefs, cleanPrefs, PROFILE_COLORS } from './prefs.js';
 import { isOnline, emitToUser, emitToUsers, emitToChat, memberIds, disconnectSession, setCallHooks } from './realtime.js';
+import { setGroupCallHooks, activeRoomForChat } from './groupcalls.js';
 
 export const api = express.Router();
 
@@ -173,6 +174,7 @@ function chatForUser(chatId, userId) {
     avatar: c.type === 'group' ? mediaUrl(c.avatar) : peer ? mediaUrl(peer.avatar) : null,
     peer: peer ? publicUser(peer) : null,
     blocked: peer ? blockedBetween(userId, peer.id) : null,
+    groupCall: c.type === 'group' ? activeRoomForChat(c.id) : null,
     ...common,
     membersCount: others.length + 1,
     role: c.role,
@@ -215,6 +217,7 @@ function pushText(m) {
   if (m.kind === 'file') return `📎 ${JSON.parse(m.extra || '{}').name || 'Файл'}`;
   if (m.kind === 'call') return '📞 Звонок';
   if (m.kind === 'voice') return '🎤 Голосовое сообщение';
+  if (m.kind === 'gcall') return '📞 Групповой звонок';
   return m.text.slice(0, 200);
 }
 
@@ -1413,6 +1416,29 @@ api.delete('/channels/:id', (req, res) => {
   audit(req.user.id, req.ip, 'channel_delete', { chatId: c.id, username: c.username });
   res.json({ ok: true });
 });
+
+// ---------- group calls: chat message that shows the call and its result ----------
+
+setGroupCallHooks({
+  onStart(room, starterId) {
+    const msg = insertMessage(room.chatId, starterId, { kind: 'gcall', extra: { roomId: room.id, status: 'active', video: room.video } });
+    broadcastNewMessage(room.chatId, msg);
+    return msg.id;
+  },
+  onEnd(room, duration) {
+    if (!room.msgId) return;
+    const m = q('SELECT * FROM messages WHERE id = ?').get(room.msgId);
+    if (!m) return;
+    const extra = { ...(m.extra ? JSON.parse(m.extra) : {}), status: 'ended', duration, peak: room.peak };
+    q('UPDATE messages SET extra = ? WHERE id = ?').run(JSON.stringify(extra), m.id);
+    emitToChat(m.chat_id, 'message:edit', serializeMessage(q('SELECT * FROM messages WHERE id = ?').get(m.id)));
+  },
+});
+
+// Rooms live in memory: after a restart, calls that were running are over.
+for (const m of q(`SELECT id, extra FROM messages WHERE kind = 'gcall' AND extra LIKE '%"status":"active"%'`).all()) {
+  q('UPDATE messages SET extra = ? WHERE id = ?').run(JSON.stringify({ ...JSON.parse(m.extra), status: 'ended' }), m.id);
+}
 
 // ---------- stories (24 h, visible to people you have a private chat with) ----------
 
