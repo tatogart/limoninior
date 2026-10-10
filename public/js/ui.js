@@ -345,12 +345,20 @@ export function registerOverlay(closeOnBack) {
   };
 }
 
+let leaving = false;
+/** Go to another page. Use instead of `location.href = …` so a pending overlay "back" can't cancel it. */
+export function navigate(url) {
+  leaving = true;
+  location.href = url;
+}
+
 /** history.back() that the popstate handler ignores, batched with overlay closes. */
 export function goBack() {
   if (pendingBack++ === 0) {
     queueMicrotask(() => {
       const n = pendingBack;
       pendingBack = 0;
+      if (leaving) return; // a page navigation is in progress: going back would cancel it
       ignorePops++;
       history.go(-n);
     });

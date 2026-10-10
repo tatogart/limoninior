@@ -2,7 +2,7 @@ import { io } from '/vendor/socket.io.esm.min.js';
 import { api, errorText } from './api.js';
 import {
   h, icon, avatar, timeHM, listTime, dayLabel, lastSeenText, plural, richText, emojiCount,
-  toast, openModal, closeTopModal, confirmDialog, contextMenu, closeMenu, registerOverlay, handleBack, goBack, isTouch, badge, nameWithBadge, linkRisk, bytes,
+  toast, openModal, closeTopModal, confirmDialog, contextMenu, closeMenu, registerOverlay, handleBack, goBack, navigate, isTouch, badge, nameWithBadge, linkRisk, bytes,
 } from './ui.js';
 import { STICKER_PACKS, stickerInfo, GIFTS, giftById, DAILY_BONUS, REACTIONS, PLANS, planById, isDangerousFile, fileExt } from './catalog.js';
 import { initCalls, startCall, inCall } from './calls.js';
@@ -397,7 +397,7 @@ function renderOnboarding() {
 async function logout() {
   try { await api.post('/auth/logout'); } catch { /* ignore */ }
   S.socket?.disconnect();
-  location.href = '/';
+  navigate('/');
 }
 
 // ============================================================ main layout
@@ -2677,7 +2677,7 @@ function openDrawer() {
       item('devices', 'Активные сеансы', sessionsModal),
       themeToggle,
       !isStandalone() ? item('download', 'Установить приложение', installApp) : null,
-      me.isAdmin ? item('shield', 'Админ-панель', () => { location.href = '/admin'; }, 'admin') : null,
+      me.isAdmin ? item('shield', 'Админ-панель', () => navigate('/admin'), 'admin') : null,
       h('div', { class: 'drawer-sep' }),
       item('logout', 'Выйти', async () => { if (await confirmDialog('Выйти из аккаунта на этом устройстве?', { ok: 'Выйти', danger: true })) logout(); }, 'danger')),
     h('div', { class: 'drawer-foot' }, `Limoninior · ${S.config.version || 'dev'}`));
