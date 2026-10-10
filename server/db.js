@@ -296,3 +296,26 @@ export function blockedBetween(a, b) {
   if (q('SELECT 1 FROM blocks WHERE user_id = ? AND blocked_id = ?').get(b, a)) return 'them';
   return null;
 }
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS stories (
+    id         INTEGER PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind       TEXT NOT NULL,
+    file       TEXT,
+    width      INTEGER,
+    height     INTEGER,
+    text       TEXT NOT NULL DEFAULT '',
+    bg         INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS stories_user ON stories(user_id, expires_at);
+  CREATE TABLE IF NOT EXISTS story_views (
+    story_id   INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    at         INTEGER NOT NULL,
+    reaction   TEXT,
+    PRIMARY KEY (story_id, user_id)
+  ) WITHOUT ROWID;
+`);

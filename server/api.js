@@ -1302,6 +1302,144 @@ api.delete('/channels/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- stories (24 h, visible to people you have a private chat with) ----------
+
+const STORY_TTL = 24 * 3600_000;
+const STORY_BGS = 8;
+const storyLimiter = rateLimit({
+  windowMs: 60 * 60_000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false,
+  keyGenerator: (req) => `u${req.user?.id}`,
+});
+
+/** People who share a private chat with `userId` (and aren't blocked either way). */
+function contactIds(userId) {
+  return q(`SELECT DISTINCT cm2.user_id AS id FROM chat_members cm1
+            JOIN chats c ON c.id = cm1.chat_id AND c.type = 'private'
+            JOIN chat_members cm2 ON cm2.chat_id = c.id AND cm2.user_id != cm1.user_id
+            JOIN users u ON u.id = cm2.user_id AND u.banned = 0
+            WHERE cm1.user_id = ?
+              AND NOT EXISTS (SELECT 1 FROM blocks b WHERE (b.user_id = cm1.user_id AND b.blocked_id = cm2.user_id)
+                                                     OR (b.user_id = cm2.user_id AND b.blocked_id = cm1.user_id))`).all(userId).map((r) => r.id);
+}
+
+function canSeeStory(st, viewerId) {
+  return st && st.expires_at > now() && (st.user_id === viewerId || contactIds(st.user_id).includes(viewerId));
+}
+
+function serializeStory(st, viewerId) {
+  const mine = st.user_id === viewerId;
+  const v = q('SELECT reaction FROM story_views WHERE story_id = ? AND user_id = ?').get(st.id, viewerId);
+  return {
+    id: st.id, userId: st.user_id, kind: st.kind, file: mediaUrl(st.file), width: st.width, height: st.height,
+    text: st.text, bg: st.bg, createdAt: st.created_at, expiresAt: st.expires_at,
+    seen: mine || !!v, myReaction: v?.reaction || null,
+    views: mine ? q('SELECT COUNT(*) AS n FROM story_views WHERE story_id = ?').get(st.id).n : undefined,
+  };
+}
+
+const notifyStories = (userId) => emitToUsers([userId, ...contactIds(userId)], 'stories', { userId });
+
+api.get('/stories', (req, res) => {
+  const me = req.user.id;
+  const ids = [me, ...contactIds(me)];
+  const feed = [];
+  for (const uid of ids) {
+    const rows = q('SELECT * FROM stories WHERE user_id = ? AND expires_at > ? ORDER BY id').all(uid, now());
+    if (!rows.length) continue;
+    const u = q('SELECT * FROM users WHERE id = ?').get(uid);
+    const stories = rows.map((st) => serializeStory(st, me));
+    feed.push({ user: publicUser(u), stories, allSeen: stories.every((x) => x.seen), last: rows.at(-1).id });
+  }
+  feed.sort((a, b) => (b.user.id === me) - (a.user.id === me) || a.allSeen - b.allSeen || b.last - a.last);
+  res.json({ feed });
+});
+
+api.post('/stories', storyLimiter, upload.single('file'), (req, res) => {
+  const me = req.user.id;
+  if (q('SELECT COUNT(*) AS n FROM stories WHERE user_id = ? AND expires_at > ?').get(me, now()).n >= 30) return bad(res, 'too_many_stories');
+  const text = clean(req.body?.text, 700);
+  const bg = Math.min(STORY_BGS - 1, Math.max(0, Number(req.body?.bg) | 0));
+  let kind = 'text', file = null, w = null, hgt = null;
+  if (req.file) {
+    // Story photos are public-by-link like avatars (random 128-bit names) and are deleted on expiry.
+    const img = saveImage(req.file, { ownerId: me, kind: 'avatar' });
+    kind = 'image'; file = img.name; w = img.w; hgt = img.h;
+  } else if (!text) return bad(res, 'empty');
+  const t = now();
+  const r = q('INSERT INTO stories (user_id, kind, file, width, height, text, bg, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(me, kind, file, w, hgt, text, bg, t, t + STORY_TTL);
+  notifyStories(me);
+  res.json({ story: serializeStory(q('SELECT * FROM stories WHERE id = ?').get(Number(r.lastInsertRowid)), me) });
+});
+
+api.delete('/stories/:id', (req, res) => {
+  const st = int(req.params.id) && q('SELECT * FROM stories WHERE id = ?').get(int(req.params.id));
+  if (!st || st.user_id !== req.user.id) return bad(res, 'not_found', 404);
+  q('DELETE FROM stories WHERE id = ?').run(st.id);
+  deleteMediaFile(st.file);
+  notifyStories(req.user.id);
+  res.json({ ok: true });
+});
+
+api.post('/stories/:id/view', (req, res) => {
+  const st = int(req.params.id) && q('SELECT * FROM stories WHERE id = ?').get(int(req.params.id));
+  if (!canSeeStory(st, req.user.id)) return bad(res, 'not_found', 404);
+  if (st.user_id !== req.user.id) {
+    const r = q('INSERT OR IGNORE INTO story_views (story_id, user_id, at) VALUES (?, ?, ?)').run(st.id, req.user.id, now());
+    if (r.changes) emitToUser(st.user_id, 'story:view', { storyId: st.id, views: q('SELECT COUNT(*) AS n FROM story_views WHERE story_id = ?').get(st.id).n });
+  }
+  res.json({ ok: true });
+});
+
+api.get('/stories/:id/views', (req, res) => {
+  const st = int(req.params.id) && q('SELECT * FROM stories WHERE id = ?').get(int(req.params.id));
+  if (!st || st.user_id !== req.user.id) return bad(res, 'not_found', 404);
+  const rows = q(`SELECT v.at, v.reaction, u.* FROM story_views v JOIN users u ON u.id = v.user_id
+                  WHERE v.story_id = ? ORDER BY (v.reaction IS NOT NULL) DESC, v.at DESC LIMIT 500`).all(st.id);
+  res.json({ views: rows.map((r) => ({ user: publicUser(r), at: r.at, reaction: r.reaction })) });
+});
+
+/** Replies and reactions to a story arrive in the private chat with its author (like Telegram). */
+function storyMessage(req, st, text) {
+  const chatId = ensurePrivateChat(req.user.id, st.user_id);
+  const e = postError(chatId, req.user.id);
+  if (e) return { error: e };
+  const extra = { story: { id: st.id, userId: st.user_id, kind: st.kind, file: mediaUrl(st.file), text: st.text.slice(0, 120), bg: st.bg, expiresAt: st.expires_at } };
+  return { message: postMessage(chatId, req.user.id, { text, extra }), chatId };
+}
+
+api.post('/stories/:id/reply', sendLimiter, (req, res) => {
+  const st = int(req.params.id) && q('SELECT * FROM stories WHERE id = ?').get(int(req.params.id));
+  if (!canSeeStory(st, req.user.id) || st.user_id === req.user.id) return bad(res, 'not_found', 404);
+  const text = clean(req.body?.text, MAX_TEXT);
+  if (!text) return bad(res, 'empty');
+  const r = storyMessage(req, st, text);
+  if (r.error) return bad(res, r.error, 403);
+  res.json(r);
+});
+
+api.post('/stories/:id/react', sendLimiter, (req, res) => {
+  const st = int(req.params.id) && q('SELECT * FROM stories WHERE id = ?').get(int(req.params.id));
+  if (!canSeeStory(st, req.user.id) || st.user_id === req.user.id) return bad(res, 'not_found', 404);
+  const emoji = String(req.body?.emoji || '');
+  if (!REACTIONS.includes(emoji)) return bad(res, 'bad_reaction');
+  q(`INSERT INTO story_views (story_id, user_id, at, reaction) VALUES (?, ?, ?, ?)
+     ON CONFLICT(story_id, user_id) DO UPDATE SET reaction = excluded.reaction`).run(st.id, req.user.id, now(), emoji);
+  const r = storyMessage(req, st, emoji);
+  if (r.error) return bad(res, r.error, 403);
+  res.json(r);
+});
+
+// Expired stories: delete rows and photos.
+function purgeStories() {
+  for (const st of q('SELECT id, file FROM stories WHERE expires_at <= ?').all(now())) {
+    q('DELETE FROM stories WHERE id = ?').run(st.id);
+    deleteMediaFile(st.file);
+  }
+}
+purgeStories();
+setInterval(purgeStories, 10 * 60_000).unref();
+
 api.use((err, req, res, next) => {
   if (err?.code === 'LIMIT_FILE_SIZE') return bad(res, 'file_too_large', 413);
   if (err?.status === 400) return bad(res, err.message);

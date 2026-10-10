@@ -8,6 +8,7 @@ import { STICKER_PACKS, stickerInfo, GIFTS, giftById, DAILY_BONUS, REACTIONS, PL
 import { initCalls, startCall, inCall } from './calls.js';
 import * as Sounds from './sounds.js';
 import { EMOJI } from './emoji.js';
+import { initStories, storiesChanged, storyViewEvent, setStripVisible, openComposer as newStory, openStoryById, storyQuote, closeViewer as closeStoryViewer } from './stories.js';
 
 // ============================================================ state
 
@@ -424,6 +425,7 @@ function buildLayout() {
       h('div', { class: 'search-wrap' }, icon('search', 'search-ic'), V.search,
         h('button', { class: 'search-clear', 'aria-label': 'Очистить', onclick: clearSearch }, icon('close')))),
     V.conn,
+    initStories({ me: () => S.me, prepareImage }),
     V.list,
     h('button', { class: 'fab', 'aria-label': 'Новый чат', onclick: onFab }, icon('pencil')));
   V.pane = h('main', { class: 'chat-pane' }, emptyPane());
@@ -558,6 +560,8 @@ function connectSocket() {
     if (c.id === S.current) { renderHeader(); renderComposerMode(); renderPinBar(); }
   });
   s.on('message:reactions', applyReactions);
+  s.on('stories', storiesChanged);
+  s.on('story:view', storyViewEvent);
   s.on('comment', onCommentEvent);
   s.on('comment:delete', onCommentEvent);
   initCalls({ socket: s, userById: (id) => S.users.get(id) });
@@ -652,6 +656,7 @@ async function notify(chat, m) {
 function renderChatList() {
   if (!V.list) return;
   if (S.searchQuery) return renderSearch();
+  setStripVisible(true);
   const chats = [...S.chats.values()].filter((c) => !c.preview).sort((a, b) => (b.pinnedAt || 0) - (a.pinnedAt || 0) || (b.lastMessage?.id || 0) - (a.lastMessage?.id || 0) || b.id - a.id);
   if (!chats.length) {
     V.list.replaceChildren(h('div', { class: 'list-empty' },
@@ -746,6 +751,7 @@ function clearSearch() {
 }
 
 function renderSearch() {
+  setStripVisible(false);
   const q = S.searchQuery.replace(/^@/, '').toLowerCase();
   const local = [...S.chats.values()].filter((c) => !c.preview && (chatTitle(c).toLowerCase().includes(q)
     || peerOf(c)?.username?.toLowerCase().includes(q) || c.username?.toLowerCase().includes(q)));
@@ -935,6 +941,10 @@ function closeChat({ fromHistory = false } = {}) {
 
 window.addEventListener('popstate', (e) => {
   closeMenu();
+  if (closeStoryViewer()) {
+    if (S.current) history.pushState({ chat: S.current }, '', '/');
+    return;
+  }
   if (closeTopModal()) {
     if (S.current) history.pushState({ chat: S.current }, '', '/');
     return;
@@ -1236,7 +1246,7 @@ function messageEl(c, m, first, last, read) {
   const channel = isChannel(c);
   const mine = m.senderId === S.me.id && !channel;
   const group = isGroup(c);
-  const emoji = m.kind === 'text' && !m.replyTo ? emojiCount(m.text) : 0;
+  const emoji = m.kind === 'text' && !m.replyTo && !m.extra?.story && !m.extra?.fwd ? emojiCount(m.text) : 0;
   const bigEmoji = emoji > 0 && emoji <= 3;
   const imageOnly = m.kind === 'image' && !m.text;
 
@@ -1257,6 +1267,10 @@ function messageEl(c, m, first, last, read) {
     const f = m.extra.fwd;
     bubble.append(h('button', { class: 'fwd-from', onclick: (e) => { e.stopPropagation(); if (f.userId) openUserProfile(f.userId); else if (f.chatId) openChannel({ id: f.chatId }); } },
       icon('forward'), h('span', {}, 'Переслано от '), h('b', {}, f.channel ? f.title : f.name)));
+  }
+  if (m.extra?.story) {
+    const x = m.extra.story;
+    bubble.append(storyQuote(x, () => openStoryById(x.userId, x.id)));
   }
   if (m.replyTo) {
     const r = m.replyTo;
@@ -2648,6 +2662,7 @@ function openDrawer() {
       item('gift', 'Подарки и лимоны', myGiftsModal),
       item('crown', S.me.subUntil ? `${planById(S.me.sub)?.name || 'Подписка'} ✓` : 'Limoninior Premium', subscriptionsModal, 'premium-item'),
       item('group', 'Создать группу', newGroupModal),
+      item('sparkles', 'Новая история', newStory),
       item('megaphone', 'Создать канал', newChannelModal),
       item('search', 'Каталог каналов', popularChannelsModal),
       item('bookmark', 'Избранное', openSaved),

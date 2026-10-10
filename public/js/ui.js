@@ -340,7 +340,7 @@ export function openModal({ title, body, actions = [], className = '', onClose }
   const footer = actions.length
     ? h('div', { class: 'modal-actions' }, actions.map((a) => h('button', {
       class: `btn ${a.primary ? 'btn-primary' : ''} ${a.danger ? 'btn-danger' : ''}`,
-      onclick: () => a.onClick?.(close),
+      onclick: (e) => a.onClick?.(close, e.currentTarget),
     }, a.label)))
     : null;
   const dialog = h('div', { class: `modal ${className}`, role: 'dialog', 'aria-modal': 'true' }, header, h('div', { class: 'modal-body' }, body), footer);
