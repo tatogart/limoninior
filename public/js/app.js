@@ -2,7 +2,7 @@ import { io } from '/vendor/socket.io.esm.min.js';
 import { api, errorText } from './api.js';
 import {
   h, icon, avatar, timeHM, listTime, dayLabel, lastSeenText, plural, richText, emojiCount,
-  toast, openModal, closeTopModal, confirmDialog, contextMenu, closeMenu, registerOverlay, handleBack, goBack, navigate, isTouch, badge, nameWithBadge, linkRisk, bytes,
+  toast, openModal, closeTopModal, confirmDialog, contextMenu, closeMenu, registerOverlay, handleBack, goBack, navigate, afterHistory, isTouch, badge, nameWithBadge, linkRisk, bytes,
 } from './ui.js';
 import { STICKER_PACKS, stickerInfo, GIFTS, giftById, DAILY_BONUS, REACTIONS, PLANS, planById, isDangerousFile, fileExt } from './catalog.js';
 import { initCalls, startCall, inCall } from './calls.js';
@@ -98,7 +98,10 @@ async function ensureUser(id) {
   try {
     mergeUser((await api.get(`/users/${id}`)).user);
     if (S.current) { renderMessages(); renderGcBar(); }
-  } catch { /* deleted user */ }
+  } catch (e) {
+    if (e.status === 404) return; // deleted user: keep it marked, no retries
+  }
+  pendingUsers.delete(id);
 }
 function chatAvatar(c, size) {
   if (c.type === 'saved') return avatar({ saved: true }, size);
@@ -126,6 +129,17 @@ const nameColor = (id) => NAME_COLORS[Math.abs(id) % NAME_COLORS.length];
 
 const fmtDur = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
 
+/** One-line description of a replied-to message. */
+function replyPreview(r) {
+  if (r.kind === 'image') return `🖼 ${r.text || 'Фото'}`;
+  if (r.kind === 'sticker') return 'Стикер';
+  if (r.kind === 'gift') return '🎁 Подарок';
+  if (r.kind === 'voice') return '🎤 Голосовое сообщение';
+  if (r.kind === 'file') return `📎 ${r.text || 'Файл'}`;
+  if (r.kind === 'call' || r.kind === 'gcall') return '📞 Звонок';
+  return r.text || '';
+}
+
 function messagePreview(m) {
   if (!m) return '';
   if (m.kind === 'image') return m.text ? `🖼 ${m.text}` : '🖼 Фото';
@@ -134,7 +148,10 @@ function messagePreview(m) {
   if (m.kind === 'file') return `📎 ${m.extra?.name || 'Файл'}`;
   if (m.kind === 'call') return callText(m);
   if (m.kind === 'voice') return `🎤 Голосовое ${fmtDur(m.extra?.duration || 0)}`;
-  if (m.kind === 'gcall') return m.extra?.status === 'active' ? '📞 Идёт групповой звонок' : '📞 Групповой звонок';
+  if (m.kind === 'gcall') {
+    const on = m.extra?.status === 'active';
+    return m.extra?.live ? (on ? '🔴 Прямой эфир' : '📡 Эфир завершён') : on ? '📞 Идёт групповой звонок' : '📞 Групповой звонок';
+  }
   return m.text.replace(/\s+/g, ' ');
 }
 
@@ -461,7 +478,7 @@ function startApp() {
 function buildLayout() {
   V.search = h('input', { class: 'search-input', type: 'search', placeholder: 'Поиск', autocomplete: 'off', spellcheck: false });
   V.search.addEventListener('input', onSearchInput);
-  V.search.addEventListener('keydown', (e) => { if (e.key === 'Escape') clearSearch(); });
+  V.search.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); clearSearch(); } });
   V.list = h('div', { class: 'chat-list' });
   V.conn = h('div', { class: 'conn-status hidden' }, h('span', { class: 'spinner' }), 'Соединение…');
   V.sidebar = h('aside', { class: 'sidebar' },
@@ -503,8 +520,10 @@ function onFab(e) {
 async function loadChats() {
   try {
     const { chats } = await api.get('/chats');
+    const previews = [...S.chats.values()].filter((c) => c.preview); // channel previews aren't in /chats
     S.chats.clear();
     chats.forEach(upsertChat);
+    for (const p of previews) if (!S.chats.has(p.id)) S.chats.set(p.id, p);
     renderChatList();
     updateBadge();
   } catch (e) {
@@ -586,15 +605,17 @@ function connectSocket() {
   s.on('message:edit', (m) => {
     const st = S.msgs.get(m.chatId);
     const i = st?.items.findIndex((x) => x.id === m.id) ?? -1;
-    if (i >= 0) st.items[i] = m;
+    // The edit payload has no viewer-specific fields: keep my own reaction.
+    if (i >= 0) st.items[i] = { ...st.items[i], ...m, myReaction: st.items[i].myReaction };
     const c = S.chats.get(m.chatId);
-    if (c?.lastMessage?.id === m.id) c.lastMessage = m;
+    if (c?.lastMessage?.id === m.id) c.lastMessage = { ...c.lastMessage, ...m };
     renderChatList();
     if (m.chatId === S.current) renderMessages();
   });
   s.on('message:delete', ({ chatId, messageId, chat }) => {
     const st = S.msgs.get(chatId);
     if (st) st.items = st.items.filter((x) => x.id !== messageId);
+    if (chatId === S.current && (S.editing?.id === messageId || S.reply?.id === messageId)) cancelBar();
     upsertChat(chat);
     renderChatList();
     updateBadge();
@@ -680,6 +701,7 @@ async function resync() {
   for (const [id, st] of S.msgs) if (id !== S.current) st.loaded = false;
   const st = S.msgs.get(S.current);
   if (!st) return;
+  if (curChat()?.preview) { st.loaded = false; return loadMessages(S.current); }
   const lastId = st.items.filter((m) => typeof m.id === 'number').at(-1)?.id;
   try {
     if (lastId) {
@@ -783,6 +805,7 @@ function onSearchInput() {
   V.sidebar.classList.toggle('searching', !!S.searchQuery);
   clearTimeout(searchTimer);
   S.searchResults = null;
+  S.searchChannels = null;
   renderChatList();
   if (S.searchQuery.replace(/^@/, '').length < 2) return;
   const q = S.searchQuery;
@@ -802,6 +825,7 @@ function clearSearch() {
   V.search.value = '';
   S.searchQuery = '';
   S.searchResults = null;
+  S.searchChannels = null;
   V.sidebar.classList.remove('searching');
   renderChatList();
 }
@@ -914,7 +938,7 @@ function openChat(id, { fromHistory = false } = {}) {
   const c = S.chats.get(id);
   if (!c) return;
   closeMenu();
-  if (S.current && V.input) S.drafts.set(S.current, V.input.value);
+  saveDraft();
   cancelRecording();
   closeChatSearch();
   if (V.panel && panelRelease) togglePanel(false);
@@ -926,8 +950,14 @@ function openChat(id, { fromHistory = false } = {}) {
   buildChatView(c);
   renderChatList();
   V.layout.classList.add('chat-open');
-  if (!fromHistory && !wasOpen) history.pushState({ chat: id }, '', '/');
-  else if (!fromHistory) history.replaceState({ chat: id }, '', '/');
+  if (!fromHistory) {
+    // Wait until a just-closed window has removed its history entry, then add/replace ours.
+    afterHistory(() => {
+      if (S.current !== id) return;
+      if (history.state?.chat || wasOpen) history.replaceState({ chat: id }, '', '/');
+      else history.pushState({ chat: id }, '', '/');
+    });
+  }
   const st = S.msgs.get(id);
   if (st?.loaded) {
     renderMessages({ stick: true });
@@ -968,12 +998,13 @@ function renderComposerMode() {
   if (!c || !V.composerRow) return;
   const blocked = c.type === 'private' && c.blocked;
   const reader = (isChannel(c) && !c.canPost) || !!blocked;
+  if (reader && (S.reply || S.editing)) cancelBar();
   V.composerRow.classList.toggle('hidden', reader);
   V.channelBar.classList.toggle('hidden', !reader);
   V.input.placeholder = isChannel(c) ? 'Опубликовать пост…' : 'Сообщение';
   if (!reader) return;
   if (blocked) {
-    V.panel.classList.add('hidden');
+    if (!V.panel.classList.contains('hidden')) togglePanel(false);
     V.channelBar.replaceChildren(blocked === 'me'
       ? h('button', { class: 'channel-bar-btn', onclick: () => setBlocked(peerOf(c), false) }, icon('block'), 'Разблокировать')
       : h('div', { class: 'channel-bar-note' }, icon('block'), 'Пользователь ограничил сообщения'));
@@ -989,7 +1020,9 @@ function closeChat({ fromHistory = false } = {}) {
   cancelRecording();
   closeChatSearch();
   if (V.panel && panelRelease) togglePanel(false);
-  if (V.input) S.drafts.set(S.current, V.input.value);
+  saveDraft();
+  S.editing = null;
+  S.reply = null;
   S.current = null;
   V.layout.classList.remove('chat-open');
   renderChatList();
@@ -1028,12 +1061,15 @@ function buildChatView(c) {
     V.pinBar = h('div', { class: 'pin-bar hidden' }),
     V.searchBar = h('div', { class: 'chat-search hidden' }));
   const cc = c;
+  if (isChannel(c) && !c.preview && c.canPost) {
+    V.callBtns.append(h('button', { class: 'icon-btn live-btn', 'aria-label': 'Начать эфир', title: 'Прямой эфир', onclick: (e) => liveMenu(curChat(), e.currentTarget) }, icon('live')));
+  }
   if (c.type === 'group') {
     V.callBtns.append(
-      h('button', { class: 'icon-btn', 'aria-label': 'Групповой звонок', title: 'Групповой звонок', onclick: () => groupCallFromChat(cc, false) }, icon('phone')),
-      h('button', { class: 'icon-btn', 'aria-label': 'Групповой видеозвонок', title: 'Групповой видеозвонок', onclick: () => groupCallFromChat(cc, true) }, icon('video')));
+      h('button', { class: 'icon-btn', 'aria-label': 'Групповой звонок', title: 'Групповой звонок', onclick: () => groupCallFromChat(curChat(), false) }, icon('phone')),
+      h('button', { class: 'icon-btn', 'aria-label': 'Групповой видеозвонок', title: 'Групповой видеозвонок', onclick: () => groupCallFromChat(curChat(), true) }, icon('video')));
   }
-  if (c.type === 'private' && !peerOf(c)?.official) {
+  if (c.type === 'private' && peerOf(c) && !peerOf(c).official) {
     V.callBtns.append(
       h('button', { class: 'icon-btn', 'aria-label': 'Позвонить', title: 'Голосовой звонок', onclick: () => startCall(cc, peerOf(cc), false) }, icon('phone')),
       h('button', { class: 'icon-btn', 'aria-label': 'Видеозвонок', title: 'Видеозвонок', onclick: () => startCall(cc, peerOf(cc), true) }, icon('video')));
@@ -1071,9 +1107,11 @@ function buildChatView(c) {
     V.channelBar = h('div', { class: 'channel-bar hidden' }));
 
   const view = h('div', { class: 'chat-view' }, header, h('div', { class: 'messages-wrap' }, V.scroller, V.downBtn), composer);
-  view.addEventListener('dragover', (e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); view.classList.add('drag'); } });
+  const canDrop = () => { const cur = curChat(); return cur && !cur.preview && cur.canPost !== false && !cur.blocked; };
+  view.addEventListener('dragover', (e) => { if (canDrop() && e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); view.classList.add('drag'); } });
   view.addEventListener('dragleave', (e) => { if (e.target === view || !view.contains(e.relatedTarget)) view.classList.remove('drag'); });
   view.addEventListener('drop', (e) => {
+    if (!canDrop()) { view.classList.remove('drag'); return; }
     view.classList.remove('drag');
     const f = e.dataTransfer?.files?.[0];
     if (f) { e.preventDefault(); pickFile(f); }
@@ -1295,7 +1333,8 @@ function emptyChatHint(c) {
       h('b', {}, 'Избранное'), h('span', {}, 'Пересылайте сюда сообщения, сохраняйте заметки и фото — они будут на всех ваших устройствах.'));
   }
   const greet = ['👋', '🍋', '✨', '😊'][c.id % 4];
-  return h('div', { class: 'chat-hint' }, h('button', { class: 'chat-hint-emoji', onclick: () => sendText(greet) }, greet),
+  const canSend = c.canPost !== false && !c.blocked && !c.preview;
+  return h('div', { class: 'chat-hint' }, canSend ? h('button', { class: 'chat-hint-emoji', onclick: () => sendText(greet) }, greet) : h('div', { class: 'chat-hint-emoji' }, greet),
     h('b', {}, 'Здесь пока пусто'), h('span', {}, 'Напишите что-нибудь или нажмите на эмодзи, чтобы поздороваться.'));
 }
 
@@ -1335,7 +1374,7 @@ function messageEl(c, m, first, last, read) {
     const r = m.replyTo;
     bubble.append(h('button', { class: 'reply-quote', onclick: (e) => { e.stopPropagation(); jumpTo(r.id); } },
       h('b', {}, r.deleted ? 'Удалённое сообщение' : userName(r.senderId)),
-      h('span', {}, r.deleted ? '' : r.kind === 'image' ? `🖼 ${r.text || 'Фото'}` : r.kind === 'sticker' ? 'Стикер' : r.kind === 'gift' ? '🎁 Подарок' : r.text)));
+      h('span', {}, r.deleted ? '' : replyPreview(r))));
   }
   if (m.kind === 'sticker') {
     bubble.append(stickerNode(m.text, 'msg-sticker'), meta);
@@ -1364,11 +1403,12 @@ function messageEl(c, m, first, last, read) {
     const x = m.extra || {};
     const live = x.status === 'active' && curChat()?.groupCall?.roomId === x.roomId;
     bubble.classList.add('call-bubble');
-    bubble.append(h('button', { class: 'call-card', onclick: () => (live ? joinGroupCall({ roomId: x.roomId, title: chatTitle(c) }) : groupCallFromChat(c, false)) },
-      h('div', { class: `call-ic ${live ? 'live' : ''}` }, icon(x.video ? 'video' : 'phone')),
-      h('div', {}, h('div', { class: 'call-title' }, live ? 'Идёт групповой звонок' : 'Групповой звонок'),
-        h('div', { class: 'call-sub' }, live ? 'Нажмите, чтобы присоединиться'
-          : x.duration ? `${fmtDur(x.duration)}${x.peak ? ` · ${x.peak} ${plural(x.peak, 'участник', 'участника', 'участников')}` : ''}` : 'Завершён'))), meta);
+    const name = x.live ? 'Прямой эфир' : 'Групповой звонок';
+    bubble.append(h('button', { class: 'call-card', onclick: () => (live || !x.live ? groupCallFromChat(c, false) : toast('Эфир уже закончился')) },
+      h('div', { class: `call-ic ${live ? 'live' : ''} ${x.live ? 'stream' : ''}` }, icon(x.live ? 'live' : x.video ? 'video' : 'phone')),
+      h('div', {}, h('div', { class: 'call-title' }, live ? (x.live ? '🔴 Идёт прямой эфир' : 'Идёт групповой звонок') : name),
+        h('div', { class: 'call-sub' }, live ? (x.live ? 'Нажмите, чтобы смотреть' : 'Нажмите, чтобы присоединиться')
+          : x.duration ? `${x.live ? 'Эфир завершён · ' : ''}${fmtDur(x.duration)}${x.peak ? ` · ${x.live ? Math.max(0, x.peak - 1) : x.peak} ${x.live ? plural(Math.max(0, x.peak - 1), 'зритель', 'зрителя', 'зрителей') : plural(x.peak, 'участник', 'участника', 'участников')}` : ''}` : 'Завершён'))), meta);
     return finishRow(c, m, bubble, { mine, group, first, last });
   }
   if (m.kind === 'call') {
@@ -1469,7 +1509,7 @@ function finishRow(c, m, bubble, { mine, group, first, last }) {
   }
   if (isChannel(c)) {
     bubble.classList.add('post');
-    if (typeof m.id === 'number' && m.kind !== 'system') {
+    if (typeof m.id === 'number' && m.kind !== 'system' && m.kind !== 'gcall') {
       bubble.append(h('button', { class: 'post-comments', onclick: (e) => { e.stopPropagation(); commentsModal(c, m); } },
         icon('comment'),
         h('span', {}, m.comments ? `${m.comments} ${plural(m.comments, 'комментарий', 'комментария', 'комментариев')}` : 'Прокомментировать'),
@@ -1634,7 +1674,7 @@ function attachMessageMenu(row, bubble, m) {
   bubble.addEventListener('dblclick', (e) => {
     if (isTouch() || e.target.closest('a, .bubble-image')) return;
     window.getSelection()?.removeAllRanges();
-    if (typeof m.id === 'number') startReply(m);
+    if (typeof m.id === 'number' && canSwipe()) startReply(m);
   });
 }
 
@@ -1671,11 +1711,18 @@ async function copyText(text) {
 }
 
 async function deleteMessage(m) {
-  if (!(await confirmDialog('Удалить сообщение у всех?', { ok: 'Удалить', danger: true }))) return;
-  try { await api.del(`/messages/${m.id}`); } catch (e) { toast(errorText(e), 'error'); }
+  if (!(await confirmDialog('Удалить сообщение у всех?', { ok: 'Удалить', danger: true }))) return false;
+  try { await api.del(`/messages/${m.id}`); return true; } catch (e) { toast(errorText(e), 'error'); return false; }
 }
 
 // ---------- composer
+
+/** Save the composer as the chat's draft (while editing, the real draft is the one put aside). */
+function saveDraft() {
+  if (!S.current || !V.input) return;
+  S.drafts.set(S.current, S.editing ? (S.drafts.get(-1) || '') : V.input.value);
+  S.drafts.delete(-1);
+}
 
 function startReply(m) {
   S.editing = null;
@@ -1720,7 +1767,7 @@ function renderBar() {
     icon(S.editing ? 'edit' : 'reply', 'bar-ic'),
     h('div', { class: 'bar-body', onclick: () => jumpTo(m.id) },
       h('b', {}, S.editing ? 'Редактирование' : `Ответ ${userName(m.senderId)}`),
-      h('span', {}, m.kind === 'image' ? `🖼 ${m.text || 'Фото'}` : m.text)),
+      h('span', {}, replyPreview(m))),
     h('button', { class: 'icon-btn', 'aria-label': 'Отмена', onclick: cancelBar }, icon('close')));
 }
 
@@ -1782,7 +1829,7 @@ async function submitComposer() {
   if (!text && !S.editing && window.MediaRecorder) return startRecording();
   if (S.editing) {
     const m = S.editing;
-    if (!text && m.kind === 'text') return deleteMessage(m);
+    if (!text && m.kind === 'text') { if (await deleteMessage(m)) cancelBar(); return; }
     S.editing = null;
     V.input.value = S.drafts.get(-1) || '';
     S.drafts.delete(-1);
@@ -1902,6 +1949,7 @@ function imageSendModal(file) {
   const m = openModal({
     title: 'Отправить фото',
     className: 'modal-image',
+    onClose: () => { if (!busy) URL.revokeObjectURL(url); },
     body: h('div', { class: 'image-preview' }, h('img', { src: url, alt: '' }), caption),
     actions: [
       { label: 'Отмена', onClick: (close) => { URL.revokeObjectURL(url); close(); } },
@@ -1941,7 +1989,7 @@ function pushRecent(e) {
 }
 
 function canGift(c) {
-  return c?.type === 'private' && !peerOf(c)?.official;
+  return c?.type === 'private' && !!peerOf(c) && !peerOf(c).official;
 }
 
 let panelRelease = null;
@@ -2137,9 +2185,25 @@ document.addEventListener('mousedown', (e) => {
 
 // ============================================================ group calls
 
+function liveMenu(c, anchor) {
+  if (c.groupCall) return groupCallFromChat(c, false);
+  const r = anchor.getBoundingClientRect();
+  contextMenu(r.right - 8, r.bottom + 4, [
+    { icon: 'video', label: 'Видеоэфир', onClick: () => groupCallFromChat(c, true) },
+    { icon: 'mic', label: 'Аудиоэфир', onClick: () => groupCallFromChat(c, false) },
+  ]);
+}
+
 function groupCallFromChat(c, video) {
   if (inCall()) return toast('Сначала завершите текущий звонок');
-  if (!window.RTCPeerConnection || !navigator.mediaDevices?.getUserMedia) return toast('Браузер не поддерживает звонки', 'error');
+  if (!window.RTCPeerConnection) return toast('Браузер не поддерживает звонки', 'error');
+  if (isChannel(c)) {
+    if (c.preview) return toast('Подпишитесь на канал, чтобы смотреть эфир');
+    if (c.groupCall) return joinGroupCall({ roomId: c.groupCall.roomId, video, title: chatTitle(c), watch: !c.canPost });
+    if (!c.canPost) return toast('Эфир сейчас не идёт');
+    return startGroupCall({ id: c.id, title: chatTitle(c) }, video);
+  }
+  if (!navigator.mediaDevices?.getUserMedia) return toast('Браузер не поддерживает звонки', 'error');
   if (c.groupCall) return joinGroupCall({ roomId: c.groupCall.roomId, video, title: chatTitle(c) });
   return startGroupCall({ id: c.id, title: chatTitle(c) }, video);
 }
@@ -2147,16 +2211,18 @@ function groupCallFromChat(c, video) {
 function renderGcBar() {
   const c = curChat();
   if (!V.gcBar || !c) return;
-  const gcall = isGroup(c) ? c.groupCall : null;
+  const gcall = isGroup(c) || isChannel(c) ? c.groupCall : null;
   const mine = gcall && currentRoomId() === gcall.roomId;
   V.gcBar.classList.toggle('hidden', !gcall);
   V.view?.classList.toggle('has-gc', !!gcall);
   if (!gcall) return V.gcBar.replaceChildren();
   V.gcBar.replaceChildren(
     h('div', { class: 'gc-bar-ava' }, ...gcall.users.slice(0, 3).map((id) => avatar(id === S.me.id ? S.me : S.users.get(id) || { id, name: '?' }, 26))),
-    h('div', { class: 'gc-bar-text' }, h('b', {}, 'Групповой звонок'), h('span', {}, `${gcall.count} ${plural(gcall.count, 'участник', 'участника', 'участников')}`)),
-    mine ? h('span', { class: 'pill' }, 'вы в звонке')
-      : h('button', { class: 'btn btn-sm btn-primary', onclick: () => joinGroupCall({ roomId: gcall.roomId, title: chatTitle(c) }) }, 'Присоединиться'));
+    gcall.live
+      ? h('div', { class: 'gc-bar-text' }, h('b', {}, h('span', { class: 'live-badge' }, 'LIVE'), ' Прямой эфир'), h('span', {}, `${Math.max(0, gcall.count - 1)} ${plural(Math.max(0, gcall.count - 1), 'зритель', 'зрителя', 'зрителей')}`))
+      : h('div', { class: 'gc-bar-text' }, h('b', {}, 'Групповой звонок'), h('span', {}, `${gcall.count} ${plural(gcall.count, 'участник', 'участника', 'участников')}`)),
+    mine ? h('span', { class: 'pill' }, gcall.live ? (c.canPost ? 'вы в эфире' : 'вы смотрите') : 'вы в звонке')
+      : h('button', { class: 'btn btn-sm btn-primary', onclick: () => groupCallFromChat(c, false) }, gcall.live ? 'Смотреть' : 'Присоединиться'));
   gcall.users.forEach(ensureUser);
 }
 
@@ -2167,10 +2233,11 @@ function onGroupCallChat({ chatId, call, started, starterName }) {
   if (S.current === chatId) { renderGcBar(); renderMessages(); }
   if (started && call && call.startedBy !== S.me.id && !inGroupCall() && !inCall() && !c.muted) {
     const who = starterName || S.users.get(call.startedBy)?.name || 'Участник группы';
+    const live = !!call.live;
     const el = h('div', { class: 'gc-invite' },
       avatar({ id: c.id, name: chatTitle(c), src: c.avatar }, 40),
-      h('div', { class: 'grow' }, h('b', {}, chatTitle(c)), h('span', {}, `${who} начинает групповой звонок`)),
-      h('button', { class: 'btn btn-sm btn-primary', onclick: () => { el.remove(); joinGroupCall({ roomId: call.roomId, title: chatTitle(c) }); } }, 'Войти'),
+      h('div', { class: 'grow' }, h('b', {}, chatTitle(c)), h('span', {}, live ? '🔴 Начался прямой эфир' : `${who} начинает групповой звонок`)),
+      h('button', { class: 'btn btn-sm btn-primary', onclick: () => { el.remove(); groupCallFromChat(c, false); } }, live ? 'Смотреть' : 'Войти'),
       h('button', { class: 'icon-btn', 'aria-label': 'Закрыть', onclick: () => el.remove() }, icon('close')));
     document.body.append(el);
     Sounds.playMessageSound?.();
@@ -2655,7 +2722,8 @@ async function openInvite(token) {
       ch.description ? h('div', { class: 'profile-rows' }, h('div', { class: 'profile-row' }, icon('info'),
         h('div', {}, h('div', { class: 'row-main pre' }, richText(ch.description)), h('div', { class: 'row-sub' }, 'Описание')))) : null,
       h('button', { class: 'btn btn-primary btn-block', onclick: async (e) => {
-        e.currentTarget.disabled = true;
+        const btn = e.currentTarget;
+        btn.disabled = true;
         try {
           const { chat } = await api.post(`/channels/invite/${encodeURIComponent(token)}/join`);
           S.msgs.delete(chat.id);
@@ -2664,7 +2732,7 @@ async function openInvite(token) {
           closeTopModal();
           openChat(chat.id);
           toast(`Вы подписались на «${chat.title}» 🎉`);
-        } catch (err) { e.currentTarget.disabled = false; toast(errorText(err), 'error'); }
+        } catch (err) { btn.disabled = false; toast(errorText(err), 'error'); }
       } }, icon('plus'), 'Подписаться')),
   });
 }
@@ -3655,10 +3723,11 @@ async function subscriptionsModal() {
     try {
       const { chat } = await api.post('/chats/private', { userId: data.seller.id });
       upsertChat(chat);
-      S.drafts.set(chat.id, `Привет! Хочу купить ${plan.name} (${plan.price} ₽/мес). Мой юзернейм: @${S.me.username}`);
+      const text = `Привет! Хочу купить ${plan.name} (${plan.price} ₽/мес). Мой юзернейм: @${S.me.username}`;
       while (closeTopModal()) { /* close all */ }
       renderChatList();
       openChat(chat.id);
+      if (V.input) { V.input.value = text; autosize(); updateSendBtn(); }
       toast('Напишите продавцу — сообщение уже подготовлено ✍️');
     } catch (e) { toast(errorText(e), 'error'); }
   };
@@ -3729,7 +3798,9 @@ async function disablePush() {
 function maybeOfferPush() {
   if (!('Notification' in window) || !('PushManager' in window)) return;
   if (Notification.permission === 'granted') { if (S.settings.notify !== false) enablePush({ silent: true }); return; }
-  if (Notification.permission === 'denied' || localStorage.getItem('limoninior.pushAsked')) return;
+  let asked = true;
+  try { asked = !!localStorage.getItem('limoninior.pushAsked'); } catch { /* storage blocked */ }
+  if (Notification.permission === 'denied' || asked) return;
   setTimeout(() => {
     try { localStorage.setItem('limoninior.pushAsked', '1'); } catch { /* ignore */ }
     openModal({

@@ -1879,3 +1879,76 @@ button.pf-row:hover { background: var(--hover); }
   background: rgba(0, 0, 0, 0.5); font-size: 12.5px; font-weight: 600;
 }
 .gc-screen-tag .ic { width: 15px; height: 15px; color: #4ade80; }
+
+/* ===================== v12: channel live streams ===================== */
+.live-badge {
+  display: inline-block; padding: 1px 7px; border-radius: 6px; background: #ef4444; color: #fff;
+  font-size: 11px; font-weight: 800; letter-spacing: 0.04em; vertical-align: 1px; animation: pulse 1.8s ease-in-out infinite;
+}
+.live-btn { color: #ef4444; }
+.gc-top-btn.ghost { visibility: hidden; }
+.gc-overlay.live { background: radial-gradient(120% 80% at 50% 0%, #3b1d22, #0b1016 70%); }
+.gc-alone.grow { flex: 1; display: grid; place-content: center; justify-items: center; gap: 12px; }
+.gc-live-foot { display: grid; gap: 4px; }
+.gc-reacts { display: flex; justify-content: center; gap: 6px; padding: 0 12px; flex-wrap: wrap; }
+.gc-reacts button { width: 44px; height: 44px; border-radius: 50%; font-size: 22px; background: rgba(255, 255, 255, 0.12); transition: transform 0.12s var(--ease); }
+.gc-reacts button:active { transform: scale(1.25); }
+.gc-fly { position: absolute; bottom: 140px; z-index: 5; font-size: 34px; pointer-events: none; animation: gc-fly 2.6s ease-out forwards; }
+@keyframes gc-fly {
+  0% { transform: translateY(0) scale(0.6); opacity: 0; }
+  15% { opacity: 1; transform: translateY(-40px) scale(1.1); }
+  100% { transform: translateY(-360px) translateX(30px) scale(0.9); opacity: 0; }
+}
+.call-ic.stream { background: color-mix(in srgb, #ef4444 15%, transparent); color: #ef4444; }
+.call-ic.stream.live { background: #ef4444; color: #fff; }
+.gc-overlay.mini, .gc-overlay.live.mini { background: none; }
+.gc-bar .live-badge, .gc-title .live-badge { animation: none; }
+.gc-title .live-badge { margin-right: 2px; }
+@media (max-width: 760px) {
+  .gc-reacts { gap: 4px; flex-wrap: nowrap; }
+  .gc-reacts button { width: 38px; height: 38px; font-size: 19px; flex-shrink: 0; }
+}
+
+/* ===================== v13: visual fixes ===================== */
+/* avatar edit: camera sits on a dimmed circle instead of over the initials */
+@media (hover: none) { .avatar-edit-overlay { opacity: 1; background: rgba(0, 0, 0, 0.42); color: #fff; } }
+/* profile actions always in one row */
+.pf-actions { flex-wrap: nowrap; }
+.pf-actions .pf-action { flex: 1 1 0; width: auto; min-width: 0; max-width: 86px; }
+/* settings rows with a segmented control: stack on phones */
+@media (max-width: 520px) {
+  .set-row:has(> .segmented) { flex-direction: column; align-items: stretch; gap: 8px; }
+  .set-row:has(> .segmented) > .segmented { width: 100%; }
+}
+/* call controls fit narrow phones */
+@media (max-width: 760px) {
+  .call-controls { gap: 10px; padding-left: 8px; padding-right: 8px; }
+  .call-btn { width: 56px; height: 56px; }
+  .call-btn-wrap { min-width: 0; font-size: 11.5px; }
+  .call-top { padding-left: calc(min(28vw, 180px) + 16px); padding-right: calc(min(28vw, 180px) + 16px); }
+  .call-name.small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+@media (max-width: 380px) { .call-controls { flex-wrap: wrap; row-gap: 12px; } .call-btn { width: 52px; height: 52px; } }
+/* the minimized call pill never covers windows / stories */
+body:has(.modal-backdrop.show) .gc-overlay.mini, body:has(.story-viewer) .gc-overlay.mini { opacity: 0; pointer-events: none; }
+.gc-pill-main > span { white-space: nowrap; flex-shrink: 0; }
+.gc-pill-main b { min-width: 0; }
+.screen-badge { max-width: calc(100vw - 24px); overflow: hidden; text-overflow: ellipsis; }
+/* touch screens: no "stuck" hover after a tap */
+@media (hover: none) {
+  .icon-btn:hover, .chat-item:not(.active):hover, .cs-item:hover, .fwd-item:hover, .drawer-item:hover, .profile-row:hover, .pin-main:hover {
+    background: transparent;
+  }
+  .sv-react:not(.on):hover { transform: none; background: rgba(255, 255, 255, 0.12); }
+}
+@media (hover: none) { [data-style="glass"] .icon-btn:hover { background: transparent; box-shadow: none; } }
+/* very narrow phones: the chat search lives in the ⋮ menu, keep room for the name */
+@media (max-width: 380px) { .chat-header .icon-btn[aria-label="Поиск по чату"] { display: none; } }
+/* touch: camera as a small corner badge instead of covering the initials */
+@media (hover: none) {
+  .avatar-edit .avatar-edit-overlay {
+    inset: auto 2px 2px auto; width: 38px; height: 38px; opacity: 1;
+    background: var(--accent); color: var(--on-accent); border: 3px solid var(--bg); box-shadow: var(--shadow-sm);
+  }
+  .avatar-edit .avatar-edit-overlay .ic { width: 18px; height: 18px; }
+}

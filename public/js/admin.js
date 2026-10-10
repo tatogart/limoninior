@@ -27,6 +27,10 @@ function handle(e) {
 
 function lockScreen() {
   clearInterval(lockTimer);
+  // Background refreshes would hit "code required" and rebuild this screen, wiping typed digits.
+  clearInterval(serverTimer);
+  serverTimer = null;
+  if (document.querySelector('.otp')) return;
   const cells = Array.from({ length: 6 }, () => h('input', {
     class: 'otp-cell', inputmode: 'numeric', autocomplete: 'one-time-code', 'aria-label': 'Цифра кода',
   }));
@@ -204,7 +208,7 @@ function dashboard() {
       },
     }, label);
     const post = async (path, body) => {
-      try { await api.post(`/admin/users/${u.id}/${path}`, body); toast('Готово'); loadUsers(search.value); loadAudit(); } catch (e) { handle(e); }
+      try { await api.post(`/admin/users/${u.id}/${path}`, body); toast('Готово'); loadUsers(search.value); loadAudit(); return true; } catch (e) { handle(e); return false; }
     };
     const always = [
       h('button', { class: `btn btn-sm ${u.verified ? 'btn-ghost' : 'btn-primary'}`, onclick: () => post('verify', { verified: !u.verified }) },
@@ -309,7 +313,11 @@ function dashboard() {
         h('div', { class: 'quick' }, [100, 500, 1000, 5000].map((n) => h('button', { class: 'btn btn-sm btn-ghost', onclick: () => { inp.value = n; } }, `+${n}`)))),
       actions: [
         { label: 'Отмена', onClick: (c) => c() },
-        { label: 'Применить', primary: true, onClick: async (close) => { await post('coins', { amount: Number(inp.value) }); close(); } },
+        { label: 'Применить', primary: true, onClick: async (close) => {
+          const n = Number(inp.value);
+          if (!Number.isInteger(n) || n === 0) { inp.focus(); return toast('Введите целое число, например 500 или -100', 'error'); }
+          if (await post('coins', { amount: n })) close();
+        } },
       ],
     });
     setTimeout(() => inp.focus(), 50);
@@ -332,8 +340,8 @@ function dashboard() {
         h('div', { class: 'small' }, 'Тариф'), plansEl, h('div', { class: 'small' }, 'Срок'), monthsEl,
         h('p', { class: 'muted small' }, 'Пользователь получит сообщение от официального аккаунта Limoninior.')),
       actions: [
-        u.sub ? { label: 'Отключить', danger: true, onClick: async (close) => { await post('subscription', { plan: null }); close(); } } : null,
-        { label: 'Выдать', primary: true, onClick: async (close) => { await post('subscription', { plan, months }); close(); } },
+        u.sub ? { label: 'Отключить', danger: true, onClick: async (close) => { if (await post('subscription', { plan: null })) close(); } } : null,
+        { label: 'Выдать', primary: true, onClick: async (close) => { if (await post('subscription', { plan, months })) close(); } },
       ].filter(Boolean),
     });
   }

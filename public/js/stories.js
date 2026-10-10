@@ -25,7 +25,17 @@ export function initStories(d) {
 
 export async function loadStories() {
   try {
-    feed = (await api.get('/stories')).feed;
+    const next = (await api.get('/stories')).feed;
+    // Keep an open viewer on the same person / story when the feed is reloaded.
+    const v = viewer;
+    const uid = v ? feed[v.gi]?.user.id : null;
+    const sid = v ? feed[v.gi]?.stories[v.si]?.id : null;
+    feed = next;
+    if (v && viewer === v) {
+      const gi = feed.findIndex((g) => g.user.id === uid);
+      const si = gi >= 0 ? feed[gi].stories.findIndex((x) => x.id === sid) : -1;
+      if (si >= 0) { v.gi = gi; v.si = si; } else closeViewer();
+    }
     renderStrip();
   } catch { /* offline */ }
 }
@@ -107,7 +117,7 @@ function openViewer(groupIndex, storyIndex = null) {
   function setPaused(p) {
     if (v.paused === p) return;
     v.paused = p;
-    if (p) v.elapsed += performance.now() - v.t0;
+    if (p && !v.loading) v.elapsed += performance.now() - v.t0;
     else v.t0 = performance.now();
     root.classList.toggle('paused', p);
   }
@@ -153,7 +163,7 @@ function openViewer(groupIndex, storyIndex = null) {
     if (s.kind === 'image') {
       v.loading = true;
       const img = h('img', { class: 'sv-img', src: s.file, alt: '', draggable: false });
-      const done = () => { v.loading = false; v.t0 = performance.now(); };
+      const done = () => { if (story() !== s) return; v.loading = false; v.t0 = performance.now(); };
       img.addEventListener('load', done, { once: true });
       img.addEventListener('error', done, { once: true });
       stage.replaceChildren(h('div', { class: 'sv-blur', style: { backgroundImage: `url("${s.file}")` } }), img,
@@ -225,6 +235,7 @@ function openViewer(groupIndex, storyIndex = null) {
   root.querySelector('.sv-backdrop').addEventListener('click', closeViewer);
   v.onKey = (e) => {
     if (e.target.closest?.('input')) return;
+    if (document.querySelector('.modal-backdrop.show')) return; // a window above the viewer handles its own keys
     if (e.key === 'Escape') { e.stopPropagation(); closeViewer(); }
     else if (e.key === 'ArrowRight') step(1);
     else if (e.key === 'ArrowLeft') step(-1);
@@ -357,10 +368,12 @@ export function openComposer() {
     actions: [
       { label: 'Отмена', onClick: (close) => close() },
       { label: 'Опубликовать', primary: true, onClick: async (close, btn) => {
+        if (btn?.disabled) return; // double tap
         const fd = new FormData();
         if (mode === 'photo') {
           if (!photo) return toast('Выберите фото', 'error');
-          fd.append('file', await deps.prepareImage(photo, 1920), 'story.jpg');
+          if (btn) btn.disabled = true;
+          try { fd.append('file', await deps.prepareImage(photo, 1920), 'story.jpg'); } catch { if (btn) btn.disabled = false; return toast('Не удалось обработать фото', 'error'); }
           fd.append('text', caption.value.trim());
         } else {
           if (!textArea.value.trim()) { textArea.focus(); return toast('Напишите текст', 'error'); }

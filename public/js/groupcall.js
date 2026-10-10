@@ -24,7 +24,7 @@ export function initGroupCalls(o) {
   const s = ctx.socket;
   s.on('gc:peer-joined', (p) => {
     if (!gc || p.roomId !== gc.roomId) return;
-    addPeer(p.sid, p.userId, p.mic, p.cam, p.screen);
+    addPeer(p.sid, p.userId, p.mic, p.cam, p.screen, p.host);
     render();
   });
   s.on('gc:peer-left', (p) => {
@@ -39,6 +39,23 @@ export function initGroupCalls(o) {
     render();
   });
   s.on('gc:signal', onSignal);
+  s.on('gc:viewers', (p) => {
+    if (!gc || p.roomId !== gc.roomId) return;
+    gc.viewers = p.count;
+    const el = gc.root?.querySelector('.gc-viewers');
+    if (el) el.textContent = viewersText();
+  });
+  s.on('gc:ended', (p) => {
+    if (!gc || p.roomId !== gc.roomId) return;
+    toast(gc.live ? 'Эфир завершён' : 'Вы больше не в этом звонке');
+    leaveGroupCall(true);
+  });
+  s.on('gc:react', (p) => {
+    if (!gc || p.roomId !== gc.roomId || gc.mini || !gc.root) return;
+    const el = h('div', { class: 'gc-fly', style: { left: `${10 + Math.random() * 70}%` } }, p.emoji);
+    gc.root.append(el);
+    setTimeout(() => el.remove(), 2600);
+  });
   // Socket reconnected (network blip): rejoin the same room.
   s.on('connect', () => { if (gc) rejoin(); });
 }
@@ -63,6 +80,18 @@ export async function startGroupCall(chat, video = false) {
   return joinGroupCall({ roomId: r.roomId, video, title: chat.title });
 }
 
+const LIVE_EMOJI = ['❤️', '🔥', '👍', '😂', '😮', '👏', '🎉', '🍋'];
+function viewersText() {
+  const n = Math.max(0, (gc?.viewers || 0) - [...(gc?.peers.values() || [])].filter((p) => p.host).length - (gc?.host ? 1 : 0));
+  return `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'зритель' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'зрителя' : 'зрителей'}`;
+}
+
+function endLive() {
+  if (!gc?.live || !gc.host) return leaveGroupCall();
+  ctx.socket.emit('gc:end');
+  leaveGroupCall(true);
+}
+
 export async function createCallLink(title = '') {
   const r = await emit('gc:link', { title });
   if (r?.error) { toast(ERR[r.error] || 'Не удалось создать ссылку', 'error'); return null; }
@@ -75,14 +104,23 @@ export async function callInfo({ roomId, token }) {
   return emit('gc:info', { roomId, token });
 }
 
-export async function joinGroupCall({ roomId, token, video = false, title = '' }) {
+let joining = false;
+export async function joinGroupCall({ roomId, token, video = false, title = '', watch = false }) {
   if (ctx.inOneToOne?.()) return toast(ERR.busy_self, 'error');
+  if (joining) return;
   if (gc) {
     if ((roomId && gc.roomId === roomId) || (token && gc.token === token)) return expand();
     leaveGroupCall();
   }
+  joining = true;
+  try { await doJoin({ roomId, token, video, title, watch }); } finally { joining = false; }
+}
+
+async function doJoin({ roomId, token, video, title, watch }) {
   let local;
-  try {
+  // Live-stream viewers only watch: no microphone, no camera.
+  if (watch) local = new MediaStream();
+  else try {
     local = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       video: video ? { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' } : false,
@@ -108,18 +146,18 @@ export async function joinGroupCall({ roomId, token, video = false, title = '' }
     gc = null;
     return toast(ERR[r.error] || errorText({ code: r.error }), 'error');
   }
-  Object.assign(gc, { roomId: r.roomId, token: r.token, chatId: r.chatId, title: r.title || title, sid: r.sid });
-  for (const p of r.peers) addPeer(p.sid, p.userId, p.mic, p.cam, p.screen);
+  Object.assign(gc, { roomId: r.roomId, token: r.token, chatId: r.chatId, title: r.title || title, sid: r.sid, live: !!r.live, host: r.host !== false });
+  for (const p of r.peers) addPeer(p.sid, p.userId, p.mic, p.cam, p.screen, p.host);
   startMeter();
   render();
   ctx.onChange?.();
 }
 
-export function leaveGroupCall() {
+export function leaveGroupCall(silent = false) {
   if (!gc) return;
   const g = gc;
   gc = null;
-  ctx.socket.emit('gc:leave');
+  if (silent !== true) ctx.socket.emit('gc:leave');
   for (const p of g.peers.values()) { try { p.pc.close(); } catch { /* ignore */ } }
   g.local.getTracks().forEach((t) => t.stop());
   g.screen?.stop();
@@ -139,18 +177,18 @@ async function rejoin() {
   if (r?.error) { toast(ERR[r.error] || 'Звонок прерван', 'error'); return leaveGroupCall(); }
   g.sid = r.sid;
   for (const p of [...g.peers.keys()]) dropPeer(p);
-  for (const p of r.peers) addPeer(p.sid, p.userId, p.mic, p.cam, p.screen);
+  for (const p of r.peers) addPeer(p.sid, p.userId, p.mic, p.cam, p.screen, p.host);
   render();
 }
 
 // ------------------------------------------------------------------ peers
 
-function addPeer(sid, userId, mic, cam, screen = false) {
+function addPeer(sid, userId, mic, cam, screen = false, host = true) {
   if (!gc || sid === gc.sid) return;
   if (gc.peers.has(sid)) dropPeer(sid);
   ctx.ensureUser?.(userId);
   const pc = new RTCPeerConnection({ iceServers: gc.ice });
-  const peer = { sid, userId, pc, stream: new MediaStream(), mic, cam, screen, makingOffer: false, ignoreOffer: false, polite: gc.sid > sid, el: null };
+  const peer = { sid, userId, pc, stream: new MediaStream(), mic, cam, screen, host: host !== false, makingOffer: false, ignoreOffer: false, polite: gc.sid > sid, el: null };
   gc.peers.set(sid, peer);
   for (const t of gc.local.getAudioTracks()) pc.addTrack(t, gc.local);
   // Outgoing video: the shared screen wins over the camera.
@@ -184,6 +222,8 @@ function dropPeer(sid) {
   const p = gc?.peers.get(sid);
   if (!p) return;
   gc.peers.delete(sid);
+  const m = gc.meters?.get(sid);
+  if (m) { try { m.src.disconnect(); } catch { /* ignore */ } gc.meters.delete(sid); }
   try { p.pc.close(); } catch { /* ignore */ }
   p.el?.remove();
 }
@@ -268,8 +308,10 @@ async function toggleCam() {
     tracks.forEach((t) => { t.enabled = gc.cam; });
   } else {
     try {
+      const g = gc;
       const s = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' } });
       const track = s.getVideoTracks()[0];
+      if (gc !== g) { track.stop(); return; } // left the call meanwhile
       gc.local.addTrack(track);
       if (!gc.screen) await setOutgoingVideo(track); // while sharing, peers keep seeing the screen
       gc.cam = true;
@@ -284,8 +326,10 @@ async function flipCam() {
   if (!old) return;
   gc.facing = gc.facing === 'environment' ? 'user' : 'environment';
   try {
+    const g = gc;
     const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: gc.facing } });
     const track = s.getVideoTracks()[0];
+    if (gc !== g) { track.stop(); return; }
     for (const p of gc.peers.values()) {
       const sender = p.pc.getSenders().find((x) => x.track === old);
       await sender?.replaceTrack(track);
@@ -330,8 +374,9 @@ function startMeter() {
 function makeAnalyser(stream) {
   const an = gc.audioCtx.createAnalyser();
   an.fftSize = 256;
-  gc.audioCtx.createMediaStreamSource(stream).connect(an);
-  return { an, buf: new Uint8Array(an.fftSize) };
+  const src = gc.audioCtx.createMediaStreamSource(stream);
+  src.connect(an);
+  return { an, src, buf: new Uint8Array(an.fftSize) };
 }
 
 function attachMeter(peer) {
@@ -372,22 +417,31 @@ function render() {
   const count = gc.peers.size + 1;
 
   if (gc.mini) {
-    gc.root.replaceChildren(h('div', { class: 'gc-pill' },
+    // Detached <video> elements pause: keep peers' media in a hidden sink so audio continues.
+    const sink = h('div', { class: 'gc-audio-sink', hidden: true });
+    for (const p of gc.peers.values()) {
+      if (!p.media) { p.media = h('video', { autoplay: true, playsInline: true, class: 'gc-video' }); p.media.srcObject = p.stream; }
+      p.media.muted = gc.muted;
+      sink.append(p.media);
+      p.media.play?.().catch(() => {});
+    }
+    gc.root.replaceChildren(sink, h('div', { class: 'gc-pill' },
       h('button', { class: 'gc-pill-main', onclick: expand },
         h('span', { class: 'gc-dot' }), h('b', {}, gc.title || 'Групповой звонок'), h('span', { class: 'gc-time' }, fmt(Math.round((Date.now() - gc.joinedAt) / 1000))), h('span', {}, `· ${count}`)),
-      h('button', { class: `gc-pill-btn ${gc.mic ? '' : 'off'}`, 'aria-label': 'Микрофон', onclick: toggleMic }, icon(gc.mic ? 'mic' : 'micOff')),
-      h('button', { class: 'gc-pill-btn red', 'aria-label': 'Выйти', onclick: leaveGroupCall }, icon('phoneDown'))));
+      gc.live && !gc.host ? null : h('button', { class: `gc-pill-btn ${gc.mic ? '' : 'off'}`, 'aria-label': 'Микрофон', onclick: toggleMic }, icon(gc.mic ? 'mic' : 'micOff')),
+      h('button', { class: 'gc-pill-btn red', 'aria-label': 'Выйти', onclick: () => leaveGroupCall() }, icon('phoneDown'))));
     return;
   }
 
   const items = [
-    { key: 'me', user: me, stream: gc.local, mic: gc.mic, cam: gc.cam, screen: !!gc.screen, self: true },
-    ...[...gc.peers.values()].map((p) => ({ key: p.sid, user: ctx.user(p.userId) || { id: p.userId, name: '…' }, stream: p.stream, mic: p.mic, cam: p.cam, screen: p.screen, peer: p })),
+    ...(gc.live && !gc.host ? [] : [{ key: 'me', user: me, stream: gc.local, mic: gc.mic, cam: gc.cam, screen: !!gc.screen, self: true }]),
+    // In a live stream only hosts get a tile; viewers are just a counter.
+    ...[...gc.peers.values()].filter((p) => !gc.live || p.host).map((p) => ({ key: p.sid, user: ctx.user(p.userId) || { id: p.userId, name: '…' }, stream: p.stream, mic: p.mic, cam: p.cam, screen: p.screen, peer: p })),
   ];
   // Whoever shares the screen goes first and big (spotlight layout).
   const sharer = items.find((it) => it.screen && !it.self) || items.find((it) => it.screen);
   if (sharer) items.sort((x, y) => (y === sharer) - (x === sharer));
-  const grid = h('div', { class: `gc-grid n${Math.min(count, 9)} ${sharer ? 'spotlight' : ''}` });
+  const grid = h('div', { class: `gc-grid n${Math.min(gc.live ? items.length || 1 : count, 9)} ${sharer ? 'spotlight' : ''}` });
   for (const it of items) {
     const hasVideo = it.self && it.screen ? true
       : (it.cam || it.screen) && it.stream.getVideoTracks().some((t) => t.readyState === 'live' && (it.self || !t.muted));
@@ -422,10 +476,36 @@ function render() {
     if (it.peer) it.peer.el = t;
     grid.append(t);
   }
+  gc.selfVideo?.play?.().catch(() => {});
+  gc.selfScreen?.play?.().catch(() => {});
 
   const btn = (cls, ic, label, onClick) => h('div', { class: 'call-btn-wrap' },
     h('button', { class: `call-btn ${cls}`, 'aria-label': label, onclick: onClick }, icon(ic)), h('span', {}, label));
   const phone = /Android|iPhone|iPad/i.test(navigator.userAgent);
+  if (gc.live) {
+    gc.root.classList.add('live');
+    gc.root.replaceChildren(...[
+      h('div', { class: 'gc-top' },
+        h('button', { class: 'gc-top-btn', 'aria-label': 'Свернуть', onclick: minimize }, icon('down')),
+        h('div', { class: 'gc-title' }, h('b', {}, gc.title || 'Прямой эфир'),
+          h('span', {}, h('span', { class: 'live-badge' }, 'В ЭФИРЕ'), ' ', h('span', { class: 'gc-time' }, fmt(Math.round((Date.now() - gc.joinedAt) / 1000))), ' · ', h('span', { class: 'gc-viewers' }, viewersText()))),
+        h('span', { class: 'gc-top-btn ghost' })),
+      items.length ? grid : h('div', { class: 'gc-alone grow' }, h('span', { class: 'spinner' }), 'Подключение к эфиру…'),
+      gc.host && !gc.peers.size ? h('div', { class: 'gc-alone' }, 'Вы в эфире. Подписчики получили уведомление — зрители скоро подключатся') : null,
+      gc.host
+        ? h('div', { class: 'call-controls' },
+          btn(`glass ${gc.mic ? '' : 'off'}`, gc.mic ? 'mic' : 'micOff', gc.mic ? 'Микрофон' : 'Микр. выкл.', toggleMic),
+          btn(`glass ${gc.cam ? 'lit' : ''}`, gc.cam ? 'video' : 'videoOff', 'Камера', toggleCam),
+          gc.cam && phone ? btn('glass', 'refresh', 'Повернуть', flipCam) : null,
+          canShareScreen() ? btn(`glass ${gc.screen ? 'lit' : ''}`, 'screen', gc.screen ? 'Остановить' : 'Экран', toggleScreen) : null,
+          btn('red', 'phoneDown', 'Завершить', endLive))
+        : h('div', { class: 'gc-live-foot' },
+          h('div', { class: 'gc-reacts' }, LIVE_EMOJI.map((e) => h('button', { onclick: () => ctx.socket.emit('gc:react', { emoji: e }) }, e))),
+          h('div', { class: 'call-controls' },
+            btn(`glass ${gc.muted ? 'off' : ''}`, gc.muted ? 'volumeOff' : 'volume', gc.muted ? 'Звук выкл.' : 'Звук', toggleSound),
+            btn('red', 'phoneDown', 'Выйти', () => leaveGroupCall())))].filter(Boolean));
+    return;
+  }
   gc.root.replaceChildren(...[
     h('div', { class: 'gc-top' },
       h('button', { class: 'gc-top-btn', 'aria-label': 'Свернуть', onclick: minimize }, icon('down')),
@@ -441,5 +521,5 @@ function render() {
       gc.cam && phone ? btn('glass', 'refresh', 'Повернуть', flipCam) : null,
       canShareScreen() ? btn(`glass ${gc.screen ? 'lit' : ''}`, 'screen', gc.screen ? 'Остановить' : 'Экран', toggleScreen) : null,
       btn(`glass ${gc.muted ? 'off' : ''}`, gc.muted ? 'volumeOff' : 'volume', gc.muted ? 'Звук выкл.' : 'Звук', toggleSound),
-      btn('red', 'phoneDown', 'Выйти', leaveGroupCall))].filter(Boolean));
+      btn('red', 'phoneDown', 'Выйти', () => leaveGroupCall()))].filter(Boolean));
 }

@@ -45,7 +45,9 @@ export function disconnectSession(sessionId) {
 }
 
 function contactsOf(userId) {
+  // Channels excluded: subscribers must not learn about each other.
   return q(`SELECT DISTINCT m2.user_id AS id FROM chat_members m1
+            JOIN chats c ON c.id = m1.chat_id AND c.type != 'channel'
             JOIN chat_members m2 ON m2.chat_id = m1.chat_id
             WHERE m1.user_id = ? AND m2.user_id != ?`).all(userId, userId).map((r) => r.id);
 }
@@ -82,7 +84,10 @@ function registerCallHandlers(socket, userId) {
     return c && (c.from === userId || c.to === userId) ? c : null;
   };
 
+  let lastInvite = 0;
   socket.on('call:invite', (p, ack) => {
+    if (Date.now() - lastInvite < 3000) return reply(ack, { error: 'too_many' });
+    lastInvite = Date.now();
     const chatId = Number(p?.chatId);
     const chat = Number.isInteger(chatId) && q("SELECT * FROM chats WHERE id = ? AND type = 'private'").get(chatId);
     const peer = chat && q('SELECT u.* FROM chat_members cm JOIN users u ON u.id = cm.user_id WHERE cm.chat_id = ? AND cm.user_id != ?').get(chatId, userId);
@@ -202,9 +207,13 @@ export function initRealtime(httpServer, trustFn) {
       const t = Date.now();
       if (!Number.isInteger(chatId) || t - lastTyping < 1500) return;
       lastTyping = t;
-      const ok = q(`SELECT 1 FROM chat_members cm JOIN chats c ON c.id = cm.chat_id
+      const ok = q(`SELECT c.type FROM chat_members cm JOIN chats c ON c.id = cm.chat_id
                     WHERE cm.chat_id = ? AND cm.user_id = ? AND c.type != 'channel'`).get(chatId, userId);
       if (!ok) return;
+      if (ok.type === 'private') {
+        const peer = q('SELECT user_id FROM chat_members WHERE chat_id = ? AND user_id != ?').get(chatId, userId);
+        if (peer && blockedBetween(userId, peer.user_id)) return;
+      }
       emitToChat(chatId, 'typing', { chatId, userId }, userId);
     });
 

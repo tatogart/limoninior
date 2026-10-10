@@ -106,3 +106,33 @@ body:has(.admin-app) { overflow: auto; background: var(--bg-2); }
 .ip-row:last-child { border-bottom: 0; }
 .ip-row .user-info { flex: 1; min-width: 0; }
 .ip-row .pill { margin-left: 6px; }
+
+/* Phones: nothing may be wider than the screen (long emails / usernames used to push the page sideways). */
+.admin-main > *, .admin-card, .users-list, .audit-list { min-width: 0; max-width: 100%; }
+.user-info { min-width: min(200px, 100%); }
+.user-info .row-main, .user-info .row-sub { overflow-wrap: anywhere; }
+.audit-row, .dev-row { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .user-row { padding: 10px 4px; }
+  .user-actions { width: 100%; display: flex; flex-wrap: wrap; gap: 6px; }
+}
+.users-list, .audit-list, .devices { grid-template-columns: minmax(0, 1fr); }
+.row-sub.clip { max-width: min(520px, 100%); }
+.dev-info .row-sub { overflow-wrap: anywhere; }
+@media (max-width: 340px) { .otp { gap: 5px; } .otp-cell { width: 36px; } }
+:root[data-theme="dark"] .pill.warn { color: #fbbf24; }
+/* narrow phones: header must fit (lock button used to push the page sideways) */
+.admin-top { min-width: 0; }
+.admin-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 420px) {
+  .admin-top { gap: 6px; }
+  .admin-top .admin-timer { display: none; }
+  .admin-top .btn-sm { padding-left: 10px; padding-right: 10px; flex-shrink: 0; }
+}
+@media (max-width: 520px) {
+  .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .stat { padding: 12px; gap: 10px; }
+  .stat .stat-ic { width: 36px; height: 36px; }
+  .stat-value { font-size: 19px; }
+  .stat-label, .stat-sub { font-size: 12px; overflow-wrap: anywhere; }
+}

@@ -90,22 +90,24 @@ export async function customSoundName(kind) {
   return (await idbGet(kind))?.name || null;
 }
 
-let customEl = null;
-async function playCustom(kind, { loop = false } = {}) {
+// Separate players: a message sound must not cut off a ringing custom ringtone.
+const players = { ring: null, msg: null };
+async function playCustom(kind, { loop = false, slot = 'msg' } = {}) {
   const rec = await idbGet(kind);
-  if (!rec) return false;
-  stopCustom();
+  if (!rec) return null;
+  stopCustom(slot);
   const el = new Audio(URL.createObjectURL(rec.blob));
   el.loop = loop;
   el.volume = Math.min(1, settings().volume);
-  customEl = el;
-  try { await el.play(); return true; } catch { return false; }
+  players[slot] = el;
+  try { await el.play(); return el; } catch { return null; }
 }
-function stopCustom() {
-  if (!customEl) return;
-  customEl.pause();
-  URL.revokeObjectURL(customEl.src);
-  customEl = null;
+function stopCustom(slot, only = null) {
+  const el = players[slot];
+  if (!el || (only && el !== only)) return;
+  el.pause();
+  URL.revokeObjectURL(el.src);
+  players[slot] = null;
 }
 
 // ---------- public API ----------
@@ -114,20 +116,23 @@ export async function playMessageSound(force = false) {
   const s = settings();
   if (!force && !s.inAppSounds) return;
   if (s.vibrate) navigator.vibrate?.(60);
-  if (s.messageSound === 'custom') { if (await playCustom('message')) return; }
+  if (s.messageSound === 'custom') { if (await playCustom('message', { slot: 'msg' })) return; }
   playNotes(MESSAGE_SOUNDS[s.messageSound] || MESSAGE_SOUNDS.pop, s.volume);
 }
 
 let ringTimer = null;
+let ringGen = 0; // bumps on every stop: a ringtone still loading must not start afterwards
 /** Incoming-call ringtone. Returns nothing; call stopRing() to stop. */
 export async function startRingtone() {
   stopRing();
+  const my = ringGen;
   const s = settings();
   const vib = () => { if (s.vibrate) navigator.vibrate?.([600, 300, 600]); };
   vib();
-  if (s.ringtone === 'custom' && await playCustom('ringtone', { loop: true })) {
-    ringTimer = setInterval(vib, 2000);
-    return;
+  if (s.ringtone === 'custom') {
+    const el = await playCustom('ringtone', { loop: true, slot: 'ring' });
+    if (my !== ringGen) { stopCustom('ring', el); return; }
+    if (el) { ringTimer = setInterval(vib, 2000); return; }
   }
   const def = RINGTONES[s.ringtone] || RINGTONES.lemon;
   const tick = () => { playNotes(def, s.volume); vib(); };
@@ -145,9 +150,10 @@ export function startRingback() {
 }
 
 export function stopRing() {
+  ringGen++;
   clearInterval(ringTimer);
   ringTimer = null;
-  stopCustom();
+  stopCustom('ring');
   navigator.vibrate?.(0);
 }
 
@@ -156,9 +162,10 @@ export async function preview(kind, id) {
   stopRing();
   const s = settings();
   if (id === 'custom') {
-    const ok = await playCustom(kind === 'ring' ? 'ringtone' : 'message');
-    if (ok) setTimeout(stopCustom, 4000);
-    return ok;
+    const slot = kind === 'ring' ? 'ring' : 'msg';
+    const el = await playCustom(kind === 'ring' ? 'ringtone' : 'message', { slot });
+    if (el) setTimeout(() => stopCustom(slot, el), 4000); // only the preview it started
+    return !!el;
   }
   playNotes((kind === 'ring' ? RINGTONES : MESSAGE_SOUNDS)[id], s.volume);
   return true;

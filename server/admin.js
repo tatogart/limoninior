@@ -28,7 +28,7 @@ const notFound = (res) => res.status(404).json({ error: 'not_found' });
 
 function gate(req, res, next) {
   if (!enabled()) return notFound(res);
-  if (config.adminIps.length && !config.adminIps.includes(String(req.ip).toLowerCase())) return notFound(res);
+  if (config.adminIps.length && !config.adminIps.map(normIp).includes(normIp(req.ip))) return notFound(res);
   if (!isAdminUser(req.user)) {
     audit(req.user.id, req.ip, 'admin_denied', req.path);
     return notFound(res);
@@ -212,7 +212,14 @@ admin.post('/users/:id/logout', (req, res) => {
 admin.post('/users/:id/reset-username', (req, res) => {
   const u = targetUser(req, res);
   if (!u) return;
-  q('UPDATE users SET username = NULL WHERE id = ?').run(u.id);
+  // Password accounts sign in by username, so they get a placeholder instead of none.
+  let fresh = null;
+  if (String(u.google_sub).startsWith('local:')) {
+    for (let i = 0; i < 20 && (!fresh || q('SELECT 1 FROM users WHERE username = ? UNION SELECT 1 FROM chats WHERE username = ?').get(fresh, fresh)); i++) {
+      fresh = `user${u.id}${i ? `_${i}` : ''}`;
+    }
+  }
+  q('UPDATE users SET username = ? WHERE id = ?').run(fresh, u.id);
   disconnectUser(u.id);
   audit(req.user.id, req.ip, 'admin_reset_username', { userId: u.id, username: u.username });
   res.json({ ok: true });

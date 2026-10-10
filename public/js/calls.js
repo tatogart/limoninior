@@ -66,8 +66,10 @@ async function getMedia(video) {
 }
 
 async function createPeer() {
+  const c = call;
   let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
   try { iceServers = (await api.get('/calls/ice')).iceServers; } catch { /* default STUN */ }
+  if (!c || call !== c) return null; // hung up meanwhile
   const pc = new RTCPeerConnection({ iceServers });
   call.pc = pc;
   call.pendingIce = [];
@@ -103,13 +105,14 @@ export async function startCall(chat, peer, video) {
   call = { id: null, chatId: chat.id, peer, video, role: 'caller', status: 'calling', mic: true, cam: video, peerMic: true, peerCam: video, speaker: true, loud: video || !isPhone() };
   render();
   const local = await getMedia(video);
-  if (!local || !call) { cleanup(); return; }
+  if (!call) { local?.getTracks().forEach((t) => t.stop()); return; } // hung up while asking for the mic
+  if (!local) { cleanup(); return; }
   call.local = local;
   call.video = local.getVideoTracks().length > 0;
   call.cam = call.video;
   render();
   ctx.socket.emit('call:invite', { chatId: chat.id, video: call.video }, (r) => {
-    if (!call) return;
+    if (!call) { if (r?.callId) ctx.socket.emit('call:end', { callId: r.callId }); return; }
     if (r?.error) {
       finish(r.error === 'busy' ? 'Абонент занят' : r.error === 'busy_self' ? 'У вас уже идёт звонок'
         : r.error === 'calls_disabled' ? 'Пользователь ограничил входящие звонки' : END_TEXT[r.error] || errorText({ code: r.error }));
@@ -126,6 +129,7 @@ async function onAccepted({ callId }) {
   call.status = 'connecting';
   render();
   const pc = await createPeer();
+  if (!pc) return;
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   signal({ type: 'offer', sdp: pc.localDescription });
@@ -153,11 +157,11 @@ async function accept() {
   call.status = 'connecting';
   render();
   const local = await getMedia(call.video);
-  if (!call) return;
+  if (!call) { local?.getTracks().forEach((t) => t.stop()); return; }
   if (!local) { reject(); return; }
   call.local = local;
   call.cam = local.getVideoTracks().length > 0;
-  await createPeer();
+  if (!(await createPeer()) || !call) return;
   ctx.socket.emit('call:accept', { callId: call.id });
   render();
 }
