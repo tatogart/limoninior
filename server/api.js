@@ -14,7 +14,6 @@ import { sendPush, saveSubscription, removeSubscription, vapidPublicKey } from '
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { getPrefs, cleanPrefs, PROFILE_COLORS } from './prefs.js';
-import { normIp } from './ipban.js';
 import { isOnline, emitToUser, emitToUsers, emitToChat, memberIds, disconnectSession, setCallHooks } from './realtime.js';
 
 export const api = express.Router();
@@ -571,16 +570,7 @@ api.post('/me/referral', requireAuth, requireProfile, (req, res) => {
   const inviter = q('SELECT * FROM users WHERE username = ? AND banned = 0').get(String(req.body?.ref || '').replace(/^@/, ''));
   if (!inviter || inviter.id === me.id || inviter.google_sub === OFFICIAL_SUB) return bad(res, 'ref_invalid');
   if (inviter.created_at > me.created_at) return bad(res, 'ref_invalid');
-  // Anti-abuse: no reward when the new account comes from the inviter's own network.
-  const ip = normIp(req.ip);
-  const sameIp = q('SELECT 1 FROM user_ips WHERE user_id = ? AND ip = ?').get(inviter.id, ip)
-    || q('SELECT 1 FROM sessions WHERE user_id = ? AND ip = ?').get(inviter.id, req.ip)
-    || q('SELECT 1 FROM users u JOIN user_ips i ON i.user_id = u.id WHERE u.referred_by = ? AND i.ip = ?').get(inviter.id, ip);
   q('UPDATE users SET referred_by = ? WHERE id = ?').run(inviter.id, me.id);
-  if (sameIp) {
-    audit(me.id, req.ip, 'referral_suspicious', { inviter: inviter.id });
-    return bad(res, 'ref_same_network');
-  }
   q('UPDATE users SET ref_rewarded = 1 WHERE id = ?').run(me.id);
   const mine = addSubscriptionDays(me.id, REF_DAYS);
   officialNote(me.id, `🎁 Вы пришли по приглашению @${inviter.username} — дарим ${mine.plan.emoji} ${mine.plan.name} на месяц (до ${new Date(mine.until).toLocaleDateString('ru-RU')}). Приглашайте друзей — и получайте ещё!`);
@@ -1358,6 +1348,43 @@ api.patch('/channels/:id', (req, res) => {
     .run(title, description, username, newInviteToken(), c.id);
   pushChat(c.id);
   res.json({ chat: chatForUser(c.id, req.user.id) });
+});
+
+// Subscriber list: only the channel's owner and admins may see who is subscribed.
+function channelStaff(req, res) {
+  const id = int(req.params.id);
+  const c = id && q("SELECT c.*, cm.role FROM chats c JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = ? WHERE c.id = ? AND c.type = 'channel'")
+    .get(req.user.id, id);
+  if (!c) { bad(res, 'not_found', 404); return null; }
+  if (c.role !== 'owner' && c.role !== 'admin') { bad(res, 'forbidden', 403); return null; }
+  return c;
+}
+
+api.get('/channels/:id/subscribers', searchLimiter, (req, res) => {
+  const c = channelStaff(req, res);
+  if (!c) return;
+  const raw = clean(req.query.q, 64).replace(/^@/, '');
+  const like = `%${raw.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+  const rows = q(`SELECT u.*, cm.role, cm.joined_at FROM chat_members cm JOIN users u ON u.id = cm.user_id
+                  WHERE cm.chat_id = ? AND (? = '' OR u.username LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\')
+                  ORDER BY cm.role = 'owner' DESC, cm.role = 'admin' DESC, cm.joined_at DESC LIMIT 500`).all(c.id, raw, like, like);
+  res.json({
+    total: q('SELECT COUNT(*) AS n FROM chat_members WHERE chat_id = ?').get(c.id).n,
+    subscribers: rows.map((u) => ({ ...publicUser(u), role: u.role, joinedAt: u.joined_at })),
+  });
+});
+
+api.delete('/channels/:id/subscribers/:userId', (req, res) => {
+  const c = channelStaff(req, res);
+  if (!c) return;
+  const uid = int(req.params.userId);
+  const m = uid && q('SELECT role FROM chat_members WHERE chat_id = ? AND user_id = ?').get(c.id, uid);
+  if (!m) return bad(res, 'not_found', 404);
+  if (m.role === 'owner' || (m.role === 'admin' && c.role !== 'owner')) return bad(res, 'forbidden', 403);
+  q('DELETE FROM chat_members WHERE chat_id = ? AND user_id = ?').run(c.id, uid);
+  emitToUser(uid, 'chat:removed', { chatId: c.id });
+  pushChat(c.id);
+  res.json({ ok: true });
 });
 
 api.post('/channels/:id/verify-request', (req, res) => {

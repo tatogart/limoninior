@@ -97,7 +97,7 @@ const signal = (data) => ctx.socket.emit('call:signal', { callId: call?.id, data
 export async function startCall(chat, peer, video) {
   if (call) return toast('Сначала завершите текущий звонок');
   if (!window.RTCPeerConnection || !navigator.mediaDevices?.getUserMedia) return toast('Браузер не поддерживает звонки', 'error');
-  call = { id: null, chatId: chat.id, peer, video, role: 'caller', status: 'calling', mic: true, cam: video, peerMic: true, peerCam: video, speaker: true };
+  call = { id: null, chatId: chat.id, peer, video, role: 'caller', status: 'calling', mic: true, cam: video, peerMic: true, peerCam: video, speaker: true, loud: video || !isPhone() };
   render();
   const local = await getMedia(video);
   if (!local || !call) { cleanup(); return; }
@@ -136,7 +136,7 @@ function onIncoming({ callId, chatId, from, video }) {
     return; // already in a call; the server marks us busy
   }
   const peer = ctx.userById(from) || { id: from, name: 'Пользователь' };
-  call = { id: callId, chatId, peer, video, role: 'callee', status: 'incoming', mic: true, cam: video, peerMic: true, peerCam: video, speaker: true };
+  call = { id: callId, chatId, peer, video, role: 'callee', status: 'incoming', mic: true, cam: video, peerMic: true, peerCam: video, speaker: true, loud: video || !isPhone() };
   startTone('ring');
   render();
   if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
@@ -215,6 +215,50 @@ function toggleCam() {
   call.cam = !call.cam;
   tracks.forEach((t) => { t.enabled = call.cam; });
   ctx.socket.emit('call:state', { callId: call.id, mic: call.mic, cam: call.cam });
+  render();
+}
+
+// ---------- earpiece / loudspeaker (phones)
+// Like Telegram: voice calls start "at the ear", video calls on the loudspeaker.
+// If the browser exposes the earpiece as an output device we route to it; otherwise
+// the closest thing a web page can do is play quietly so the phone can be held to the ear.
+const isPhone = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const EARPIECE_RE = /earpiece|receiver|handset|phone|телефон|разговорн/i;
+const SPEAKER_RE = /speaker|динамик|громк/i;
+const EAR_VOLUME = 0.3;
+
+async function findOutputs() {
+  if (!('setSinkId' in HTMLMediaElement.prototype) || !navigator.mediaDevices?.enumerateDevices) return null;
+  try {
+    const outs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audiooutput');
+    const ear = outs.find((d) => EARPIECE_RE.test(d.label));
+    if (!ear) return null;
+    const spk = outs.find((d) => d !== ear && SPEAKER_RE.test(d.label)) || outs.find((d) => d !== ear && d.deviceId === 'default') || outs.find((d) => d !== ear);
+    return { ear: ear.deviceId, speaker: spk?.deviceId || 'default' };
+  } catch { return null; }
+}
+
+async function applyRoute() {
+  const el = call?.remoteEl;
+  if (!el || !isPhone()) return;
+  if (call.outputs === undefined) call.outputs = await findOutputs();
+  if (!call?.remoteEl) return;
+  if (call.outputs) {
+    el.volume = 1;
+    try { await el.setSinkId(call.loud ? call.outputs.speaker : call.outputs.ear); return; } catch { call.outputs = null; }
+  }
+  el.volume = call.loud ? 1 : EAR_VOLUME;
+}
+
+function toggleLoud() {
+  if (!call) return;
+  call.loud = !call.loud;
+  applyRoute();
+  if (!call.outputs && !call.loud && !toggleLoud.told) {
+    toggleLoud.told = true;
+    toast('Звук тише — поднесите телефон к уху');
+  }
+  navigator.vibrate?.(10);
   render();
 }
 
@@ -311,6 +355,7 @@ function render() {
       call.remoteEl = h('video', { autoplay: true, playsInline: true, class: 'call-remote' });
       call.remoteEl.srcObject = call.remote;
       if (call.sinkId) call.remoteEl.setSinkId?.(call.sinkId).catch(() => {});
+      applyRoute();
     }
     call.remoteEl.muted = !call.speaker;
     call.remoteEl.classList.toggle('audio-only', !remoteVideo);
@@ -339,7 +384,9 @@ function render() {
       btn('red', 'phoneDown', 'Отклонить', reject),
       btn('green', call.video ? 'video' : 'phone', 'Ответить', accept))
     : h('div', { class: 'call-controls' },
-      btn('glass', call.speaker ? 'volume' : 'volumeOff', call.speaker ? 'Динамик' : 'Динамик выкл.', toggleSpeaker, call.speaker),
+      isPhone()
+        ? btn(`glass ${call.loud ? 'lit' : ''}`, 'volume', 'Динамик', toggleLoud)
+        : btn('glass', call.speaker ? 'volume' : 'volumeOff', call.speaker ? 'Звук' : 'Звук выкл.', toggleSpeaker, call.speaker),
       btn('glass', call.mic ? 'mic' : 'micOff', call.mic ? 'Микрофон' : 'Микр. выкл.', toggleMic, call.mic),
       call.local?.getVideoTracks().length ? btn('glass', call.cam ? 'video' : 'videoOff', 'Камера', toggleCam, call.cam) : null,
       call.local?.getVideoTracks().length && /Android|iPhone|iPad/i.test(navigator.userAgent) ? btn('glass', 'refresh', 'Повернуть', flipCam) : null,

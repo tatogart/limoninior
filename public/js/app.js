@@ -2620,6 +2620,8 @@ async function channelInfoModal(c) {
         h('div', { class: 'profile-status' }, subsText(ch.membersCount))),
       h('div', { class: 'profile-rows' },
         ch.description ? h('div', { class: 'profile-row' }, icon('info'), h('div', {}, h('div', { class: 'row-main pre' }, richText(ch.description)), h('div', { class: 'row-sub' }, 'Описание'))) : null,
+        c.role === 'owner' || c.role === 'admin' ? h('button', { class: 'profile-row', onclick: () => subscribersModal(c) }, icon('group'),
+          h('div', { class: 'grow' }, h('div', { class: 'row-main' }, subsText(ch.membersCount)), h('div', { class: 'row-sub' }, 'Список подписчиков · видят только админы канала'))) : null,
         ch.username ? h('button', { class: 'profile-row', onclick: () => copyText(`${location.origin}/@${ch.username}`) }, icon('at'),
           h('div', {}, h('div', { class: 'row-main accent' }, `${location.host}/@${ch.username}`), h('div', { class: 'row-sub' }, 'Ссылка · нажмите, чтобы скопировать')))
           : h('div', { class: 'profile-row' }, icon('lock'), h('div', {}, h('div', { class: 'row-main' }, 'Приватный канал'), h('div', { class: 'row-sub' }, 'Не виден в поиске, вход только по приглашению'))),
@@ -2638,6 +2640,36 @@ async function channelInfoModal(c) {
         h('button', { class: 'btn btn-danger-ghost', onclick: () => deleteChannel(c) }, icon('trash'), 'Удалить')) : null,
       !owner && !c.preview ? h('button', { class: 'btn btn-danger-ghost btn-block', onclick: () => leaveChannel(c) }, icon('leave'), 'Отписаться') : null),
   });
+}
+
+/** Channel subscribers — the server only answers the channel's owner/admins. */
+function subscribersModal(c) {
+  const search = h('input', { class: 'input', type: 'search', placeholder: 'Поиск подписчиков' });
+  const head = h('div', { class: 'muted small' });
+  const list = h('div', { class: 'fwd-list' }, h('span', { class: 'spinner' }));
+  const roleLabel = { owner: 'владелец', admin: 'админ' };
+  let t = null;
+  const load = async () => {
+    try {
+      const r = await api.get(`/channels/${c.id}/subscribers?q=${encodeURIComponent(search.value.trim())}`);
+      head.textContent = `Всего: ${subsText(r.total)}`;
+      list.replaceChildren(...(r.subscribers.length ? r.subscribers.map((u) => {
+        mergeUser(u);
+        return h('div', { class: 'fwd-item static' },
+          h('button', { class: 'sub-who', onclick: () => openUserProfile(u.id) }, avatar(u, 42),
+            h('div', { class: 'grow' }, h('div', { class: 'row-main' }, nameWithBadge(u.name, u)),
+              h('div', { class: 'row-sub' }, `@${u.username} · с ${dayLabel(u.joinedAt)}`))),
+          roleLabel[u.role] ? h('span', { class: 'pill' }, roleLabel[u.role])
+            : h('button', { class: 'icon-btn', 'aria-label': 'Удалить из канала', title: 'Удалить из канала', onclick: async () => {
+              if (!(await confirmDialog(`Удалить ${u.name} из подписчиков?`, { ok: 'Удалить', danger: true }))) return;
+              try { await api.del(`/channels/${c.id}/subscribers/${u.id}`); toast('Подписчик удалён'); load(); } catch (e) { toast(errorText(e), 'error'); }
+            } }, icon('leave')));
+      }) : [h('div', { class: 'list-note' }, 'Никого не найдено')]));
+    } catch (e) { list.replaceChildren(h('div', { class: 'list-note' }, errorText(e))); }
+  };
+  search.addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 250); });
+  openModal({ title: 'Подписчики', body: h('div', { class: 'stack' }, search, head, list) });
+  load();
 }
 
 async function shareLink(url, title) {

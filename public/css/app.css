@@ -1064,6 +1064,7 @@ audio.call-remote { display: none; }
 .call-btn.green { background: #22c55e; box-shadow: 0 8px 22px rgba(34, 197, 94, 0.45); animation: a-beat 1.3s ease-in-out infinite; }
 .call-btn.glass { background: rgba(255, 255, 255, 0.16); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
 .call-btn.glass.off { background: #fff; color: #111; }
+.call-btn.glass.lit { background: #fff; color: #111; }
 
 /* channel post comments */
 .post-comments {
@@ -1769,3 +1770,4 @@ button.pf-row:hover { background: var(--hover); }
 .ref-welcome { text-align: center; display: grid; justify-items: center; gap: 6px; padding-top: 6px; }
 .ref-welcome h2 { margin: 6px 0 0; font-size: 20px; }
 .ref-welcome p { margin: 0; color: var(--text-2); line-height: 1.45; }
+.sub-who { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; text-align: left; }
