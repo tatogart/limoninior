@@ -322,3 +322,34 @@ db.exec(`
 
 addColumn('users', 'referred_by', 'INTEGER');
 addColumn('users', 'ref_rewarded', 'INTEGER NOT NULL DEFAULT 0');
+
+// Communities (like Discord servers): a group of channels with shared members and roles.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS communities (
+    id           INTEGER PRIMARY KEY,
+    owner_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    title        TEXT NOT NULL,
+    description  TEXT NOT NULL DEFAULT '',
+    avatar       TEXT,
+    invite_token TEXT UNIQUE,
+    created_at   INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS community_members (
+    community_id INTEGER NOT NULL REFERENCES communities(id) ON DELETE CASCADE,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role         TEXT NOT NULL DEFAULT 'member',
+    joined_at    INTEGER NOT NULL,
+    PRIMARY KEY (community_id, user_id)
+  );
+  CREATE INDEX IF NOT EXISTS community_members_user ON community_members(user_id);
+  CREATE TABLE IF NOT EXISTS community_bans (
+    community_id INTEGER NOT NULL REFERENCES communities(id) ON DELETE CASCADE,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at   INTEGER NOT NULL,
+    PRIMARY KEY (community_id, user_id)
+  ) WITHOUT ROWID;
+`);
+addColumn('chats', 'community_id', 'INTEGER REFERENCES communities(id) ON DELETE CASCADE');
+addColumn('chats', 'position', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('chats', 'ckind', 'TEXT');
+db.exec('CREATE INDEX IF NOT EXISTS chats_community ON chats(community_id, position)');

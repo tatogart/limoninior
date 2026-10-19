@@ -2014,3 +2014,50 @@ body:has(.modal-backdrop.show) .gc-overlay.mini, body:has(.story-viewer) .gc-ove
 .mine .bot-kb-btn { background: rgba(255, 255, 255, 0.35); }
 .sticker-grid > .sticker-btn { min-width: 0; min-height: 0; overflow: hidden; }
 .sticker-btn > img.panel-sticker { width: 100%; height: auto; aspect-ratio: 1; min-height: 0; }
+
+/* ===================== v15: communities ===================== */
+.community-ava, .community-ava img { border-radius: 30%; }
+.cm-view { display: grid; gap: 4px; padding-top: 2px; animation: cmIn 0.22s var(--ease); }
+@keyframes cmIn { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+.cm-head { display: flex; align-items: center; gap: 4px; padding: 4px 2px 8px; border-bottom: 1px solid var(--border, color-mix(in srgb, var(--text) 8%, transparent)); margin-bottom: 4px; }
+.cm-head-info { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 4px 6px; border-radius: 12px; text-align: left; }
+.cm-head-info:hover { background: var(--hover); }
+.cm-head-info .grow { min-width: 0; }
+.cm-title { font-weight: 700; font-size: 16px; }
+.cm-sub { font-size: 13px; color: var(--text-2); }
+.cm-channels { display: grid; gap: 2px; }
+.cm-group { display: flex; align-items: center; justify-content: space-between; padding: 12px 10px 4px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-2); }
+.cm-group-add { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; color: var(--text-2); }
+.cm-group-add:hover { background: var(--hover); color: var(--text); }
+.cm-group-add .ic { width: 16px; height: 16px; }
+.cm-ch { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; text-align: left; color: var(--text-2); font-size: 15.5px; transition: background 0.12s, color 0.12s; }
+.cm-ch:hover { background: var(--hover); color: var(--text); }
+.cm-ch.unread { color: var(--text); font-weight: 650; }
+.cm-ch.muted { opacity: 0.75; }
+.cm-ch.active { background: var(--accent); color: var(--on-accent); }
+.cm-ch.active .badge { background: var(--on-accent); color: var(--accent); }
+.cm-ch.active .mute-ic, .cm-ch.active .pill { color: var(--on-accent); }
+.cm-ch-ic { width: 20px; height: 20px; flex-shrink: 0; opacity: 0.85; }
+.cm-ch-name { flex: 1; min-width: 0; }
+.cm-ch .pill { margin-left: 0; }
+.live-pill { color: #23a55a; background: color-mix(in srgb, #23a55a 16%, transparent); }
+.cm-voice { display: grid; }
+.cm-voice-users { display: grid; gap: 2px; padding: 0 0 6px 42px; }
+.cm-voice-user { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-2); min-width: 0; }
+.cm-voice-user .avatar { font-size: 10px; }
+.cm-hero { display: flex; gap: 12px; align-items: center; padding: 14px; border-radius: 18px; background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.cm-hero-ic { width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); flex-shrink: 0; }
+.cm-hero > div:last-child { display: grid; gap: 2px; font-size: 13.5px; }
+.cm-hero span { color: var(--text-2); }
+.cm-kinds { display: grid; gap: 6px; }
+.cm-kind { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; text-align: left; border: 1.5px solid transparent; background: var(--bg-2, color-mix(in srgb, var(--text) 5%, transparent)); }
+.cm-kind > .ic { width: 22px; height: 22px; color: var(--text-2); flex-shrink: 0; }
+.cm-kind div { display: grid; gap: 1px; }
+.cm-kind span { font-size: 13px; color: var(--text-2); }
+.cm-kind.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.cm-kind.on > .ic { color: var(--accent); }
+.cm-info-channels { display: grid; gap: 2px; text-align: left; }
+.cm-info-channels .cm-ch { color: var(--text); }
+.pill.gold { color: #b8860b; background: color-mix(in srgb, #f4c430 22%, transparent); }
+.gc-bar-ava > .ic { width: 22px; height: 22px; color: var(--accent); }
+.header-title .title-ic { width: 18px; height: 18px; margin-right: 4px; flex-shrink: 0; color: var(--text-2); }

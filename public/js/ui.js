@@ -31,6 +31,10 @@ function append(el, children) {
 
 const ICONS = {
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  hash: '<path d="M9.5 4 7.5 20M16.5 4l-2 16M4.5 9h16M3.5 15h16"/>',
+  community: '<rect x="3" y="3" width="7.5" height="7.5" rx="2.2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="3.75"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="3.75"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2.2"/>',
+  up: '<path d="m6 15 6-6 6 6"/>',
+  headphones: '<path d="M4 15.5V12a8 8 0 0 1 16 0v3.5"/><rect x="3" y="13.5" width="4.6" height="7" rx="2"/><rect x="16.4" y="13.5" width="4.6" height="7" rx="2"/>',
   bot: '<rect x="4.5" y="8" width="15" height="11" rx="3.5"/><path d="M12 4.5V8M9.2 13h.01M14.8 13h.01M2.5 12.5v2.5M21.5 12.5v2.5"/><circle cx="12" cy="3.6" r="1"/>',
   live: '<circle cx="12" cy="12" r="2.6"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/>',
   screen: '<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M8.5 20h7M12 16.5V20M12 13V8M9.5 10.5 12 8l2.5 2.5"/>',

@@ -18,6 +18,7 @@ import { isOnline, emitToUser, emitToUsers, emitToChat, memberIds, disconnectSes
 import { setGroupCallHooks, activeRoomForChat, kickFromChatCall } from './groupcalls.js';
 import { registerStickers, customSticker, stickerExtra } from './stickers.js';
 import { registerBots, onNewMessage, isBotUser } from './bots.js';
+import { registerCommunities, communityRole } from './communities.js';
 
 export const api = express.Router();
 
@@ -148,7 +149,7 @@ function chatForUser(chatId, userId) {
   if (!c) return null;
   const last = c.last_msg_id ? q('SELECT * FROM messages WHERE id = ?').get(c.last_msg_id) : null;
   const pinnedMsg = c.pinned_msg_id ? serializeMessage(q('SELECT * FROM messages WHERE id = ? AND chat_id = ?').get(c.pinned_msg_id, chatId)) : null;
-  const common = { pinnedAt: c.pinned_at || 0, pinnedMessage: pinnedMsg };
+  const common = { pinnedAt: c.pinned_at || 0, pinnedMessage: pinnedMsg, communityId: c.community_id || null, ckind: c.community_id ? c.ckind || 'text' : undefined };
   const unread = q('SELECT COUNT(*) AS n FROM messages WHERE chat_id = ? AND id > ? AND (sender_id IS NULL OR sender_id != ?)')
     .get(chatId, c.last_read_id, userId).n;
   if (c.type === 'channel') {
@@ -609,6 +610,7 @@ registerBots(api, {
   bad, int, clean, checkUsername, postError, publicUser, deleteChat, pushChat,
   postMessage: (...a) => postMessage(...a), serializeMessage: (m) => serializeMessage(m), removeMessage: (m) => removeMessage(m),
 });
+registerCommunities(api, { bad, int, clean, chatForUser, pushChat, systemMessage, deleteChat, publicUser });
 
 api.get('/referrals', (req, res) => {
   const rows = q('SELECT * FROM users WHERE referred_by = ? ORDER BY created_at DESC LIMIT 200').all(req.user.id);
@@ -728,6 +730,8 @@ function groupAsAdmin(req, res, types = ['group']) {
     .get(req.user.id, id);
   if (c && !types.includes(c.type)) { bad(res, 'not_found', 404); return null; }
   if (!c) { bad(res, 'not_found', 404); return null; }
+  // Channels of a community are managed from the community settings.
+  if (c.community_id) { bad(res, 'community_chat', 403); return null; }
   if (c.role !== 'owner') { bad(res, 'forbidden', 403); return null; }
   return c;
 }
@@ -783,7 +787,7 @@ api.delete('/chats/:id/members/:userId', (req, res) => {
 
 api.post('/chats/:id/leave', (req, res) => {
   const id = int(req.params.id);
-  const c = id && q("SELECT c.*, cm.role FROM chats c JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = ? WHERE c.id = ? AND c.type = 'group'")
+  const c = id && q("SELECT c.*, cm.role FROM chats c JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = ? WHERE c.id = ? AND c.type = 'group' AND c.community_id IS NULL")
     .get(req.user.id, id);
   if (!c) return bad(res, 'not_found', 404);
   q('DELETE FROM chat_members WHERE chat_id = ? AND user_id = ?').run(id, req.user.id);
@@ -919,7 +923,8 @@ api.delete('/messages/:id', (req, res) => {
   const m = id && q('SELECT * FROM messages WHERE id = ?').get(id);
   if (!m || !isMember(m.chat_id, req.user.id)) return bad(res, 'not_found', 404);
   const chat = q('SELECT * FROM chats WHERE id = ?').get(m.chat_id);
-  const canDelete = m.sender_id === req.user.id || ((chat.type === 'group' || chat.type === 'channel') && chat.owner_id === req.user.id);
+  const canDelete = m.sender_id === req.user.id || ((chat.type === 'group' || chat.type === 'channel') && chat.owner_id === req.user.id)
+    || (chat.community_id && ['owner', 'admin'].includes(communityRole(chat.community_id, req.user.id)));
   if (!canDelete) return bad(res, 'forbidden', 403);
   removeMessage(m);
   res.json({ ok: true });
@@ -1364,7 +1369,7 @@ api.post('/channels/:id/join', channelLimiter, (req, res) => {
 
 api.post('/channels/:id/leave', (req, res) => {
   const id = int(req.params.id);
-  const m = id && q("SELECT cm.role FROM chat_members cm JOIN chats c ON c.id = cm.chat_id WHERE cm.chat_id = ? AND cm.user_id = ? AND c.type = 'channel'").get(id, req.user.id);
+  const m = id && q("SELECT cm.role FROM chat_members cm JOIN chats c ON c.id = cm.chat_id WHERE cm.chat_id = ? AND cm.user_id = ? AND c.type = 'channel' AND c.community_id IS NULL").get(id, req.user.id);
   if (!m) return bad(res, 'not_found', 404);
   if (m.role === 'owner') return bad(res, 'owner_cannot_leave');
   q('DELETE FROM chat_members WHERE chat_id = ? AND user_id = ?').run(id, req.user.id);
@@ -1397,7 +1402,7 @@ api.patch('/channels/:id', (req, res) => {
 // Subscriber list: only the channel's owner and admins may see who is subscribed.
 function channelStaff(req, res) {
   const id = int(req.params.id);
-  const c = id && q("SELECT c.*, cm.role FROM chats c JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = ? WHERE c.id = ? AND c.type = 'channel'")
+  const c = id && q("SELECT c.*, cm.role FROM chats c JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = ? WHERE c.id = ? AND c.type = 'channel' AND c.community_id IS NULL")
     .get(req.user.id, id);
   if (!c) { bad(res, 'not_found', 404); return null; }
   if (c.role !== 'owner' && c.role !== 'admin') { bad(res, 'forbidden', 403); return null; }
@@ -1464,6 +1469,8 @@ api.delete('/channels/:id', (req, res) => {
 
 setGroupCallHooks({
   onStart(room, starterId) {
+    // Voice rooms of a community are always "open": no chat message per session.
+    if (q('SELECT ckind FROM chats WHERE id = ?').get(room.chatId)?.ckind === 'voice') return null;
     const msg = insertMessage(room.chatId, starterId, { kind: 'gcall', extra: { roomId: room.id, status: 'active', video: room.video, live: !!room.live } });
     broadcastNewMessage(room.chatId, msg);
     return msg.id;

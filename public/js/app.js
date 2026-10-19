@@ -11,6 +11,10 @@ import * as Sounds from './sounds.js';
 import { EMOJI } from './emoji.js';
 import { initStickerPacks, loadMyPacks, panelSections, customStickerNode, openPackPreview, newPackModal } from './stickerpacks.js';
 import { initBotsUi, myBotsModal, keyboardEl, onBotAnswer, botCommands } from './botsui.js';
+import {
+  initCommunities, setCommunities, upsertCommunity, removeCommunity, communities, communityItem, communityActivity, communityUnread,
+  communityView, openCommunityId, openCommunity, closeCommunity, communityOf, communityInfoModal, newCommunityModal, openCommunityInvite,
+} from './communities.js';
 import { initStories, storiesChanged, storyViewEvent, setStripVisible, openComposer as newStory, openStoryById, storyQuote } from './stories.js';
 
 // ============================================================ state
@@ -106,6 +110,8 @@ async function ensureUser(id) {
   pendingUsers.delete(id);
 }
 function chatAvatar(c, size) {
+  const cm = c.communityId ? communities.get(c.communityId) : null;
+  if (cm) { const el = avatar({ id: cm.id + 7, name: cm.title, src: cm.avatar }, size); el.classList.add('community-ava'); return el; }
   if (c.type === 'saved') return avatar({ saved: true }, size);
   if (c.type === 'private') {
     const p = peerOf(c);
@@ -469,6 +475,12 @@ function startApp() {
   mergeUser(S.me);
   initStickerPacks({ onChange: () => { if (panelTab === 'stickers' && V.panel && !V.panel.classList.contains('hidden')) renderPanel(); } });
   initBotsUi({ openChatWith: (id) => { while (closeTopModal()) { /* close all */ } startPrivate(id); }, prepareImage, openUrl: (u) => openExternal(u) });
+  initCommunities({
+    S, openChat, upsertChat, renderChatList, updateBadge, prepareImage, userAvatar, ensureUser, mergeUser, userName, messagePreview,
+    openUserProfile, shareLink, copyText, toggleMute, currentRoomId,
+    joinVoice: (c) => { if (!(c.groupCall && currentRoomId() === c.groupCall.roomId)) groupCallFromChat(c, false); },
+    dropCommunity,
+  });
   setTimeout(claimReferral, 1200);
   buildLayout();
   connectSocket();
@@ -476,7 +488,7 @@ function startApp() {
   maybeOfferPush();
   setInterval(() => { if (S.current) renderHeaderStatus(); }, 30_000);
   setInterval(refreshChannelStats, 20_000);
-  history.replaceState({ root: true }, '', /^\/(@|join\/|call\/|addstickers\/)/.test(location.pathname) ? location.pathname : '/');
+  history.replaceState({ root: true }, '', /^\/(@|join\/|call\/|addstickers\/|community\/)/.test(location.pathname) ? location.pathname : '/');
 }
 
 function buildLayout() {
@@ -519,12 +531,13 @@ function createMenu(x, y, above = false) {
     { icon: 'at', label: 'Написать по @юзернейму', onClick: () => { V.search.focus(); toast('Введите @юзернейм в поиске'); } },
     { icon: 'group', label: 'Группа', onClick: newGroupModal },
     { icon: 'megaphone', label: 'Канал', onClick: newChannelModal },
+    { icon: 'community', label: 'Сообщество', onClick: newCommunityModal },
     { icon: 'sparkles', label: 'История', onClick: newStory },
     { icon: 'phone', label: 'Звонок по ссылке', onClick: newCallLinkModal },
     { icon: 'smile', label: 'Набор стикеров', onClick: () => loadMyPacks().catch(() => {}).finally(newPackModal) },
     { icon: 'bot', label: 'Боты', onClick: myBotsModal },
   ];
-  contextMenu(x, above ? y - items.length * 44 - 12 : y, items);
+  contextMenu(x, above ? Math.max(8, y - items.length * 44 - 12) : y, items);
 }
 
 
@@ -532,7 +545,8 @@ function createMenu(x, y, above = false) {
 
 async function loadChats() {
   try {
-    const { chats } = await api.get('/chats');
+    const [{ chats }, cms] = await Promise.all([api.get('/chats'), api.get('/communities')]);
+    setCommunities(cms.communities);
     const previews = [...S.chats.values()].filter((c) => c.preview); // channel previews aren't in /chats
     S.chats.clear();
     chats.forEach(upsertChat);
@@ -554,15 +568,30 @@ function upsertChat(c) {
   S.chats.set(c.id, c);
 }
 
+/** Left / kicked / deleted: forget the community and its channels. */
+function dropCommunity(id) {
+  for (const c of [...S.chats.values()]) {
+    if (c.communityId !== id) continue;
+    S.chats.delete(c.id);
+    S.msgs.delete(c.id);
+    if (S.current === c.id) closeChat();
+  }
+  removeCommunity(id);
+  renderChatList();
+  updateBadge();
+}
+
 async function handleDeepLink() {
   const inv = location.pathname.match(/^\/join\/([A-Za-z0-9_-]{8,32})$/);
   const callTok = location.pathname.match(/^\/call\/([A-Za-z0-9_-]{10,40})$/);
   const stickerSlug = location.pathname.match(/^\/addstickers\/([A-Za-z0-9_-]{4,20})$/);
+  const cmTok = location.pathname.match(/^\/community\/([A-Za-z0-9_-]{8,32})$/);
   const m = location.pathname.match(/^\/@([A-Za-z][A-Za-z0-9_]{4,31})$/);
   history.replaceState({ root: true }, '', '/');
   if (inv) return openInvite(inv[1]);
   if (callTok) return callLinkPreview(callTok[1]);
   if (stickerSlug) return openPackPreview(stickerSlug[1]);
+  if (cmTok) return openCommunityInvite(cmTok[1]);
   if (!m) return;
   try {
     if (m[1].toLowerCase() === S.me.username.toLowerCase()) return openSaved();
@@ -643,6 +672,8 @@ function connectSocket() {
     updateBadge();
     if (c.id === S.current) { renderHeader(); renderComposerMode(); renderPinBar(); renderGcBar(); }
   });
+  s.on('community', (cm) => { upsertCommunity(cm); renderChatList(); if (communityOf(curChat())?.id === cm.id) renderHeader(); });
+  s.on('community:removed', ({ communityId }) => dropCommunity(communityId));
   s.on('message:reactions', applyReactions);
   s.on('stories', storiesChanged);
   s.on('bot:answer', onBotAnswer);
@@ -656,7 +687,7 @@ function connectSocket() {
     user: (id) => (id === S.me.id ? S.me : S.users.get(id)),
     ensureUser,
     inOneToOne: inCall,
-    onChange: () => { if (isGroup(curChat())) renderGcBar(); },
+    onChange: () => { if (isGroup(curChat())) renderGcBar(); if (openCommunityId()) renderChatList(); },
   });
   s.on('gc:chat', onGroupCallChat);
   s.on('chat:removed', ({ chatId }) => {
@@ -751,8 +782,16 @@ async function notify(chat, m) {
 function renderChatList() {
   if (!V.list) return;
   if (S.searchQuery) return renderSearch();
+  if (openCommunityId()) {
+    setStripVisible(false);
+    V.list.replaceChildren(communityView());
+    return;
+  }
   setStripVisible(true);
-  const chats = [...S.chats.values()].filter((c) => !c.preview).sort((a, b) => (b.pinnedAt || 0) - (a.pinnedAt || 0) || (b.lastMessage?.id || 0) - (a.lastMessage?.id || 0) || b.id - a.id);
+  // Channels of a community live inside it: the list shows one entry per community.
+  const chats = [...S.chats.values()].filter((c) => !c.preview && !c.communityId).map((c) => ({ c, pin: c.pinnedAt || 0, key: c.lastMessage?.id || 0 }))
+    .concat([...communities.values()].map((cm) => ({ cm, pin: 0, key: communityActivity(cm) })))
+    .sort((a, b) => b.pin - a.pin || b.key - a.key || (b.c?.id || 0) - (a.c?.id || 0));
   if (!chats.length) {
     V.list.replaceChildren(h('div', { class: 'list-empty' },
       h('div', { class: 'list-empty-emoji' }, '👋'),
@@ -762,7 +801,7 @@ function renderChatList() {
       h('button', { class: 'btn', onclick: popularChannelsModal }, icon('megaphone'), 'Популярные каналы')));
     return;
   }
-  V.list.replaceChildren(...chats.map(chatItem));
+  V.list.replaceChildren(...chats.map((x) => (x.cm ? communityItem(x.cm) : chatItem(x.c))));
 }
 
 function chatItem(c) {
@@ -971,8 +1010,9 @@ function openChat(id, { fromHistory = false } = {}) {
     // Wait until a just-closed window has removed its history entry, then add/replace ours.
     afterHistory(() => {
       if (S.current !== id) return;
-      if (history.state?.chat || wasOpen) history.replaceState({ chat: id }, '', '/');
-      else history.pushState({ chat: id }, '', '/');
+      const st = { chat: id, ...(openCommunityId() ? { community: openCommunityId() } : {}) };
+      if (history.state?.chat || wasOpen) history.replaceState(st, '', '/');
+      else history.pushState(st, '', '/');
     });
   }
   const st = S.msgs.get(id);
@@ -1059,6 +1099,7 @@ window.addEventListener('popstate', (e) => {
   if (handleBack()) return;
   if (e.state?.chat && S.chats.has(e.state.chat)) openChat(e.state.chat, { fromHistory: true });
   else closeChat({ fromHistory: true });
+  if (!e.state?.community) closeCommunity({ fromHistory: true });
 });
 
 async function loadGroupMembers(id) {
@@ -1088,7 +1129,8 @@ function buildChatView(c) {
   if (isChannel(c) && !c.preview && c.canPost) {
     V.callBtns.append(h('button', { class: 'icon-btn live-btn', 'aria-label': 'Начать эфир', title: 'Прямой эфир', onclick: (e) => liveMenu(curChat(), e.currentTarget) }, icon('live')));
   }
-  if (c.type === 'group') {
+  // Community text chats have no call buttons: talking happens in its voice rooms.
+  if (c.type === 'group' && (!c.communityId || c.ckind === 'voice')) {
     V.callBtns.append(
       h('button', { class: 'icon-btn', 'aria-label': 'Групповой звонок', title: 'Групповой звонок', onclick: () => groupCallFromChat(curChat(), false) }, icon('phone')),
       h('button', { class: 'icon-btn', 'aria-label': 'Групповой видеозвонок', title: 'Групповой видеозвонок', onclick: () => groupCallFromChat(curChat(), true) }, icon('video')));
@@ -1154,8 +1196,10 @@ function buildChatView(c) {
 function renderHeader() {
   const c = curChat();
   if (!c || !V.headerTitle) return;
+  const cm = communityOf(c);
   V.headerAvatar.replaceChildren(chatAvatar(c, 42));
-  V.headerTitle.replaceChildren(...[h('span', { class: 'ellipsis' }, chatTitle(c)), chatVerified(c) ? badge() : null].filter(Boolean));
+  V.headerTitle.replaceChildren(...[cm ? icon(c.ckind === 'voice' ? 'headphones' : c.ckind === 'news' ? 'megaphone' : 'hash', 'title-ic') : null,
+    h('span', { class: 'ellipsis' }, chatTitle(c)), chatVerified(c) ? badge() : null].filter(Boolean));
   renderHeaderStatus();
 }
 
@@ -1171,6 +1215,8 @@ function renderHeaderStatus() {
     const p = peerOf(c);
     V.headerStatus.textContent = lastSeenText(p);
     if (p?.online) V.headerStatus.classList.add('accent');
+  } else if (communityOf(c)) {
+    V.headerStatus.textContent = `${communityOf(c).title} · ${c.membersCount} ${plural(c.membersCount, 'участник', 'участника', 'участников')}`;
   } else if (c.type === 'group') {
     V.headerStatus.textContent = `${c.membersCount} ${plural(c.membersCount, 'участник', 'участника', 'участников')}`;
   } else if (isChannel(c)) {
@@ -2256,14 +2302,20 @@ function renderGcBar() {
   if (!V.gcBar || !c) return;
   const gcall = isGroup(c) || isChannel(c) ? c.groupCall : null;
   const mine = gcall && currentRoomId() === gcall.roomId;
-  V.gcBar.classList.toggle('hidden', !gcall);
-  V.view?.classList.toggle('has-gc', !!gcall);
+  const voice = c.ckind === 'voice';
+  V.gcBar.classList.toggle('hidden', !gcall && !voice);
+  V.view?.classList.toggle('has-gc', !!gcall || voice);
+  if (!gcall && voice) {
+    return V.gcBar.replaceChildren(h('div', { class: 'gc-bar-ava' }, icon('headphones')),
+      h('div', { class: 'gc-bar-text' }, h('b', {}, 'Голосовая комната'), h('span', {}, 'Сейчас здесь никого нет')),
+      h('button', { class: 'btn btn-sm btn-primary', onclick: () => groupCallFromChat(curChat(), false) }, 'Войти'));
+  }
   if (!gcall) return V.gcBar.replaceChildren();
   V.gcBar.replaceChildren(
     h('div', { class: 'gc-bar-ava' }, ...gcall.users.slice(0, 3).map((id) => avatar(id === S.me.id ? S.me : S.users.get(id) || { id, name: '?' }, 26))),
     gcall.live
       ? h('div', { class: 'gc-bar-text' }, h('b', {}, h('span', { class: 'live-badge' }, 'LIVE'), ' Прямой эфир'), h('span', {}, `${Math.max(0, gcall.count - 1)} ${plural(Math.max(0, gcall.count - 1), 'зритель', 'зрителя', 'зрителей')}`))
-      : h('div', { class: 'gc-bar-text' }, h('b', {}, 'Групповой звонок'), h('span', {}, `${gcall.count} ${plural(gcall.count, 'участник', 'участника', 'участников')}`)),
+      : h('div', { class: 'gc-bar-text' }, h('b', {}, voice ? 'Голосовая комната' : 'Групповой звонок'), h('span', {}, `${gcall.count} ${plural(gcall.count, 'участник', 'участника', 'участников')}`)),
     mine ? h('span', { class: 'pill' }, gcall.live ? (c.canPost ? 'вы в эфире' : 'вы смотрите') : 'вы в звонке')
       : h('button', { class: 'btn btn-sm btn-primary', onclick: () => groupCallFromChat(c, false) }, gcall.live ? 'Смотреть' : 'Присоединиться'));
   gcall.users.forEach(ensureUser);
@@ -2274,7 +2326,8 @@ function onGroupCallChat({ chatId, call, started, starterName }) {
   if (!c) return;
   c.groupCall = call;
   if (S.current === chatId) { renderGcBar(); renderMessages(); }
-  if (started && call && call.startedBy !== S.me.id && !inGroupCall() && !inCall() && !c.muted) {
+  if (c.communityId) renderChatList();
+  if (started && c.ckind !== 'voice' && call && call.startedBy !== S.me.id && !inGroupCall() && !inCall() && !c.muted) {
     const who = starterName || S.users.get(call.startedBy)?.name || 'Участник группы';
     const live = !!call.live;
     const el = h('div', { class: 'gc-invite' },
@@ -2383,7 +2436,7 @@ function chatMoreMenu(anchor) {
   const r = anchor.getBoundingClientRect();
   const peer = c.type === 'private' ? peerOf(c) : null;
   contextMenu(r.right - 8, r.bottom + 4, [
-    { icon: 'info', label: 'Информация', onClick: () => openInfo(c) },
+    { icon: 'info', label: communityOf(c) ? 'О сообществе' : 'Информация', onClick: () => openInfo(c) },
     { icon: 'search', label: 'Поиск по чату', onClick: openChatSearch },
     !c.preview ? { icon: c.pinnedAt ? 'unpin' : 'pin', label: c.pinnedAt ? 'Открепить чат' : 'Закрепить чат', onClick: () => togglePinChat(c) } : null,
     c.type !== 'saved' && !c.preview ? { icon: c.muted ? 'bell' : 'mute', label: c.muted ? 'Включить уведомления' : 'Выключить уведомления', onClick: () => toggleMute(c) } : null,
@@ -3031,6 +3084,7 @@ function openDrawer() {
 
 function openInfo(c) {
   if (!c) return;
+  if (communityOf(c)) return communityInfoModal(communityOf(c));
   if (c.type === 'private') return openUserProfile(peerOf(c)?.id);
   if (c.type === 'group') return groupInfoModal(c);
   if (c.type === 'channel') return channelInfoModal(c);
