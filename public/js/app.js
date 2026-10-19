@@ -16,7 +16,7 @@ import {
   communityView, openCommunityId, openCommunity, closeCommunity, communityOf, communityInfoModal, newCommunityModal, openCommunityInvite,
 } from './communities.js';
 import {
-  initExtras, capsuleModal, capsuleEl, wheelModal, wheelEl, loadReminders, reminderItems, onReminder, reminderSystemEl, reportModal, bannerEl,
+  initExtras, capsuleModal, capsuleEl, wheelModal, wheelEl, loadReminders, reminderItems, onReminder, reminderSystemEl, reportModal, bannerEl, streakBadge, streakModal, flameBurst, streakSystemEl,
 } from './extras.js';
 import { initStories, storiesChanged, storyViewEvent, setStripVisible, openComposer as newStory, openStoryById, storyQuote } from './stories.js';
 
@@ -645,11 +645,13 @@ function connectSocket() {
   });
 
   s.on('message', ({ message, chat }) => {
+    if (message.extra?.streak && message.chatId === S.current && !document.hidden) flameBurst(`🔥 ${message.extra.streak} ${plural(message.extra.streak, 'день', 'дня', 'дней')} подряд!`);
     upsertChat(chat);
     clearTyping(message.chatId, message.senderId);
     addMessage(message);
     renderChatList();
     if (message.chatId === S.current) {
+      if (chat?.streak) renderHeader();
       if (!S.msgs.get(S.current)?.items?.length || peerOf(chat)?.bot) renderComposerMode();
       renderMessages({ stick: message.senderId === S.me.id });
       markRead();
@@ -858,7 +860,7 @@ function chatItem(c) {
   h('div', { class: 'chat-item-body' },
     h('div', { class: 'chat-item-top' },
       h('span', { class: 'chat-item-title' }, isGroup(c) ? icon('group', 'title-ic') : isChannel(c) ? icon('megaphone', 'title-ic') : peerOf(c)?.bot ? icon('bot', 'title-ic') : null,
-        h('span', { class: 'ellipsis' }, chatTitle(c)), chatVerified(c) ? badge() : null, c.muted ? icon('mute', 'mute-ic') : null),
+        h('span', { class: 'ellipsis' }, chatTitle(c)), chatVerified(c) ? badge() : null, streakBadge(c), c.muted ? icon('mute', 'mute-ic') : null),
       h('span', { class: 'chat-item-time' }, mine ? icon(read ? 'checks' : 'check', 'tick') : null, lm ? listTime(lm.createdAt) : '')),
     h('div', { class: 'chat-item-bottom' },
       h('span', { class: 'chat-item-preview' }, preview),
@@ -1219,8 +1221,12 @@ function renderHeader() {
   const cm = communityOf(c);
   V.headerAvatar.replaceChildren(chatAvatar(c, 42));
   V.headerTitle.replaceChildren(...[cm ? icon(c.ckind === 'voice' ? 'headphones' : c.ckind === 'news' ? 'megaphone' : 'hash', 'title-ic') : null,
-    h('span', { class: 'ellipsis' }, chatTitle(c)), chatVerified(c) ? badge() : null].filter(Boolean));
+    h('span', { class: 'ellipsis' }, chatTitle(c)), chatVerified(c) ? badge() : null, streakBadge(c, () => openStreak(c))].filter(Boolean));
   renderHeaderStatus();
+}
+
+function openStreak(c) {
+  streakModal(c, peerOf(c)?.name?.split(' ')[0] || 'собеседник', (chat) => { upsertChat(chat); renderChatList(); if (S.current === chat.id) renderHeader(); });
 }
 
 function renderHeaderStatus() {
@@ -1336,7 +1342,7 @@ function renderMessages({ stick = false, keepOffset = false } = {}) {
     const newDay = !prev || dayKey(prev.createdAt) !== dayKey(m.createdAt);
     if (newDay) { const lbl = dayLabel(m.createdAt); staticNode(`d:${dayKey(m.createdAt)}`, lbl, () => h('div', { class: 'date-sep' }, h('span', {}, lbl))); }
     if (m.kind === 'system') {
-      staticNode(`s:${m.id}`, m.text, () => (m.extra?.reminder ? reminderSystemEl(m) : h('div', { class: 'system-msg' }, h('span', {}, m.text))));
+      staticNode(`s:${m.id}`, m.text, () => (m.extra?.reminder ? reminderSystemEl(m) : m.extra?.streak ? streakSystemEl(m) : h('div', { class: 'system-msg' }, h('span', {}, m.text))));
       return;
     }
     const first = newDay || prev.kind === 'system' || prev.senderId !== m.senderId || m.createdAt - prev.createdAt > GAP;

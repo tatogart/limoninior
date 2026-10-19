@@ -334,3 +334,65 @@ export function bannerEl(p, onClose) {
     h('div', { class: 'grow' }, h('span', { class: 'pre' }, b.text)),
     h('button', { class: 'icon-btn', 'aria-label': 'Скрыть', onclick: () => { try { localStorage.setItem(SEEN_KEY, String(b.id)); } catch { /* ignore */ } onClose(); } }, icon('close')));
 }
+
+// ---------------------------------------------------------------- streaks (🔥 like TikTok)
+
+const streakTier = (n) => (n >= 100 ? 'legend' : n >= 30 ? 'hot' : '');
+
+/** 🔥 12 next to a private chat (⏳ when it's about to go out, grey when it can be relit). */
+export function streakBadge(c, onClick) {
+  const s = c?.streak;
+  if (!s) return null;
+  if (!s.visible && !s.restorable) return null;
+  const lost = !s.visible;
+  const el = h(onClick ? 'button' : 'span', {
+    class: `streak ${streakTier(s.count)} ${s.danger ? 'danger' : ''} ${lost ? 'lost' : ''} ${s.done ? 'done' : ''}`,
+    title: lost ? 'Огонёк погас — можно вернуть' : s.danger ? 'Огонёк скоро погаснет — напишите друг другу сегодня' : `Огонёк: ${s.count} ${plural(s.count, 'день', 'дня', 'дней')} подряд`,
+    onclick: onClick ? (e) => { e.stopPropagation(); onClick(); } : null,
+  }, h('span', { class: 'streak-ic' }, lost ? '🩶' : '🔥'), String(lost ? s.lost : s.count), s.danger ? h('span', { class: 'streak-warn' }, '⏳') : null);
+  return el;
+}
+
+export function streakModal(c, peerName, onChat) {
+  const s = c.streak || { count: 0 };
+  const lost = !s.visible && s.restorable;
+  const left = s.endsAt ? s.endsAt - Date.now() : 0;
+  const tick = (ok, who) => h('div', { class: `streak-who ${ok ? 'ok' : ''}` }, h('b', {}, ok ? '✓' : '…'), h('span', {}, who));
+  openModal({
+    className: 'modal-small',
+    title: 'Огонёк',
+    body: h('div', { class: 'streak-card' },
+      h('div', { class: `streak-big ${streakTier(s.count)} ${lost ? 'lost' : ''}` }, h('span', {}, lost ? '🩶' : '🔥'), h('b', {}, String(lost ? s.lost : s.count))),
+      h('div', { class: 'streak-title' }, lost ? 'Огонёк погас' : s.visible ? `${s.count} ${plural(s.count, 'день', 'дня', 'дней')} подряд` : 'Огонёк ещё не зажёгся'),
+      h('p', { class: 'muted small' }, lost
+        ? `Вчера никто из вас не написал. Его можно вернуть за 🍋 ${s.restorePrice} — один раз в месяц.`
+        : 'Пишите друг другу каждый день — огонёк растёт. Пропустите день, и он погаснет. Появляется после 3 дней подряд.'),
+      lost ? null : h('div', { class: 'streak-today' }, h('div', { class: 'small' }, 'Сегодня'), h('div', { class: 'streak-whos' }, tick(s.mine, 'вы'), tick(s.theirs, peerName))),
+      !lost && s.count && !s.done && left > 0 ? h('div', { class: `streak-left ${s.danger ? 'danger' : ''}` }, '⏳ погаснет через ', h('b', { 'data-open-at': s.endsAt }, countdownText(left))) : null,
+      s.best ? h('div', { class: 'muted small' }, `Рекорд этого чата: ${s.best} ${plural(s.best, 'день', 'дня', 'дней')}`) : null,
+      lost ? h('button', { class: 'btn btn-primary btn-block', onclick: async (e) => {
+        e.currentTarget.disabled = true;
+        try { const { chat } = await api.post(`/chats/${c.id}/streak/restore`); onChat?.(chat); toast('🔥 Огонёк снова горит!'); flameBurst(); } catch (err) { toast(errorText(err), 'error'); e.currentTarget.disabled = false; }
+      } }, `Вернуть огонёк за 🍋 ${s.restorePrice}`) : null),
+  });
+}
+
+/** Flames fly up the screen: milestone reached. */
+export function flameBurst(text) {
+  const layer = h('div', { class: 'flame-burst' });
+  for (let i = 0; i < 26; i++) {
+    const f = h('span', {}, ['🔥', '🔥', '🔥', '✨', '🧡'][i % 5]);
+    f.style.left = `${Math.random() * 100}%`;
+    f.style.animationDelay = `${Math.random() * 0.6}s`;
+    f.style.fontSize = `${22 + Math.random() * 26}px`;
+    layer.append(f);
+  }
+  if (text) layer.append(h('div', { class: 'flame-text' }, text));
+  document.body.append(layer);
+  setTimeout(() => layer.remove(), 3200);
+}
+
+/** The "🔥 10 дней подряд" line in the chat. */
+export function streakSystemEl(m) {
+  return h('div', { class: 'system-msg streak-msg' }, h('span', {}, m.text));
+}

@@ -20,6 +20,7 @@ import { registerStickers, customSticker, stickerExtra } from './stickers.js';
 import { registerBots, onNewMessage, isBotUser } from './bots.js';
 import { registerCommunities, communityRole } from './communities.js';
 import { registerFeatures } from './features.js';
+import { trackStreak, streakFor, restoreStreak } from './streaks.js';
 import { publicPlatform, platform, featureGate, filterText, moderationError, registerReports } from './moderation.js';
 
 export const api = express.Router();
@@ -184,6 +185,7 @@ function chatForUser(chatId, userId) {
     avatar: c.type === 'group' ? mediaUrl(c.avatar) : peer ? mediaUrl(peer.avatar) : null,
     peer: peer ? publicUser(peer) : null,
     blocked: peer ? blockedBetween(userId, peer.id) : null,
+    streak: peer && isHuman(peer) ? streakFor(c.id, userId, peer.id) : null,
     groupCall: c.type === 'group' ? activeRoomForChat(c.id) : null,
     ...common,
     membersCount: others.length + 1,
@@ -233,7 +235,26 @@ function pushText(m) {
   return m.text.slice(0, 200);
 }
 
+const plural = (n, one, few, many) => {
+  const a = Math.abs(n) % 100, b = a % 10;
+  return a > 10 && a < 20 ? many : b === 1 ? one : b >= 2 && b <= 4 ? few : many;
+};
+const isHuman = (u) => !!u && !/^(bot|system):/.test(String(u.google_sub));
+
+/** Private chat between two people: count the daily streak; returns a milestone (or 0). */
+function streakStep(chatId, msg) {
+  if (!msg.sender_id || ['system', 'call'].includes(msg.kind)) return 0;
+  const c = q('SELECT type FROM chats WHERE id = ?').get(chatId);
+  if (c?.type !== 'private') return 0;
+  const people = q('SELECT u.* FROM chat_members cm JOIN users u ON u.id = cm.user_id WHERE cm.chat_id = ?').all(chatId);
+  if (people.length !== 2 || !people.every(isHuman)) return 0;
+  return trackStreak(chatId, msg.sender_id);
+}
+
 function broadcastNewMessage(chatId, msg) {
+  let milestone = 0;
+  try { milestone = streakStep(chatId, msg); } catch (e) { console.error('streak', e); }
+  if (milestone) setTimeout(() => postMessage(chatId, null, { kind: 'system', text: `🔥 ${milestone} ${plural(milestone, 'день', 'дня', 'дней')} подряд! Огонёк горит — не дайте ему погаснуть`, extra: { streak: milestone } }), 0);
   const payload = serializeMessage(msg);
   try { onNewMessage(chatId, msg); } catch (e) { console.error('bot update', e); }
   const members = memberIds(chatId);
@@ -1251,6 +1272,18 @@ api.post('/messages/:id/react', sendLimiter, (req, res) => {
   emitToChat(m.chat_id, 'message:reactions', inChannel ? { ...payload, userId: null, emoji: null } : payload, req.user.id);
   emitToUser(req.user.id, 'message:reactions', payload);
   res.json(payload);
+});
+
+api.post('/chats/:id/streak/restore', (req, res) => {
+  const id = int(req.params.id);
+  const c = id && q("SELECT * FROM chats WHERE id = ? AND type = 'private'").get(id);
+  if (!c || !isMember(id, req.user.id)) return bad(res, 'not_found', 404);
+  const err = restoreStreak(id, req.user.id);
+  if (err) return bad(res, err);
+  pushMe(req.user.id);
+  pushChat(id);
+  systemMessage(id, `🔥 ${req.user.name} снова зажигает огонёк!`);
+  res.json({ chat: chatForUser(id, req.user.id) });
 });
 
 api.post('/chats/:id/mute', (req, res) => {
