@@ -7,7 +7,7 @@ import {
   requireAuth, requireProfile, isAdminUser, hashPassword, verifyPassword, createLocalUser, sessionFromCookie,
 } from './auth.js';
 import {
-  isValidSticker, giftById, stickerInfo, DAILY_BONUS, PLANS, planById, FREE_FILE_MB, isDangerousFile, fileExt,
+  isValidSticker, giftById, stickerInfo, PLANS, planById, FREE_FILE_MB, isDangerousFile, fileExt,
 } from '../public/js/catalog.js';
 import { upload, uploadFile, saveImage, saveFile, saveVoice, copyMedia, deleteMediaFile } from './media.js';
 import { sendPush, saveSubscription, removeSubscription, vapidPublicKey } from './push.js';
@@ -20,7 +20,8 @@ import { registerStickers, customSticker, stickerExtra } from './stickers.js';
 import { registerBots, onNewMessage, isBotUser } from './bots.js';
 import { registerCommunities, communityRole } from './communities.js';
 import { registerFeatures } from './features.js';
-import { trackStreak, streakFor, restoreStreak } from './streaks.js';
+import { registerGames } from './games.js';
+import { trackStreak, streakFor, restoreStreak, offerStreak, setOfferMessage, answerStreak, stopStreak } from './streaks.js';
 import { publicPlatform, platform, featureGate, filterText, moderationError, registerReports } from './moderation.js';
 
 export const api = express.Router();
@@ -90,7 +91,6 @@ export function meUser(u) {
     isAdmin: isAdminUser(u),
     needsProfile: !u.username,
     coins: u.coins,
-    nextBonusAt: u.last_bonus + 864e5,
     hasPassword: !!u.password_hash,
     hasGoogle: !String(u.google_sub).startsWith('local:'),
     subUntil: activePlan(u) ? u.sub_until : 0,
@@ -230,6 +230,8 @@ function pushText(m) {
   if (m.kind === 'call') return '📞 Звонок';
   if (m.kind === 'voice') return '🎤 Голосовое сообщение';
   if (m.kind === 'capsule') return '🔒 Капсула времени';
+  if (m.kind === 'streak_offer') return '🔥 Предлагает растить огонёк';
+  if (m.kind === 'dice') return `${JSON.parse(m.extra || '{}').emoji || '🎲'} Мини-игра`;
   if (m.kind === 'wheel') return `🎡 ${m.text}`;
   if (m.kind === 'gcall') return JSON.parse(m.extra || '{}').live ? '🔴 Прямой эфир' : '📞 Групповой звонок';
   return m.text.slice(0, 200);
@@ -496,13 +498,7 @@ api.patch('/me/prefs', requireAuth, (req, res) => {
   res.json({ user: meUser(user) });
 });
 
-api.post('/me/bonus', requireAuth, (req, res) => {
-  const bonus = DAILY_BONUS * (activePlan(req.user)?.bonusMult || 1);
-  const r = q('UPDATE users SET coins = coins + ?, last_bonus = ? WHERE id = ? AND last_bonus <= ?')
-    .run(bonus, now(), req.user.id, now() - 864e5);
-  if (!r.changes) return bad(res, 'bonus_not_ready');
-  res.json({ user: meUser(q('SELECT * FROM users WHERE id = ?').get(req.user.id)), bonus });
-});
+// The daily bonus is gone: lemons are earned in mini-games now (server/games.js).
 
 // ---------- web push ----------
 
@@ -651,6 +647,7 @@ api.post('/chats/:id/capsule', featureGate('extras'));
 api.post('/chats/:id/wheel', featureGate('extras'));
 registerCommunities(api, { bad, int, clean, chatForUser, pushChat, systemMessage, deleteChat, publicUser });
 registerReports(api, { bad, int, clean, isMember });
+registerGames(api, { bad, int, isMember, postError, validReply, activePlan, pushMe, postMessage: (...a) => postMessage(...a) });
 registerFeatures(api, {
   bad, int, clean, isMember, postError, validReply, ensurePrivateChat,
   postMessage: (...a) => postMessage(...a), serializeMessage: (m) => serializeMessage(m),
@@ -1272,6 +1269,57 @@ api.post('/messages/:id/react', sendLimiter, (req, res) => {
   emitToChat(m.chat_id, 'message:reactions', inChannel ? { ...payload, userId: null, emoji: null } : payload, req.user.id);
   emitToUser(req.user.id, 'message:reactions', payload);
   res.json(payload);
+});
+
+/** Private chat between two people (no bots / official account) the caller is in. */
+function streakChat(req, res) {
+  const id = int(req.params.id);
+  const c = id && q("SELECT * FROM chats WHERE id = ? AND type = 'private'").get(id);
+  if (!c || !isMember(id, req.user.id)) { bad(res, 'not_found', 404); return null; }
+  const people = q('SELECT u.* FROM chat_members cm JOIN users u ON u.id = cm.user_id WHERE cm.chat_id = ?').all(id);
+  if (people.length !== 2 || !people.every(isHuman)) { bad(res, 'not_available'); return null; }
+  return c;
+}
+const setOfferStatus = (msgId, status, byId) => {
+  const m = msgId && q("SELECT * FROM messages WHERE id = ? AND kind = 'streak_offer'").get(msgId);
+  if (!m) return;
+  q('UPDATE messages SET extra = ? WHERE id = ?').run(JSON.stringify({ status, by: byId }), m.id);
+  emitToChat(m.chat_id, 'message:edit', serializeMessage(q('SELECT * FROM messages WHERE id = ?').get(m.id)));
+};
+
+api.post('/chats/:id/streak/offer', sendLimiter, (req, res) => {
+  const c = streakChat(req, res);
+  if (!c) return;
+  { const e = postError(c.id, req.user.id); if (e) return bad(res, e, 403); }
+  const err = offerStreak(c.id, req.user.id);
+  if (err) return bad(res, err);
+  const msg = postMessage(c.id, req.user.id, { kind: 'streak_offer', text: '', extra: { status: 'pending' } });
+  setOfferMessage(c.id, msg.id);
+  pushChat(c.id);
+  res.json({ message: msg, chat: chatForUser(c.id, req.user.id) });
+});
+
+for (const [path, accept] of [['accept', true], ['decline', false]]) {
+  api.post(`/chats/:id/streak/${path}`, (req, res) => {
+    const c = streakChat(req, res);
+    if (!c) return;
+    const r = answerStreak(c.id, req.user.id, accept);
+    if (r.error) return bad(res, r.error);
+    setOfferStatus(r.offerMsg, accept ? 'accepted' : 'declined', req.user.id);
+    if (accept) systemMessage(c.id, '🔥 Огонёк зажжён! Пишите друг другу каждый день, чтобы он рос');
+    pushChat(c.id);
+    res.json({ chat: chatForUser(c.id, req.user.id) });
+  });
+}
+
+api.post('/chats/:id/streak/stop', (req, res) => {
+  const c = streakChat(req, res);
+  if (!c) return;
+  const err = stopStreak(c.id);
+  if (err) return bad(res, err);
+  systemMessage(c.id, `${req.user.name} гасит огонёк`);
+  pushChat(c.id);
+  res.json({ chat: chatForUser(c.id, req.user.id) });
 });
 
 api.post('/chats/:id/streak/restore', (req, res) => {

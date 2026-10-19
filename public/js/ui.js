@@ -34,6 +34,7 @@ const ICONS = {
   wheel: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17M3.5 12h17M6 6l12 12M18 6 6 18"/><path d="m10 1.5 2 2.5 2-2.5" fill="currentColor"/>',
   hourglass: '<path d="M7 3.5h10M7 20.5h10M8 3.5c0 4 8 5 8 8.5s-8 4.5-8 8.5M16 3.5c0 4-8 5-8 8.5s8 4.5 8 8.5"/>',
   chart: '<path d="M4 20V10M10 20V4M16 20v-7M21 20H3"/>',
+  gamepad: '<path d="M7.5 7h9a4.5 4.5 0 0 1 4.4 5.4l-.9 4.3a2.4 2.4 0 0 1-4.2 1L14 15.5h-4l-1.8 2.2a2.4 2.4 0 0 1-4.2-1l-.9-4.3A4.5 4.5 0 0 1 7.5 7z"/><path d="M8 10v3M6.5 11.5h3M15.5 11h.01M17.5 12.5h.01"/>',
   hash: '<path d="M9.5 4 7.5 20M16.5 4l-2 16M4.5 9h16M3.5 15h16"/>',
   community: '<rect x="3" y="3" width="7.5" height="7.5" rx="2.2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="3.75"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="3.75"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2.2"/>',
   up: '<path d="m6 15 6-6 6 6"/>',

@@ -13,8 +13,15 @@ db.exec(`
     restored_at INTEGER NOT NULL DEFAULT 0
   );
 `);
+// A streak only runs once both people agreed: one offers, the other accepts.
+if (!q("SELECT 1 FROM pragma_table_info('streaks') WHERE name = 'state'").get()) {
+  db.exec("ALTER TABLE streaks ADD COLUMN state TEXT NOT NULL DEFAULT 'none'");
+  db.exec('ALTER TABLE streaks ADD COLUMN offered_by INTEGER');
+  db.exec('ALTER TABLE streaks ADD COLUMN offer_msg INTEGER');
+  db.exec("UPDATE streaks SET state = 'active' WHERE count > 0");
+}
 
-export const VISIBLE_FROM = 3; // like TikTok: the flame shows up after 3 days in a row
+export const VISIBLE_FROM = 1; // both agreed to grow it, so it shows from the first day
 export const RESTORE_PRICE = 50;
 const MILESTONES = new Set([3, 7, 10, 30, 50, 100, 150, 200, 365, 500, 1000]);
 const MSK = 3 * 3600_000;
@@ -26,8 +33,8 @@ const row = (chatId) => q('SELECT * FROM streaks WHERE chat_id = ?').get(chatId)
 /** A message was sent in a private chat. Returns the milestone reached (or 0). */
 export function trackStreak(chatId, senderId) {
   const today = dayOf(now());
-  let s = row(chatId);
-  if (!s) { q('INSERT INTO streaks (chat_id) VALUES (?)').run(chatId); s = row(chatId); }
+  const s = row(chatId);
+  if (s?.state !== 'active') return 0;
   const days = JSON.parse(s.days || '{}');
   if (days[senderId] === today) return 0;
   days[senderId] = today;
@@ -46,7 +53,9 @@ export function trackStreak(chatId, senderId) {
 /** What a member of the chat sees. */
 export function streakFor(chatId, userId, peerId) {
   const s = row(chatId);
-  if (!s || !s.last_day) return null;
+  const state = s?.state || 'none';
+  if (state !== 'active') return { state, offeredByMe: state === 'offered' && s.offered_by === userId, count: 0, visible: false };
+  if (!s.last_day) return { state, count: 0, visible: false, best: s.best, mine: false, theirs: false, ...todayOf(s, userId, peerId) };
   const t = now();
   const today = dayOf(t);
   const yesterday = shift(today, -1);
@@ -56,6 +65,7 @@ export function streakFor(chatId, userId, peerId) {
   // Gone out the day before yesterday: can still be relit (once a month).
   const restorable = !alive && s.last_day === shift(today, -2) && s.count >= VISIBLE_FROM && t - s.restored_at > 30 * 864e5;
   return {
+    state,
     count: alive ? s.count : 0,
     lost: alive ? 0 : s.count,
     best: s.best,
@@ -80,5 +90,40 @@ export function restoreStreak(chatId, userId) {
   if (!u || u.coins < RESTORE_PRICE) return 'not_enough_coins';
   q('UPDATE users SET coins = coins - ? WHERE id = ?').run(RESTORE_PRICE, userId);
   q('UPDATE streaks SET last_day = ?, restored_at = ? WHERE chat_id = ?').run(shift(dayOf(now()), -1), now(), chatId);
+  return null;
+}
+
+function todayOf(s, userId, peerId) {
+  const today = dayOf(now());
+  const days = JSON.parse(s.days || '{}');
+  return { mine: days[userId] === today, theirs: days[peerId] === today };
+}
+
+const ensure = (chatId) => { if (!row(chatId)) q('INSERT INTO streaks (chat_id) VALUES (?)').run(chatId); return row(chatId); };
+
+export function offerStreak(chatId, userId) {
+  const s = ensure(chatId);
+  if (s.state === 'active') return 'already_active';
+  if (s.state === 'offered') return s.offered_by === userId ? 'already_offered' : 'offer_pending';
+  q("UPDATE streaks SET state = 'offered', offered_by = ? WHERE chat_id = ?").run(userId, chatId);
+  return null;
+}
+export const setOfferMessage = (chatId, msgId) => q('UPDATE streaks SET offer_msg = ? WHERE chat_id = ?').run(msgId, chatId);
+export const offerOf = (chatId) => row(chatId);
+
+/** The other person answers the offer. Returns { error } or { offerMsg }. */
+export function answerStreak(chatId, userId, accept) {
+  const s = row(chatId);
+  if (s?.state !== 'offered') return { error: 'no_offer' };
+  if (s.offered_by === userId && accept) return { error: 'own_offer' };
+  if (accept) q("UPDATE streaks SET state = 'active', count = 0, last_day = NULL, days = '{}' WHERE chat_id = ?").run(chatId);
+  else q("UPDATE streaks SET state = 'none', offered_by = NULL WHERE chat_id = ?").run(chatId);
+  return { offerMsg: s.offer_msg };
+}
+
+export function stopStreak(chatId) {
+  const s = row(chatId);
+  if (s?.state !== 'active') return 'not_active';
+  q("UPDATE streaks SET state = 'none', count = 0, last_day = NULL, days = '{}', offered_by = NULL WHERE chat_id = ?").run(chatId);
   return null;
 }

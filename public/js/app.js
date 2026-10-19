@@ -4,7 +4,7 @@ import {
   h, icon, avatar, timeHM, listTime, dayLabel, lastSeenText, plural, richText, emojiCount,
   toast, openModal, closeTopModal, confirmDialog, contextMenu, closeMenu, registerOverlay, handleBack, goBack, navigate, afterHistory, isTouch, badge, nameWithBadge, linkRisk, bytes,
 } from './ui.js';
-import { STICKER_PACKS, stickerInfo, GIFTS, giftById, DAILY_BONUS, REACTIONS, PLANS, planById, isDangerousFile, fileExt } from './catalog.js';
+import { STICKER_PACKS, stickerInfo, GIFTS, giftById, REACTIONS, PLANS, planById, isDangerousFile, fileExt } from './catalog.js';
 import { initCalls, startCall, inCall } from './calls.js';
 import { initGroupCalls, startGroupCall, joinGroupCall, leaveGroupCall, inGroupCall, currentRoomId, createCallLink, callLink, callInfo } from './groupcall.js';
 import * as Sounds from './sounds.js';
@@ -18,6 +18,7 @@ import {
 import {
   initExtras, capsuleModal, capsuleEl, wheelModal, wheelEl, loadReminders, reminderItems, onReminder, reminderSystemEl, reportModal, bannerEl, streakBadge, streakModal, flameBurst, streakSystemEl,
 } from './extras.js';
+import { initGames, gamesHub, diceEl, chatGamesMenu } from './games.js';
 import { initStories, storiesChanged, storyViewEvent, setStripVisible, openComposer as newStory, openStoryById, storyQuote } from './stories.js';
 
 // ============================================================ state
@@ -488,6 +489,7 @@ function startApp() {
     dropCommunity,
   });
   initExtras({ S, userName, jumpToMessage });
+  initGames({ me: () => S.me });
   loadReminders();
   setTimeout(claimReferral, 1200);
   buildLayout();
@@ -1225,6 +1227,48 @@ function renderHeader() {
   renderHeaderStatus();
 }
 
+/** Private chat between two real people: streaks are possible. */
+const streakable = (c) => c?.type === 'private' && peerOf(c) && !peerOf(c).bot && !peerOf(c).official;
+
+async function streakAction(c, path, ok) {
+  try {
+    const { chat } = await api.post(`/chats/${c.id}/streak/${path}`);
+    upsertChat(chat);
+    renderChatList();
+    if (S.current === chat.id) renderHeader();
+    if (ok) toast(ok);
+    return chat;
+  } catch (e) { toast(e.code === 'offer_pending' ? 'Собеседник уже предложил огонёк — примите его в чате' : errorText(e), 'error'); return null; }
+}
+
+function streakMenuItem(c) {
+  if (!streakable(c) || c.preview) return null;
+  const st = c.streak?.state || 'none';
+  if (st === 'active') return { icon: 'sparkles', label: '🔥 Огонёк', onClick: () => openStreak(c) };
+  if (st === 'offered') return c.streak.offeredByMe
+    ? { icon: 'close', label: 'Отменить предложение огонька', onClick: () => streakAction(c, 'decline', 'Предложение отменено') }
+    : { icon: 'sparkles', label: '🔥 Принять огонёк', onClick: () => streakAction(c, 'accept', '🔥 Огонёк зажжён!') };
+  return { icon: 'sparkles', label: '🔥 Предложить огонёк', onClick: async () => {
+    const chat = await streakAction(c, 'offer');
+    if (chat) { const st2 = S.msgs.get(chat.id); if (st2?.loaded) renderMessages({ stick: true }); toast('Предложение отправлено 🔥'); }
+  } };
+}
+
+/** "Let's grow a flame" card in the chat. */
+function streakOfferEl(c, m, mine) {
+  const x = m.extra || {};
+  const name = userName(m.senderId).split(' ')[0];
+  return h('div', { class: `offer ${x.status}` },
+    h('div', { class: 'offer-flame' }, x.status === 'declined' ? '🩶' : '🔥'),
+    h('b', {}, mine ? 'Вы предложили растить огонёк' : `${name} предлагает растить огонёк`),
+    h('span', {}, x.status === 'accepted' ? 'Огонёк зажжён — пишите друг другу каждый день ✓'
+      : x.status === 'declined' ? 'Предложение отклонено'
+        : mine ? 'Ждём ответа…' : 'Пишите друг другу каждый день — огонёк будет расти. Пропустите день — погаснет.'),
+    !mine && x.status === 'pending' && c.streak?.state === 'offered' ? h('div', { class: 'offer-acts' },
+      h('button', { class: 'btn btn-sm btn-primary', onclick: (e) => { e.stopPropagation(); streakAction(c, 'accept', '🔥 Огонёк зажжён!').then((ch) => { if (ch) flameBurst('🔥 Огонёк зажжён!'); }); } }, 'Принять'),
+      h('button', { class: 'btn btn-sm btn-ghost', onclick: (e) => { e.stopPropagation(); streakAction(c, 'decline'); } }, 'Отказаться')) : null);
+}
+
 function openStreak(c) {
   streakModal(c, peerOf(c)?.name?.split(' ')[0] || 'собеседник', (chat) => { upsertChat(chat); renderChatList(); if (S.current === chat.id) renderHeader(); });
 }
@@ -1355,7 +1399,7 @@ function renderMessages({ stick = false, keepOffset = false } = {}) {
     const sig = [m.editedAt, m.text, first, last, read, m.pending, m.views, m.comments, m.myReaction, JSON.stringify(m.reactions || []), sender?.name, sender?.avatar,
       m.replyTo?.id, m.replyTo && userName(m.replyTo.senderId),
       m.kind === 'gcall' ? `${m.extra?.status}:${m.extra?.duration}:${c.groupCall?.roomId === m.extra?.roomId}` : '',
-      m.kind === 'wheel' || m.kind === 'capsule' ? JSON.stringify(m.extra) : ''].join('|');
+      ['wheel', 'capsule', 'streak_offer', 'dice'].includes(m.kind) ? JSON.stringify(m.extra) : ''].join('|');
     let cached = nodeCache.get(key);
     if (!cached || cached.sig !== sig) {
       if (!cached && m.pending && !animKeys.has(key)) animKeys.set(key, { type: 'send', t: performance.now() });
@@ -1491,6 +1535,16 @@ function messageEl(c, m, first, last, read) {
     ...(danger ? [h('div', { class: 'file-warn' }, icon('warning'), 'Потенциально опасный файл — может содержать вирус')] : []));
     if (m.text) bubble.append(h('div', { class: 'text' }, richText(m.text), h('span', { class: 'meta-spacer' })));
     bubble.append(meta);
+    return finishRow(c, m, bubble, { mine, group, first, last });
+  }
+  if (m.kind === 'dice') {
+    bubble.classList.add('dice-bubble');
+    bubble.append(diceEl(m), meta);
+    return finishRow(c, m, bubble, { mine, group, first, last });
+  }
+  if (m.kind === 'streak_offer') {
+    bubble.classList.add('offer-bubble');
+    bubble.append(streakOfferEl(c, m, mine), meta);
     return finishRow(c, m, bubble, { mine, group, first, last });
   }
   if (m.kind === 'capsule') {
@@ -1700,10 +1754,13 @@ function attachMenu(anchor) {
   if (!c) return;
   const r = anchor.getBoundingClientRect();
   const sent = (m) => { addMessage(m); renderMessages({ stick: true }); };
-  contextMenu(r.left, r.top - 8 - 3 * 44, [
+  contextMenu(r.left, Math.max(8, r.top - 8 - 4 * 44), [
     { icon: 'attach', label: 'Фото или файл', onClick: () => V.file.click() },
     featureOn('extras') ? { icon: 'hourglass', label: 'Капсула времени', onClick: () => capsuleModal(c, sent) } : null,
     featureOn('extras') ? { icon: 'wheel', label: 'Колесо решений', onClick: () => wheelModal(c, sent) } : null,
+    { icon: 'gamepad', label: 'Игры: кубик, дартс…', onClick: () => afterHistory(() => contextMenu(r.left, Math.max(8, r.top - 8 - 5 * 44), chatGamesMenu(async (emoji) => {
+      try { sent((await api.post(`/chats/${c.id}/dice`, { emoji })).message); } catch (e) { toast(errorText(e), 'error'); }
+    }))) },
   ]);
 }
 
@@ -2217,21 +2274,10 @@ async function sendSticker(id) {
 }
 
 function coinsLine() {
-  const ready = Date.now() >= (S.me.nextBonusAt || 0);
   return h('div', { class: 'coins-line' },
     h('span', { class: 'coins' }, `🍋 ${S.me.coins ?? 0}`),
     h('span', { class: 'muted' }, 'лимонов'),
-    ready ? h('button', { class: 'btn btn-sm btn-primary', onclick: claimBonus }, `+${DAILY_BONUS} бонус`) : null);
-}
-
-async function claimBonus() {
-  try {
-    const r = await api.post('/me/bonus');
-    S.me = { ...S.me, ...r.user };
-    toast(`+${r.bonus} 🍋 Ежедневный бонус получен!`);
-    if (!V.panel?.classList.contains('hidden')) renderPanel();
-    document.querySelectorAll('[data-coins]').forEach((el) => el.replaceWith(coinsLine()));
-  } catch (e) { toast(errorText(e), 'error'); }
+    h('button', { class: 'btn btn-sm btn-primary', onclick: () => { if (V.panel && panelRelease) togglePanel(false); gamesHub(); } }, '🎮 Заработать'));
 }
 
 function giftShop(c) {
@@ -2516,6 +2562,7 @@ function chatMoreMenu(anchor) {
     !c.preview ? { icon: c.pinnedAt ? 'unpin' : 'pin', label: c.pinnedAt ? 'Открепить чат' : 'Закрепить чат', onClick: () => togglePinChat(c) } : null,
     c.type !== 'saved' && !c.preview ? { icon: c.muted ? 'bell' : 'mute', label: c.muted ? 'Включить уведомления' : 'Выключить уведомления', onClick: () => toggleMute(c) } : null,
     peer && !peer.official ? { icon: 'block', label: c.blocked === 'me' ? 'Разблокировать' : 'Заблокировать', danger: c.blocked !== 'me', onClick: () => setBlocked(peer, c.blocked !== 'me') } : null,
+    streakMenuItem(c),
     communityOf(c) && communityOf(c).role !== 'owner' ? { icon: 'warning', label: 'Пожаловаться на сообщество', danger: true, onClick: () => reportModal('community', c.communityId, `Жалоба на сообщество «${communityOf(c).title}»`) } : null,
     !communityOf(c) && (isGroup(c) || isChannel(c)) && c.role !== 'owner' ? { icon: 'warning', label: 'Пожаловаться', danger: true, onClick: () => reportModal('chat', c.id, `Жалоба на «${chatTitle(c)}»`) } : null,
   ]);
@@ -3137,11 +3184,11 @@ function openDrawer() {
         h('div', { class: 'drawer-name' }, nameWithBadge(me.name, me)),
         h('div', { class: 'drawer-username' }, `@${me.username}`)),
       h('button', { class: 'drawer-coins', onclick: () => { close(); myGiftsModal(); } },
-        h('span', {}, `🍋 ${me.coins ?? 0}`), h('span', { class: 'dc-label' }, 'лимонов'),
-        Date.now() >= (me.nextBonusAt || 0) ? h('span', { class: 'dc-bonus' }, `+${DAILY_BONUS} бонус`) : null)),
+        h('span', {}, `🍋 ${me.coins ?? 0}`), h('span', { class: 'dc-label' }, 'лимонов'))),
     h('div', { class: 'drawer-items' },
       // Profile and gifts open from the header above; sessions live in Settings.
       h('button', { class: 'drawer-item', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); close(); createMenu(r.left + 16, r.bottom); } }, icon('plus'), 'Создать…'),
+      item('gamepad', 'Мини-игры', gamesHub),
       item('search', 'Каталог каналов', popularChannelsModal),
       item('bookmark', 'Избранное', openSaved),
       item('gift', 'Пригласить друзей', referralModal, 'ref-item'),

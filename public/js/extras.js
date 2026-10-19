@@ -358,22 +358,26 @@ export function streakModal(c, peerName, onChat) {
   const lost = !s.visible && s.restorable;
   const left = s.endsAt ? s.endsAt - Date.now() : 0;
   const tick = (ok, who) => h('div', { class: `streak-who ${ok ? 'ok' : ''}` }, h('b', {}, ok ? '✓' : '…'), h('span', {}, who));
-  openModal({
+  const m = openModal({
     className: 'modal-small',
     title: 'Огонёк',
     body: h('div', { class: 'streak-card' },
       h('div', { class: `streak-big ${streakTier(s.count)} ${lost ? 'lost' : ''}` }, h('span', {}, lost ? '🩶' : '🔥'), h('b', {}, String(lost ? s.lost : s.count))),
-      h('div', { class: 'streak-title' }, lost ? 'Огонёк погас' : s.visible ? `${s.count} ${plural(s.count, 'день', 'дня', 'дней')} подряд` : 'Огонёк ещё не зажёгся'),
+      h('div', { class: 'streak-title' }, lost ? 'Огонёк погас' : s.visible ? `${s.count} ${plural(s.count, 'день', 'дня', 'дней')} подряд` : 'Первый день впереди'),
       h('p', { class: 'muted small' }, lost
         ? `Вчера никто из вас не написал. Его можно вернуть за 🍋 ${s.restorePrice} — один раз в месяц.`
-        : 'Пишите друг другу каждый день — огонёк растёт. Пропустите день, и он погаснет. Появляется после 3 дней подряд.'),
+        : 'Пишите друг другу каждый день — огонёк растёт. Пропустите день, и он погаснет.'),
       lost ? null : h('div', { class: 'streak-today' }, h('div', { class: 'small' }, 'Сегодня'), h('div', { class: 'streak-whos' }, tick(s.mine, 'вы'), tick(s.theirs, peerName))),
       !lost && s.count && !s.done && left > 0 ? h('div', { class: `streak-left ${s.danger ? 'danger' : ''}` }, '⏳ погаснет через ', h('b', { 'data-open-at': s.endsAt }, countdownText(left))) : null,
       s.best ? h('div', { class: 'muted small' }, `Рекорд этого чата: ${s.best} ${plural(s.best, 'день', 'дня', 'дней')}`) : null,
       lost ? h('button', { class: 'btn btn-primary btn-block', onclick: async (e) => {
         e.currentTarget.disabled = true;
         try { const { chat } = await api.post(`/chats/${c.id}/streak/restore`); onChat?.(chat); toast('🔥 Огонёк снова горит!'); flameBurst(); } catch (err) { toast(errorText(err), 'error'); e.currentTarget.disabled = false; }
-      } }, `Вернуть огонёк за 🍋 ${s.restorePrice}`) : null),
+      } }, `Вернуть огонёк за 🍋 ${s.restorePrice}`) : null,
+      h('button', { class: 'btn btn-danger-ghost btn-sm', onclick: async (e) => {
+        e.currentTarget.disabled = true;
+        try { const { chat } = await api.post(`/chats/${c.id}/streak/stop`); onChat?.(chat); m.close(); toast('Огонёк погашен'); } catch (err) { toast(errorText(err), 'error'); }
+      } }, 'Погасить огонёк')),
   });
 }
 
