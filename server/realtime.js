@@ -8,6 +8,7 @@ import { getPrefs } from './prefs.js';
 import { normIp, isIpBanned, trackIp } from './ipban.js';
 import { blockedBetween } from './db.js';
 import { registerGroupCallHandlers, userInGroupCall } from './groupcalls.js';
+import { recordActive } from './moderation.js';
 
 let io = null;
 const online = new Map(); // userId -> number of open sockets
@@ -17,6 +18,12 @@ export const isOnline = (userId) => online.has(userId);
 export function emitToUser(userId, event, data) {
   io?.to(`u:${userId}`).emit(event, data);
 }
+
+export function emitAll(event, data) {
+  io?.emit(event, data);
+}
+export const onlineCount = () => online.size;
+export const socketCount = () => io?.engine?.clientsCount || 0;
 
 export function emitToUsers(userIds, event, data) {
   if (!io || !userIds.length) return;
@@ -199,6 +206,7 @@ export function initRealtime(httpServer, trustFn) {
     const n = (online.get(userId) || 0) + 1;
     online.set(userId, n);
     if (n === 1) broadcastPresence(userId, true);
+    recordActive(userId);
 
     // Simple per-socket flood guard for typing events.
     let lastTyping = 0;

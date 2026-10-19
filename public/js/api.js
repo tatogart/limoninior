@@ -1,8 +1,9 @@
 export class ApiError extends Error {
-  constructor(status, code) {
+  constructor(status, code, data = null) {
     super(code);
     this.status = status;
     this.code = code;
+    this.data = data;
   }
 }
 
@@ -22,7 +23,7 @@ async function request(method, url, body) {
   }
   let data = null;
   try { data = await res.json(); } catch { /* empty body */ }
-  if (!res.ok) throw new ApiError(res.status, data?.error || 'error');
+  if (!res.ok) throw new ApiError(res.status, data?.error || 'error', data);
   return data;
 }
 
@@ -81,6 +82,14 @@ export const ERRORS = {
   community_full: 'В сообществе уже максимум участников',
   too_many_channels: 'В сообществе уже 50 каналов — больше нельзя',
   last_channel: 'Нельзя удалить последний канал',
+  muted: 'Администрация временно ограничила вам отправку сообщений',
+  maintenance: 'Идут технические работы — отправка сообщений временно недоступна',
+  feature_off: 'Эта функция временно отключена администрацией',
+  registration_closed: 'Регистрация новых аккаунтов временно закрыта',
+  few_options: 'Нужно хотя бы 2 разных варианта',
+  already_spun: 'Колесо уже прокрутили',
 };
 
-export const errorText = (e) => ERRORS[e?.code] || (e?.status === 429 ? 'Слишком часто, подождите немного' : 'Что-то пошло не так');
+export const errorText = (e) => (e?.code === 'banned' && e.data?.reason
+  ? `Аккаунт заблокирован${e.data.until ? ` до ${new Date(e.data.until).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}` : ''}. Причина: ${e.data.reason}`
+  : null) || ERRORS[e?.code] || (e?.status === 429 ? 'Слишком часто, подождите немного' : 'Что-то пошло не так');

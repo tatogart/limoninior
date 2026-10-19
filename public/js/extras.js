@@ -272,3 +272,58 @@ export function wheelEl(m) {
       try { await api.post(`/messages/${m.id}/spin`); } catch (err) { toast(err.code === 'already_spun' ? 'Колесо уже прокрутили' : err.code === 'spinning' ? 'Колесо ещё крутится' : errorText(err), 'error'); }
     } }, has ? 'Крутить ещё раз' : 'Крутить колесо') : null);
 }
+
+// ---------------------------------------------------------------- reports
+
+const REPORT_REASONS = [
+  ['spam', '📢 Спам или реклама'], ['scam', '💸 Мошенничество'], ['abuse', '🤬 Оскорбления, травля'],
+  ['nsfw', '🔞 Непристойное'], ['violence', '🩸 Насилие, угрозы'], ['fake', '🎭 Выдаёт себя за другого'], ['other', '❓ Другое'],
+];
+
+/** Report a message / user / chat / community to the moderators. */
+export function reportModal(type, id, what) {
+  let reason = 'spam';
+  const list = h('div', { class: 'report-reasons' });
+  const render = () => list.replaceChildren(...REPORT_REASONS.map(([k, label]) => h('button', {
+    type: 'button', class: `report-reason ${reason === k ? 'on' : ''}`, onclick: () => { reason = k; render(); },
+  }, label)));
+  render();
+  const comment = h('textarea', { class: 'input', rows: 2, maxLength: 500, placeholder: 'Подробности (необязательно)' });
+  openModal({
+    title: 'Пожаловаться',
+    className: 'modal-small',
+    body: h('div', { class: 'stack' },
+      h('p', { class: 'muted small' }, `${what}. Жалобу увидят только модераторы Limochat — автор не узнает, кто пожаловался.`),
+      list, comment),
+    actions: [
+      { label: 'Отмена', onClick: (c) => c() },
+      { label: 'Отправить', primary: true, onClick: async (close, btn) => {
+        if (btn) btn.disabled = true;
+        try {
+          await api.post('/reports', { type, id, reason, comment: comment.value.trim() });
+          close();
+          toast('Жалоба отправлена. Спасибо, что помогаете 🙏');
+        } catch (e) { toast(errorText(e), 'error'); if (btn) btn.disabled = false; }
+      } },
+    ],
+  });
+}
+
+// ---------------------------------------------------------------- platform banner
+
+const SEEN_KEY = 'limochat.bannerSeen';
+/** Admin announcement / maintenance notice at the top of the chat list. */
+export function bannerEl(p, onClose) {
+  if (!p) return null;
+  if (p.maintenance) {
+    return h('div', { class: 'app-banner warn' }, h('span', { class: 'app-banner-ic' }, '🛠'),
+      h('div', { class: 'grow' }, h('b', {}, 'Технические работы'), h('span', {}, 'Отправка сообщений временно недоступна. Скоро всё заработает!')));
+  }
+  const b = p.banner;
+  let seen = null;
+  try { seen = localStorage.getItem(SEEN_KEY); } catch { /* storage blocked */ }
+  if (!b || String(b.id) === seen) return null;
+  return h('div', { class: `app-banner ${b.kind}` }, h('span', { class: 'app-banner-ic' }, b.kind === 'warn' ? '⚠️' : b.kind === 'promo' ? '🎉' : '📣'),
+    h('div', { class: 'grow' }, h('span', { class: 'pre' }, b.text)),
+    h('button', { class: 'icon-btn', 'aria-label': 'Скрыть', onclick: () => { try { localStorage.setItem(SEEN_KEY, String(b.id)); } catch { /* ignore */ } onClose(); } }, icon('close')));
+}

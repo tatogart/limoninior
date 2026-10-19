@@ -20,6 +20,7 @@ import { registerStickers, customSticker, stickerExtra } from './stickers.js';
 import { registerBots, onNewMessage, isBotUser } from './bots.js';
 import { registerCommunities, communityRole } from './communities.js';
 import { registerFeatures } from './features.js';
+import { publicPlatform, platform, featureGate, filterText, moderationError, registerReports } from './moderation.js';
 
 export const api = express.Router();
 
@@ -43,6 +44,8 @@ const int = (v) => {
   return Number.isSafeInteger(n) && n > 0 ? n : null;
 };
 const bad = (res, error, status = 400) => res.status(status).json({ error });
+/** Login refused: tell the person why and for how long. */
+const banned = (res, u) => res.status(403).json({ error: 'banned', reason: u.ban_reason || null, until: u.banned_until || 0 });
 const mediaUrl = (name) => (name ? `/media/${name}` : null);
 
 // ---------- serializers ----------
@@ -209,7 +212,7 @@ function insertMessage(chatId, senderId, fields) {
   const t = now();
   const r = q(`INSERT INTO messages (chat_id, sender_id, kind, text, file, width, height, reply_to, created_at, extra)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(chatId, senderId, fields.kind || 'text', fields.text || '', fields.file || null,
+    .run(chatId, senderId, fields.kind || 'text', senderId && fields.kind !== 'system' ? filterText(fields.text || '') : fields.text || '', fields.file || null,
       fields.width || null, fields.height || null, fields.replyTo || null, t, fields.extra ? JSON.stringify(fields.extra) : null);
   const id = Number(r.lastInsertRowid);
   q('UPDATE chats SET last_msg_id = ? WHERE id = ?').run(id, chatId);
@@ -303,7 +306,7 @@ const searchLimiter = rateLimit({
 // ---------- auth ----------
 
 api.get('/config', (req, res) => {
-  res.json({ googleClientId: config.googleClientId, devLogin: config.devLogin, passwordLogin: true, version: config.version });
+  res.json({ googleClientId: config.googleClientId, devLogin: config.devLogin, passwordLogin: true, version: config.version, platform: publicPlatform() });
 });
 
 // ---------- username + password accounts ----------
@@ -325,6 +328,7 @@ api.post('/auth/register', registerLimiter, async (req, res) => {
   const username = String(req.body?.username || '').replace(/^@/, '');
   const name = clean(req.body?.name, 64);
   const password = req.body?.password;
+  if (!platform().registration) return bad(res, 'registration_closed', 403);
   const err = checkUsername(username) || (!name && 'bad_name') || passwordError(password);
   if (err) return bad(res, err);
   const passwordHash = await hashPassword(password);
@@ -357,7 +361,7 @@ api.post('/auth/login', authLimiter, async (req, res) => {
     return bad(res, 'bad_login', 401);
   }
   failedLogins.delete(key);
-  if (user.banned) return bad(res, 'banned', 403);
+  if (user.banned) return banned(res, user);
   createSession(res, req, user.id);
   audit(user.id, req.ip, 'login', 'password');
   res.json({ user: meUser(user) });
@@ -373,10 +377,11 @@ api.post('/auth/google', authLimiter, async (req, res) => {
     audit(null, req.ip, 'login_failed', 'google token rejected');
     return bad(res, 'bad_credential', 401);
   }
+  if (!platform().registration && !q('SELECT 1 FROM users WHERE google_sub = ?').get(identity.sub)) return bad(res, 'registration_closed', 403);
   const user = upsertUser(identity);
   if (user.banned) {
     audit(user.id, req.ip, 'login_banned');
-    return bad(res, 'banned', 403);
+    return banned(res, user);
   }
   createSession(res, req, user.id);
   audit(user.id, req.ip, 'login');
@@ -388,8 +393,9 @@ if (config.devLogin) {
   api.post('/auth/dev', authLimiter, (req, res) => {
     const name = clean(req.body?.name, 32).toLowerCase().replace(/[^a-z0-9_]/g, '');
     if (!name) return bad(res, 'bad_name');
+    if (!platform().registration && !q('SELECT 1 FROM users WHERE google_sub = ?').get(`dev:${name}`)) return bad(res, 'registration_closed', 403);
     const user = upsertUser({ sub: `dev:${name}`, email: `${name}@dev.local`, name, picture: null });
-    if (user.banned) return bad(res, 'banned', 403);
+    if (user.banned) return banned(res, user);
     createSession(res, req, user.id);
     res.json({ user: meUser(user) });
   });
@@ -614,11 +620,16 @@ api.post('/me/referral', requireAuth, requireProfile, (req, res) => {
 api.use(requireAuth, requireProfile);
 
 registerStickers(api, { bad, int, clean });
+api.post('/bots', featureGate('bots'));
 registerBots(api, {
   bad, int, clean, checkUsername, postError, publicUser, deleteChat, pushChat,
   postMessage: (...a) => postMessage(...a), serializeMessage: (m) => serializeMessage(m), removeMessage: (m) => removeMessage(m),
 });
+api.post('/communities', featureGate('communities'));
+api.post('/chats/:id/capsule', featureGate('extras'));
+api.post('/chats/:id/wheel', featureGate('extras'));
 registerCommunities(api, { bad, int, clean, chatForUser, pushChat, systemMessage, deleteChat, publicUser });
+registerReports(api, { bad, int, clean, isMember });
 registerFeatures(api, {
   bad, int, clean, isMember, postError, validReply, ensurePrivateChat,
   postMessage: (...a) => postMessage(...a), serializeMessage: (m) => serializeMessage(m),
@@ -725,6 +736,8 @@ api.post('/chats/group', (req, res) => {
 
 /** Why `userId` can't post in `chatId` (null = allowed). */
 function postError(chatId, userId) {
+  const mod = moderationError(userId);
+  if (mod) return mod;
   const r = q('SELECT c.type, cm.role FROM chats c JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = ? WHERE c.id = ?').get(userId, chatId);
   if (!r) return 'forbidden';
   if (r.type === 'channel' && r.role !== 'owner' && r.role !== 'admin') return 'forbidden';
@@ -944,7 +957,7 @@ api.delete('/messages/:id', (req, res) => {
 });
 
 /** Delete a message for everyone (media, pin, last message, live update). */
-function removeMessage(m) {
+export function removeMessage(m) {
   const chat = q('SELECT * FROM chats WHERE id = ?').get(m.chat_id);
   q('DELETE FROM messages WHERE id = ?').run(m.id);
   if (m.file) deleteMediaFile(m.file);
@@ -1555,7 +1568,7 @@ api.get('/stories', (req, res) => {
   res.json({ feed });
 });
 
-api.post('/stories', storyLimiter, upload.single('file'), (req, res) => {
+api.post('/stories', featureGate('stories'), storyLimiter, upload.single('file'), (req, res) => {
   const me = req.user.id;
   if (q('SELECT COUNT(*) AS n FROM stories WHERE user_id = ? AND expires_at > ?').get(me, now()).n >= 30) return bad(res, 'too_many_stories');
   const text = clean(req.body?.text, 700);

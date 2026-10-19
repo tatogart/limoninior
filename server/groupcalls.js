@@ -36,6 +36,12 @@ export function roomSummary(room) {
   if (room.live) return { roomId: room.id, count: room.peers.size, users: users.slice(0, 8), video: room.video, live: true, startedAt: room.startedAt, startedBy: room.createdBy };
   return { roomId: room.id, count: users.length, users: users.slice(0, 8), video: room.video, live: !!room.live, startedAt: room.startedAt, startedBy: room.createdBy };
 }
+/** For the admin dashboard: running calls and how many people are in them. */
+export function roomsStats() {
+  let people = 0, live = 0;
+  for (const r of rooms.values()) { people += r.peers.size; if (r.live) live++; }
+  return { rooms: rooms.size, people, live };
+}
 export const activeRoomForChat = (chatId) => roomSummary(rooms.get(roomByChat.get(chatId)));
 export const userInGroupCall = (userId) => [...rooms.values()].some((r) => [...r.peers.values()].some((p) => p.userId === userId));
 

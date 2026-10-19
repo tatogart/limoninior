@@ -16,7 +16,7 @@ import {
   communityView, openCommunityId, openCommunity, closeCommunity, communityOf, communityInfoModal, newCommunityModal, openCommunityInvite,
 } from './communities.js';
 import {
-  initExtras, capsuleModal, capsuleEl, wheelModal, wheelEl, loadReminders, reminderItems, onReminder, reminderSystemEl,
+  initExtras, capsuleModal, capsuleEl, wheelModal, wheelEl, loadReminders, reminderItems, onReminder, reminderSystemEl, reportModal, bannerEl,
 } from './extras.js';
 import { initStories, storiesChanged, storyViewEvent, setStripVisible, openComposer as newStory, openStoryById, storyQuote } from './stories.js';
 
@@ -86,6 +86,7 @@ const isGroup = (c) => c?.type === 'group';
 const isChannel = (c) => c?.type === 'channel';
 const subsText = (n) => `${n} ${plural(n, 'подписчик', 'подписчика', 'подписчиков')}`;
 const curChat = () => S.chats.get(S.current);
+const featureOn = (k) => S.config?.platform?.features?.[k] !== false;
 
 function mergeUser(u) {
   if (!u) return;
@@ -510,13 +511,19 @@ function buildLayout() {
       h('div', { class: 'search-wrap' }, icon('search', 'search-ic'), V.search,
         h('button', { class: 'search-clear', 'aria-label': 'Очистить', onclick: clearSearch }, icon('close')))),
     V.conn,
+    V.banner = h('div', { class: 'banner-slot' }),
     initStories({ me: () => S.me, prepareImage }),
     V.list,
     h('button', { class: 'fab', 'aria-label': 'Новый чат', onclick: onFab }, icon('pencil')));
   V.pane = h('main', { class: 'chat-pane' }, emptyPane());
   V.layout = h('div', { class: 'layout' }, V.sidebar, V.pane);
   app.replaceChildren(V.layout);
+  renderBanner();
   renderChatList();
+}
+
+function renderBanner() {
+  V.banner?.replaceChildren(...[bannerEl(S.config?.platform, renderBanner)].filter(Boolean));
 }
 
 function emptyPane() {
@@ -538,12 +545,12 @@ function createMenu(x, y, above = false) {
     { icon: 'at', label: 'Написать по @юзернейму', onClick: () => { V.search.focus(); toast('Введите @юзернейм в поиске'); } },
     { icon: 'group', label: 'Группа', onClick: newGroupModal },
     { icon: 'megaphone', label: 'Канал', onClick: newChannelModal },
-    { icon: 'community', label: 'Сообщество', onClick: newCommunityModal },
-    { icon: 'sparkles', label: 'История', onClick: newStory },
+    featureOn('communities') ? { icon: 'community', label: 'Сообщество', onClick: newCommunityModal } : null,
+    featureOn('stories') ? { icon: 'sparkles', label: 'История', onClick: newStory } : null,
     { icon: 'phone', label: 'Звонок по ссылке', onClick: newCallLinkModal },
     { icon: 'smile', label: 'Набор стикеров', onClick: () => loadMyPacks().catch(() => {}).finally(newPackModal) },
-    { icon: 'bot', label: 'Боты', onClick: myBotsModal },
-  ];
+    featureOn('bots') ? { icon: 'bot', label: 'Боты', onClick: myBotsModal } : null,
+  ].filter(Boolean);
   contextMenu(x, above ? Math.max(8, y - items.length * 44 - 12) : y, items);
 }
 
@@ -683,6 +690,7 @@ function connectSocket() {
   s.on('community:removed', ({ communityId }) => dropCommunity(communityId));
   s.on('message:reactions', applyReactions);
   s.on('reminder', (r) => { onReminder(r); Sounds.playMessageSound?.(); });
+  s.on('platform', (p) => { S.config.platform = p; renderBanner(); });
   s.on('capsule:open', ({ chatId }) => {
     const c = S.chats.get(chatId);
     if (c && chatId !== S.current) toast(`🔓 В чате «${chatTitle(c)}» открылась капсула времени`);
@@ -1674,8 +1682,8 @@ function attachMenu(anchor) {
   const sent = (m) => { addMessage(m); renderMessages({ stick: true }); };
   contextMenu(r.left, r.top - 8 - 3 * 44, [
     { icon: 'attach', label: 'Фото или файл', onClick: () => V.file.click() },
-    { icon: 'hourglass', label: 'Капсула времени', onClick: () => capsuleModal(c, sent) },
-    { icon: 'wheel', label: 'Колесо решений', onClick: () => wheelModal(c, sent) },
+    featureOn('extras') ? { icon: 'hourglass', label: 'Капсула времени', onClick: () => capsuleModal(c, sent) } : null,
+    featureOn('extras') ? { icon: 'wheel', label: 'Колесо решений', onClick: () => wheelModal(c, sent) } : null,
   ]);
 }
 
@@ -1819,6 +1827,7 @@ function showMessageMenu(m, x, y) {
     m.kind === 'image' ? { icon: 'download', label: 'Открыть фото', onClick: () => openViewer(m) } : null,
     mine && (m.kind === 'text' || m.kind === 'image') ? { icon: 'edit', label: 'Изменить', onClick: () => startEdit(m) } : null,
     canDelete ? { icon: 'trash', label: 'Удалить', danger: true, onClick: () => deleteMessage(m) } : null,
+    !mine && typeof m.id === 'number' && m.kind !== 'system' && !peerOf(c)?.official ? { icon: 'warning', label: 'Пожаловаться', danger: true, onClick: () => reportModal('message', m.id, 'Жалоба на сообщение') } : null,
   ]);
 }
 
@@ -2487,6 +2496,8 @@ function chatMoreMenu(anchor) {
     !c.preview ? { icon: c.pinnedAt ? 'unpin' : 'pin', label: c.pinnedAt ? 'Открепить чат' : 'Закрепить чат', onClick: () => togglePinChat(c) } : null,
     c.type !== 'saved' && !c.preview ? { icon: c.muted ? 'bell' : 'mute', label: c.muted ? 'Включить уведомления' : 'Выключить уведомления', onClick: () => toggleMute(c) } : null,
     peer && !peer.official ? { icon: 'block', label: c.blocked === 'me' ? 'Разблокировать' : 'Заблокировать', danger: c.blocked !== 'me', onClick: () => setBlocked(peer, c.blocked !== 'me') } : null,
+    communityOf(c) && communityOf(c).role !== 'owner' ? { icon: 'warning', label: 'Пожаловаться на сообщество', danger: true, onClick: () => reportModal('community', c.communityId, `Жалоба на сообщество «${communityOf(c).title}»`) } : null,
+    !communityOf(c) && (isGroup(c) || isChannel(c)) && c.role !== 'owner' ? { icon: 'warning', label: 'Пожаловаться', danger: true, onClick: () => reportModal('chat', c.id, `Жалоба на «${chatTitle(c)}»`) } : null,
   ]);
 }
 
@@ -3190,6 +3201,7 @@ async function openUserProfile(id) {
         !u.official && !u.bot && chat ? action('video', 'Видео', () => { closeTopModal(); startCall(chat, u, true); }) : null,
         !u.official && !u.bot ? action('gift', 'Подарить', () => giftFromProfile(u)) : null,
         chat ? action(chat.muted ? 'bell' : 'mute', chat.muted ? 'Звук' : 'Без звука', () => { toggleMute(chat); closeTopModal(); }) : null,
+        !u.official ? action('warning', 'Жалоба', () => reportModal('user', u.id, `Жалоба на ${u.name}`), 'danger') : null,
         !u.official ? action('block', chat?.blocked === 'me' ? 'Разблок.' : 'Блок', () => { closeTopModal(); setBlocked(u, chat?.blocked !== 'me'); }, chat?.blocked === 'me' ? '' : 'danger') : null),
       h('div', { class: 'pf-card' },
         h('button', { class: 'pf-row', onclick: () => copyText(link) }, icon('at'),

@@ -8,7 +8,8 @@ import { requireAuth, isAdminUser } from './auth.js';
 import { verifyTotp } from './totp.js';
 import { isOnline, disconnectUser, disconnectSession, sessionOnline, disconnectIp } from './realtime.js';
 import { banIp, unbanIp, listIpBans, userIps, normIp, validIp } from './ipban.js';
-import { ensurePrivateChat, postMessage, pushMe, pushChat, deleteChat, OFFICIAL_SUB, sellerUser, activePlan, officialUser } from './api.js';
+import { ensurePrivateChat, postMessage, pushMe, pushChat, deleteChat, OFFICIAL_SUB, sellerUser, activePlan, officialUser, removeMessage } from './api.js';
+import { registerAdminPro } from './admin-pro.js';
 import { planById } from '../public/js/catalog.js';
 
 /**
@@ -132,7 +133,10 @@ function targetUser(req, res) {
 admin.post('/users/:id/ban', (req, res) => {
   const u = targetUser(req, res);
   if (!u) return;
-  q('UPDATE users SET banned = 1 WHERE id = ?').run(u.id);
+  // hours: 0 / missing = forever; otherwise a temporary ban that lifts itself.
+  const hours = Math.min(Math.max(Number(req.body?.hours) || 0, 0), 24 * 3650);
+  const reason = String(req.body?.reason || '').trim().slice(0, 300) || null;
+  q('UPDATE users SET banned = 1, banned_until = ?, ban_reason = ? WHERE id = ?').run(hours ? now() + hours * 3600_000 : 0, reason, u.id);
   q('DELETE FROM sessions WHERE user_id = ?').run(u.id);
   disconnectUser(u.id);
   audit(req.user.id, req.ip, 'admin_ban', { userId: u.id, username: u.username });
@@ -194,7 +198,7 @@ admin.post('/users/:id/ban-ip', (req, res) => {
 admin.post('/users/:id/unban', (req, res) => {
   const u = targetUser(req, res);
   if (!u) return;
-  q('UPDATE users SET banned = 0 WHERE id = ?').run(u.id);
+  q('UPDATE users SET banned = 0, banned_until = 0, ban_reason = NULL WHERE id = ?').run(u.id);
   for (const b of q('SELECT ip FROM ip_bans WHERE user_id = ?').all(u.id)) unbanIp(b.ip);
   audit(req.user.id, req.ip, 'admin_unban', { userId: u.id, username: u.username });
   res.json({ ok: true });
@@ -437,3 +441,5 @@ admin.post('/vacuum', (req, res) => {
   audit(req.user.id, req.ip, 'admin_vacuum');
   res.json({ ok: true });
 });
+
+registerAdminPro(admin, { targetUser, anyUser, deviceInfo, notifyOwner, protectedIps });

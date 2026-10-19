@@ -2125,3 +2125,15 @@ body:has(.modal-backdrop.show) .gc-overlay.mini, body:has(.story-viewer) .gc-ove
 .rem-toast .grow { display: grid; min-width: 0; }
 .rem-toast .grow span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .capsule-bubble .capsule, .wheel-bubble .wheel { padding-bottom: 14px; }
+.report-reasons { display: grid; gap: 6px; }
+.report-reason { text-align: left; padding: 11px 14px; border-radius: 14px; background: var(--bg-2); font-size: 15px; border: 1.5px solid transparent; }
+.report-reason.on { border-color: var(--danger, #e5484d); background: color-mix(in srgb, var(--danger, #e5484d) 9%, transparent); }
+.banner-slot:empty { display: none; }
+.banner-slot { padding: 0 10px 6px; }
+.app-banner { display: flex; align-items: center; gap: 10px; padding: 10px 8px 10px 14px; border-radius: 16px; font-size: 14px; line-height: 1.35;
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg)); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); animation: pop 0.3s var(--ease); }
+.app-banner.warn { background: color-mix(in srgb, #f59e0b 16%, var(--bg)); border-color: color-mix(in srgb, #f59e0b 40%, transparent); }
+.app-banner.promo { background: linear-gradient(120deg, color-mix(in srgb, #f472b6 18%, var(--bg)), color-mix(in srgb, #a78bfa 18%, var(--bg))); border-color: color-mix(in srgb, #a78bfa 40%, transparent); }
+.app-banner .grow { display: grid; gap: 1px; min-width: 0; }
+.app-banner .grow span { color: var(--text-2); overflow-wrap: anywhere; }
+.app-banner-ic { font-size: 20px; }
