@@ -9,6 +9,8 @@ import { initCalls, startCall, inCall } from './calls.js';
 import { initGroupCalls, startGroupCall, joinGroupCall, leaveGroupCall, inGroupCall, currentRoomId, createCallLink, callLink, callInfo } from './groupcall.js';
 import * as Sounds from './sounds.js';
 import { EMOJI } from './emoji.js';
+import { initStickerPacks, loadMyPacks, panelSections, customStickerNode, openPackPreview, newPackModal } from './stickerpacks.js';
+import { initBotsUi, myBotsModal, keyboardEl, onBotAnswer, botCommands } from './botsui.js';
 import { initStories, storiesChanged, storyViewEvent, setStripVisible, openComposer as newStory, openStoryById, storyQuote } from './stories.js';
 
 // ============================================================ state
@@ -143,7 +145,7 @@ function replyPreview(r) {
 function messagePreview(m) {
   if (!m) return '';
   if (m.kind === 'image') return m.text ? `🖼 ${m.text}` : '🖼 Фото';
-  if (m.kind === 'sticker') return `${stickerInfo(m.text)?.emoji || '🍋'} Стикер`;
+  if (m.kind === 'sticker') return `${stickerInfo(m.text)?.emoji || m.extra?.emoji || '🍋'} Стикер`;
   if (m.kind === 'gift') return `🎁 Подарок: ${giftById(m.extra?.giftId)?.name || ''}`;
   if (m.kind === 'file') return `📎 ${m.extra?.name || 'Файл'}`;
   if (m.kind === 'call') return callText(m);
@@ -465,6 +467,8 @@ async function logout() {
 
 function startApp() {
   mergeUser(S.me);
+  initStickerPacks({ onChange: () => { if (panelTab === 'stickers' && V.panel && !V.panel.classList.contains('hidden')) renderPanel(); } });
+  initBotsUi({ openChatWith: (id) => { while (closeTopModal()) { /* close all */ } startPrivate(id); }, prepareImage, openUrl: (u) => openExternal(u) });
   setTimeout(claimReferral, 1200);
   buildLayout();
   connectSocket();
@@ -472,7 +476,7 @@ function startApp() {
   maybeOfferPush();
   setInterval(() => { if (S.current) renderHeaderStatus(); }, 30_000);
   setInterval(refreshChannelStats, 20_000);
-  history.replaceState({ root: true }, '', /^\/(@|join\/|call\/)/.test(location.pathname) ? location.pathname : '/');
+  history.replaceState({ root: true }, '', /^\/(@|join\/|call\/|addstickers\/)/.test(location.pathname) ? location.pathname : '/');
 }
 
 function buildLayout() {
@@ -506,14 +510,23 @@ function emptyPane() {
 
 function onFab(e) {
   const r = e.currentTarget.getBoundingClientRect();
-  contextMenu(r.left - 170, r.top - 200, [
-    { icon: 'group', label: 'Новая группа', onClick: newGroupModal },
-    { icon: 'megaphone', label: 'Новый канал', onClick: newChannelModal },
-    { icon: 'search', label: 'Популярные каналы', onClick: popularChannelsModal },
-    { icon: 'at', label: 'Найти по юзернейму', onClick: () => { V.search.focus(); toast('Введите @юзернейм в поиске'); } },
-    { icon: 'bookmark', label: 'Избранное', onClick: openSaved },
-  ]);
+  createMenu(r.right - 230, r.top - 8, true);
 }
+
+/** Everything you can create, in one place (FAB and the drawer). */
+function createMenu(x, y, above = false) {
+  const items = [
+    { icon: 'at', label: 'Написать по @юзернейму', onClick: () => { V.search.focus(); toast('Введите @юзернейм в поиске'); } },
+    { icon: 'group', label: 'Группа', onClick: newGroupModal },
+    { icon: 'megaphone', label: 'Канал', onClick: newChannelModal },
+    { icon: 'sparkles', label: 'История', onClick: newStory },
+    { icon: 'phone', label: 'Звонок по ссылке', onClick: newCallLinkModal },
+    { icon: 'smile', label: 'Набор стикеров', onClick: () => loadMyPacks().catch(() => {}).finally(newPackModal) },
+    { icon: 'bot', label: 'Боты', onClick: myBotsModal },
+  ];
+  contextMenu(x, above ? y - items.length * 44 - 12 : y, items);
+}
+
 
 // ============================================================ data loading
 
@@ -544,10 +557,12 @@ function upsertChat(c) {
 async function handleDeepLink() {
   const inv = location.pathname.match(/^\/join\/([A-Za-z0-9_-]{8,32})$/);
   const callTok = location.pathname.match(/^\/call\/([A-Za-z0-9_-]{10,40})$/);
+  const stickerSlug = location.pathname.match(/^\/addstickers\/([A-Za-z0-9_-]{4,20})$/);
   const m = location.pathname.match(/^\/@([A-Za-z][A-Za-z0-9_]{4,31})$/);
   history.replaceState({ root: true }, '', '/');
   if (inv) return openInvite(inv[1]);
   if (callTok) return callLinkPreview(callTok[1]);
+  if (stickerSlug) return openPackPreview(stickerSlug[1]);
   if (!m) return;
   try {
     if (m[1].toLowerCase() === S.me.username.toLowerCase()) return openSaved();
@@ -592,6 +607,7 @@ function connectSocket() {
     addMessage(message);
     renderChatList();
     if (message.chatId === S.current) {
+      if (!S.msgs.get(S.current)?.items?.length || peerOf(chat)?.bot) renderComposerMode();
       renderMessages({ stick: message.senderId === S.me.id });
       markRead();
     }
@@ -629,6 +645,7 @@ function connectSocket() {
   });
   s.on('message:reactions', applyReactions);
   s.on('stories', storiesChanged);
+  s.on('bot:answer', onBotAnswer);
   s.on('story:view', storyViewEvent);
   s.on('comment', onCommentEvent);
   s.on('comment:delete', onCommentEvent);
@@ -781,7 +798,7 @@ function chatItem(c) {
   chatAvatar(c, 54),
   h('div', { class: 'chat-item-body' },
     h('div', { class: 'chat-item-top' },
-      h('span', { class: 'chat-item-title' }, isGroup(c) ? icon('group', 'title-ic') : isChannel(c) ? icon('megaphone', 'title-ic') : null,
+      h('span', { class: 'chat-item-title' }, isGroup(c) ? icon('group', 'title-ic') : isChannel(c) ? icon('megaphone', 'title-ic') : peerOf(c)?.bot ? icon('bot', 'title-ic') : null,
         h('span', { class: 'ellipsis' }, chatTitle(c)), chatVerified(c) ? badge() : null, c.muted ? icon('mute', 'mute-ic') : null),
       h('span', { class: 'chat-item-time' }, mine ? icon(read ? 'checks' : 'check', 'tick') : null, lm ? listTime(lm.createdAt) : '')),
     h('div', { class: 'chat-item-bottom' },
@@ -997,12 +1014,19 @@ function renderComposerMode() {
   const c = curChat();
   if (!c || !V.composerRow) return;
   const blocked = c.type === 'private' && c.blocked;
-  const reader = (isChannel(c) && !c.canPost) || !!blocked;
+  // A bot you never talked to: Telegram-style big "Start" button.
+  const botStart = c.type === 'private' && peerOf(c)?.bot && !c.lastMessage && !blocked;
+  const reader = (isChannel(c) && !c.canPost) || !!blocked || botStart;
+  V.cmdBtn?.classList.toggle('hidden', !(c.type === 'private' && peerOf(c)?.bot));
   if (reader && (S.reply || S.editing)) cancelBar();
   V.composerRow.classList.toggle('hidden', reader);
   V.channelBar.classList.toggle('hidden', !reader);
   V.input.placeholder = isChannel(c) ? 'Опубликовать пост…' : 'Сообщение';
   if (!reader) return;
+  if (botStart) {
+    V.channelBar.replaceChildren(h('button', { class: 'channel-bar-btn primary', onclick: () => sendText('/start') }, icon('play'), 'Начать'));
+    return;
+  }
   if (blocked) {
     if (!V.panel.classList.contains('hidden')) togglePanel(false);
     V.channelBar.replaceChildren(blocked === 'me'
@@ -1069,7 +1093,7 @@ function buildChatView(c) {
       h('button', { class: 'icon-btn', 'aria-label': 'Групповой звонок', title: 'Групповой звонок', onclick: () => groupCallFromChat(curChat(), false) }, icon('phone')),
       h('button', { class: 'icon-btn', 'aria-label': 'Групповой видеозвонок', title: 'Групповой видеозвонок', onclick: () => groupCallFromChat(curChat(), true) }, icon('video')));
   }
-  if (c.type === 'private' && peerOf(c) && !peerOf(c).official) {
+  if (c.type === 'private' && peerOf(c) && !peerOf(c).official && !peerOf(c).bot) {
     V.callBtns.append(
       h('button', { class: 'icon-btn', 'aria-label': 'Позвонить', title: 'Голосовой звонок', onclick: () => startCall(cc, peerOf(cc), false) }, icon('phone')),
       h('button', { class: 'icon-btn', 'aria-label': 'Видеозвонок', title: 'Видеозвонок', onclick: () => startCall(cc, peerOf(cc), true) }, icon('video')));
@@ -1101,6 +1125,7 @@ function buildChatView(c) {
     V.bar,
     V.composerRow = h('div', { class: 'composer-row' },
       h('div', { class: 'composer-box' },
+        V.cmdBtn = h('button', { class: 'icon-btn cmd-btn hidden', 'aria-label': 'Команды бота', onclick: (e) => botCommandsMenu(e.currentTarget) }, h('span', {}, '/')),
         h('button', { class: 'icon-btn attach-btn', 'aria-label': 'Прикрепить фото или файл', onclick: () => V.file.click() }, icon('attach')),
         V.input, V.panelBtn, V.file),
       V.sendBtn),
@@ -1377,7 +1402,7 @@ function messageEl(c, m, first, last, read) {
       h('span', {}, r.deleted ? '' : replyPreview(r))));
   }
   if (m.kind === 'sticker') {
-    bubble.append(stickerNode(m.text, 'msg-sticker'), meta);
+    bubble.append(String(m.text).startsWith('u:') ? customStickerNode(m, 'msg-sticker') : stickerNode(m.text, 'msg-sticker'), meta);
     return finishRow(c, m, bubble, { mine, group, first, last });
   }
   if (m.kind === 'file') {
@@ -1452,6 +1477,8 @@ function messageEl(c, m, first, last, read) {
   } else if (m.text) {
     bubble.append(h('div', { class: 'text' }, richText(m.text), h('span', { class: 'meta-spacer' })), meta);
   }
+  const kb = keyboardEl(m);
+  if (kb) { bubble.classList.add('has-kb'); bubble.append(kb); }
 
   return finishRow(c, m, bubble, { mine, group, first, last });
 }
@@ -1989,7 +2016,7 @@ function pushRecent(e) {
 }
 
 function canGift(c) {
-  return c?.type === 'private' && !!peerOf(c) && !peerOf(c).official;
+  return c?.type === 'private' && !!peerOf(c) && !peerOf(c).official && !peerOf(c).bot;
 }
 
 let panelRelease = null;
@@ -2007,6 +2034,7 @@ function togglePanel(force, fromBack = false) {
   if (stick) scrollToBottom();
 }
 
+let myPacksLoaded = false;
 function renderPanel() {
   const c = curChat();
   if (!c) return;
@@ -2021,6 +2049,8 @@ function renderPanel() {
         h('div', { class: 'emoji-grid' }, list.split(' ').map((e) => h('button', { class: 'emoji-btn', onclick: () => insertEmoji(e) }, e))));
     }
   } else if (panelTab === 'stickers') {
+    if (myPacksLoaded === false) { myPacksLoaded = null; loadMyPacks().then(() => { myPacksLoaded = true; if (panelTab === 'stickers' && !V.panel?.classList.contains('hidden')) renderPanel(); }).catch(() => { myPacksLoaded = false; }); }
+    body.append(...panelSections(sendSticker));
     for (const pack of STICKER_PACKS) {
       body.append(h('div', { class: 'panel-title' }, pack.title),
         h('div', { class: 'sticker-grid' }, pack.stickers.map((st) => {
@@ -2184,6 +2214,19 @@ document.addEventListener('mousedown', (e) => {
 });
 
 // ============================================================ group calls
+
+async function botCommandsMenu(anchor) {
+  const c = curChat();
+  const bot = peerOf(c);
+  if (!bot?.bot) return;
+  const cmds = await botCommands(bot.id);
+  const r = anchor.getBoundingClientRect();
+  if (!cmds.length) return toast('У этого бота нет списка команд — просто напишите ему');
+  contextMenu(r.left, r.top - 8 - Math.min(cmds.length, 8) * 44, cmds.map((cmd) => ({
+    node: h('button', { class: 'ctx-item cmd-item', role: 'menuitem', onclick: () => { closeMenu(); sendText(`/${cmd.command}`); } },
+      h('b', {}, `/${cmd.command}`), h('span', {}, cmd.description)),
+  })));
+}
 
 function liveMenu(c, anchor) {
   if (c.groupCall) return groupCallFromChat(c, false);
@@ -2967,18 +3010,13 @@ function openDrawer() {
         h('span', {}, `🍋 ${me.coins ?? 0}`), h('span', { class: 'dc-label' }, 'лимонов'),
         Date.now() >= (me.nextBonusAt || 0) ? h('span', { class: 'dc-bonus' }, `+${DAILY_BONUS} бонус`) : null)),
     h('div', { class: 'drawer-items' },
-      item('user', 'Мой профиль', editProfileModal),
-      item('gift', 'Подарки и лимоны', myGiftsModal),
-      item('crown', S.me.subUntil ? `${planById(S.me.sub)?.name || 'Подписка'} ✓` : 'Limoninior Premium', subscriptionsModal, 'premium-item'),
-      item('group', 'Создать группу', newGroupModal),
-      item('gift', 'Пригласить друзей', referralModal, 'ref-item'),
-      item('sparkles', 'Новая история', newStory),
-      item('phone', 'Звонок по ссылке', newCallLinkModal),
-      item('megaphone', 'Создать канал', newChannelModal),
+      // Profile and gifts open from the header above; sessions live in Settings.
+      h('button', { class: 'drawer-item', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); close(); createMenu(r.left + 16, r.bottom); } }, icon('plus'), 'Создать…'),
       item('search', 'Каталог каналов', popularChannelsModal),
       item('bookmark', 'Избранное', openSaved),
+      item('gift', 'Пригласить друзей', referralModal, 'ref-item'),
+      item('crown', S.me.subUntil ? `${planById(S.me.sub)?.name || 'Подписка'} ✓` : 'Limoninior Premium', subscriptionsModal, 'premium-item'),
       item('settings', 'Настройки', settingsModal),
-      item('devices', 'Активные сеансы', sessionsModal),
       themeToggle,
       !isStandalone() ? item('download', 'Установить приложение', installApp) : null,
       me.isAdmin ? item('shield', 'Админ-панель', () => navigate('/admin'), 'admin') : null,
@@ -3048,9 +3086,9 @@ async function openUserProfile(id) {
       }),
       h('div', { class: 'pf-actions' },
         action('chat', 'Написать', () => { closeTopModal(); startPrivate(u.id); }, 'primary'),
-        !u.official && chat ? action('phone', 'Звонок', () => { closeTopModal(); startCall(chat, u, false); }) : null,
-        !u.official && chat ? action('video', 'Видео', () => { closeTopModal(); startCall(chat, u, true); }) : null,
-        !u.official ? action('gift', 'Подарить', () => giftFromProfile(u)) : null,
+        !u.official && !u.bot && chat ? action('phone', 'Звонок', () => { closeTopModal(); startCall(chat, u, false); }) : null,
+        !u.official && !u.bot && chat ? action('video', 'Видео', () => { closeTopModal(); startCall(chat, u, true); }) : null,
+        !u.official && !u.bot ? action('gift', 'Подарить', () => giftFromProfile(u)) : null,
         chat ? action(chat.muted ? 'bell' : 'mute', chat.muted ? 'Звук' : 'Без звука', () => { toggleMute(chat); closeTopModal(); }) : null,
         !u.official ? action('block', chat?.blocked === 'me' ? 'Разблок.' : 'Блок', () => { closeTopModal(); setBlocked(u, chat?.blocked !== 'me'); }, chat?.blocked === 'me' ? '' : 'danger') : null),
       h('div', { class: 'pf-card' },

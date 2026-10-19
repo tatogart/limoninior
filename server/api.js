@@ -16,6 +16,8 @@ import fs from 'node:fs';
 import { getPrefs, cleanPrefs, PROFILE_COLORS } from './prefs.js';
 import { isOnline, emitToUser, emitToUsers, emitToChat, memberIds, disconnectSession, setCallHooks } from './realtime.js';
 import { setGroupCallHooks, activeRoomForChat, kickFromChatCall } from './groupcalls.js';
+import { registerStickers, customSticker, stickerExtra } from './stickers.js';
+import { registerBots, onNewMessage, isBotUser } from './bots.js';
 
 export const api = express.Router();
 
@@ -45,7 +47,8 @@ const mediaUrl = (name) => (name ? `/media/${name}` : null);
 
 export function publicUser(u) {
   if (!u) return null;
-  const hidden = getPrefs(u).lastSeen === 'nobody';
+  const bot = isBotUser(u);
+  const hidden = bot || getPrefs(u).lastSeen === 'nobody';
   return {
     id: u.id,
     username: u.username,
@@ -59,6 +62,7 @@ export function publicUser(u) {
     createdAt: u.created_at,
     verified: !!u.verified,
     official: u.google_sub === OFFICIAL_SUB,
+    bot,
     sub: activePlan(u)?.id || null,
     giftsCount: q('SELECT COUNT(*) AS n FROM user_gifts WHERE to_id = ?').get(u.id).n,
   };
@@ -213,7 +217,7 @@ function insertMessage(chatId, senderId, fields) {
 
 function pushText(m) {
   if (m.kind === 'image') return m.text ? `🖼 ${m.text}` : '🖼 Фото';
-  if (m.kind === 'sticker') return `${stickerInfo(m.text)?.emoji || '🍋'} Стикер`;
+  if (m.kind === 'sticker') return `${stickerInfo(m.text)?.emoji || JSON.parse(m.extra || '{}').emoji || '🍋'} Стикер`;
   if (m.kind === 'gift') return '🎁 Подарок';
   if (m.kind === 'file') return `📎 ${JSON.parse(m.extra || '{}').name || 'Файл'}`;
   if (m.kind === 'call') return '📞 Звонок';
@@ -224,6 +228,7 @@ function pushText(m) {
 
 function broadcastNewMessage(chatId, msg) {
   const payload = serializeMessage(msg);
+  try { onNewMessage(chatId, msg); } catch (e) { console.error('bot update', e); }
   const members = memberIds(chatId);
   for (const uid of members) {
     emitToUser(uid, 'message', { message: payload, chat: chatForUser(chatId, uid) });
@@ -599,6 +604,12 @@ api.post('/me/referral', requireAuth, requireProfile, (req, res) => {
 // Everything below needs a completed profile (username chosen).
 api.use(requireAuth, requireProfile);
 
+registerStickers(api, { bad, int, clean });
+registerBots(api, {
+  bad, int, clean, checkUsername, postError, publicUser, deleteChat, pushChat,
+  postMessage: (...a) => postMessage(...a), serializeMessage: (m) => serializeMessage(m), removeMessage: (m) => removeMessage(m),
+});
+
 api.get('/referrals', (req, res) => {
   const rows = q('SELECT * FROM users WHERE referred_by = ? ORDER BY created_at DESC LIMIT 200').all(req.user.id);
   res.json({
@@ -844,8 +855,11 @@ api.post('/chats/:id/stickers', sendLimiter, (req, res) => {
   if (!id || !isMember(id, req.user.id)) return bad(res, 'not_found', 404);
   { const e = postError(id, req.user.id); if (e) return bad(res, e, 403); }
   const sticker = String(req.body?.sticker || '');
-  if (!isValidSticker(sticker)) return bad(res, 'bad_sticker');
-  res.json({ message: postMessage(id, req.user.id, { kind: 'sticker', text: sticker, replyTo: validReply(id, req.body?.replyTo) }) });
+  const custom = customSticker(sticker);
+  if (!isValidSticker(sticker) && !custom) return bad(res, 'bad_sticker');
+  res.json({ message: postMessage(id, req.user.id, {
+    kind: 'sticker', text: sticker, extra: custom ? stickerExtra(custom) : null, replyTo: validReply(id, req.body?.replyTo),
+  }) });
 });
 
 // ---------- gifts ----------
@@ -858,6 +872,7 @@ api.post('/chats/:id/gift', sendLimiter, (req, res) => {
   if (!gift) return bad(res, 'bad_gift');
   const toId = q('SELECT user_id FROM chat_members WHERE chat_id = ? AND user_id != ?').get(id, req.user.id)?.user_id;
   if (!toId) return bad(res, 'not_found', 404);
+  if (isBotUser(q('SELECT google_sub FROM users WHERE id = ?').get(toId))) return bad(res, 'forbidden', 403);
   { const e = postError(id, req.user.id); if (e) return bad(res, e, 403); }
   const note = clean(req.body?.note, 140);
   const ok = tx(() => {
@@ -906,18 +921,24 @@ api.delete('/messages/:id', (req, res) => {
   const chat = q('SELECT * FROM chats WHERE id = ?').get(m.chat_id);
   const canDelete = m.sender_id === req.user.id || ((chat.type === 'group' || chat.type === 'channel') && chat.owner_id === req.user.id);
   if (!canDelete) return bad(res, 'forbidden', 403);
-  q('DELETE FROM messages WHERE id = ?').run(id);
+  removeMessage(m);
+  res.json({ ok: true });
+});
+
+/** Delete a message for everyone (media, pin, last message, live update). */
+function removeMessage(m) {
+  const chat = q('SELECT * FROM chats WHERE id = ?').get(m.chat_id);
+  q('DELETE FROM messages WHERE id = ?').run(m.id);
   if (m.file) deleteMediaFile(m.file);
-  if (chat.pinned_msg_id === id) { q('UPDATE chats SET pinned_msg_id = NULL WHERE id = ?').run(m.chat_id); setTimeout(() => pushChat(m.chat_id), 0); }
-  if (chat.last_msg_id === id) {
+  if (chat.pinned_msg_id === m.id) { q('UPDATE chats SET pinned_msg_id = NULL WHERE id = ?').run(m.chat_id); setTimeout(() => pushChat(m.chat_id), 0); }
+  if (chat.last_msg_id === m.id) {
     const prev = q('SELECT MAX(id) AS id FROM messages WHERE chat_id = ?').get(m.chat_id);
     q('UPDATE chats SET last_msg_id = ? WHERE id = ?').run(prev.id || 0, m.chat_id);
   }
   for (const uid of memberIds(m.chat_id)) {
-    emitToUser(uid, 'message:delete', { chatId: m.chat_id, messageId: id, chat: chatForUser(m.chat_id, uid) });
+    emitToUser(uid, 'message:delete', { chatId: m.chat_id, messageId: m.id, chat: chatForUser(m.chat_id, uid) });
   }
-  res.json({ ok: true });
-});
+}
 
 api.post('/chats/:id/read', (req, res) => {
   const id = int(req.params.id);

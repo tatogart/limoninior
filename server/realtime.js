@@ -92,7 +92,7 @@ function registerCallHandlers(socket, userId) {
     const chat = Number.isInteger(chatId) && q("SELECT * FROM chats WHERE id = ? AND type = 'private'").get(chatId);
     const peer = chat && q('SELECT u.* FROM chat_members cm JOIN users u ON u.id = cm.user_id WHERE cm.chat_id = ? AND cm.user_id != ?').get(chatId, userId);
     if (!chat || !peer || !q('SELECT 1 FROM chat_members WHERE chat_id = ? AND user_id = ?').get(chatId, userId)) return reply(ack, { error: 'not_found' });
-    if (peer.banned || String(peer.google_sub).startsWith('system:')) return reply(ack, { error: 'unavailable' });
+    if (peer.banned || /^(system|bot):/.test(String(peer.google_sub))) return reply(ack, { error: 'unavailable' });
     // Callee's privacy: who may call them.
     const who = getPrefs(peer).calls;
     const isContact = !!q('SELECT 1 FROM messages WHERE chat_id = ? AND sender_id = ? LIMIT 1').get(chatId, peer.id);

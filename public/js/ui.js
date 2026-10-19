@@ -31,6 +31,7 @@ function append(el, children) {
 
 const ICONS = {
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  bot: '<rect x="4.5" y="8" width="15" height="11" rx="3.5"/><path d="M12 4.5V8M9.2 13h.01M14.8 13h.01M2.5 12.5v2.5M21.5 12.5v2.5"/><circle cx="12" cy="3.6" r="1"/>',
   live: '<circle cx="12" cy="12" r="2.6"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/>',
   screen: '<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M8.5 20h7M12 16.5V20M12 13V8M9.5 10.5 12 8l2.5 2.5"/>',
   more: '<circle cx="12" cy="5.5" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="18.5" r="1.5" fill="currentColor" stroke="none"/>',
@@ -194,6 +195,7 @@ export function dayLabel(t) {
 
 export function lastSeenText(user) {
   if (!user) return '';
+  if (user.bot) return 'бот';
   if (user.online) return 'в сети';
   const t = user.lastSeen;
   if (!t) return 'был(а) давно';

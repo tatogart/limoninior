@@ -7,6 +7,7 @@ import { config } from './config.js';
 import { q, now } from './db.js';
 import { checkOrigin, requireAuth, sessionFromCookie, isAdminUser } from './auth.js';
 import { api } from './api.js';
+import { botApi } from './bots.js';
 import { admin } from './admin.js';
 import { serveMedia } from './media.js';
 import { initRealtime } from './realtime.js';
@@ -64,6 +65,8 @@ app.use('/api/admin', admin);
 app.use('/api', api);
 app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));
 
+// Bot HTTP API (token auth, no cookies): /bot<token>/<method>
+app.use(botApi);
 app.get('/media/:name', requireAuth, serveMedia);
 
 app.get('/vendor/socket.io.esm.min.js', (req, res) => {
