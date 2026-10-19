@@ -349,7 +349,7 @@ function toggleSound() {
 async function invite() {
   if (gc.token) {
     const link = callLink(gc.token);
-    if (navigator.share) { try { await navigator.share({ title: 'Звонок в Limoninior', url: link }); return; } catch { /* cancelled */ } }
+    if (navigator.share) { try { await navigator.share({ title: 'Звонок в Limochat', url: link }); return; } catch { /* cancelled */ } }
     try { await navigator.clipboard.writeText(link); toast('Ссылка на звонок скопирована'); } catch { toast(link); }
   } else {
     toast('Участники группы видят звонок в чате и могут присоединиться');

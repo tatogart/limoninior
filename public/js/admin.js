@@ -110,7 +110,7 @@ function dashboard() {
   const sellerBody = h('div', {});
   const serverBody = h('div', { class: 'server-grid' }, h('div', { class: 'spinner' }));
   const updateBtn = h('button', { class: 'btn btn-sm btn-primary', onclick: requestUpdate }, icon('refresh'), 'Обновить сейчас');
-  const bcText = h('textarea', { class: 'input', rows: 3, maxLength: 4096, placeholder: 'Текст объявления — придёт всем пользователям от официального аккаунта Limoninior ✓' });
+  const bcText = h('textarea', { class: 'input', rows: 3, maxLength: 4096, placeholder: 'Текст объявления — придёт всем пользователям от официального аккаунта Limochat ✓' });
   const usersBody = h('div', { class: 'users-list' });
   const channelsBody = h('div', { class: 'users-list' });
   const chSearch = h('input', { class: 'input', type: 'search', placeholder: 'Поиск каналов' });
@@ -338,7 +338,7 @@ function dashboard() {
       body: h('div', { class: 'stack' },
         h('p', { class: 'muted small' }, u.sub ? `Сейчас: ${planById(u.sub)?.name} до ${new Date(u.subUntil).toLocaleDateString('ru-RU')}` : 'Сейчас подписки нет. Выдайте её после оплаты.'),
         h('div', { class: 'small' }, 'Тариф'), plansEl, h('div', { class: 'small' }, 'Срок'), monthsEl,
-        h('p', { class: 'muted small' }, 'Пользователь получит сообщение от официального аккаунта Limoninior.')),
+        h('p', { class: 'muted small' }, 'Пользователь получит сообщение от официального аккаунта Limochat.')),
       actions: [
         u.sub ? { label: 'Отключить', danger: true, onClick: async (close) => { if (await post('subscription', { plan: null })) close(); } } : null,
         { label: 'Выдать', primary: true, onClick: async (close) => { if (await post('subscription', { plan, months })) close(); } },

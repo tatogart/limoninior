@@ -111,7 +111,7 @@ setInterval(() => q('DELETE FROM sessions WHERE expires_at < ?').run(now()), 360
 const server = http.createServer(app);
 initRealtime(server, app.get('trust proxy fn'));
 server.listen(config.port, config.host, () => {
-  console.log(`Limoninior listening on http://${config.host}:${config.port} (origin ${config.appOrigin})`);
+  console.log(`Limochat listening on http://${config.host}:${config.port} (origin ${config.appOrigin})`);
   if (config.devLogin) console.log('DEV LOGIN is enabled — do not use in production');
   if (!config.adminEmails.length || !config.adminTotpSecret) console.log('Admin panel disabled (set ADMIN_EMAILS and ADMIN_TOTP_SECRET)');
 });

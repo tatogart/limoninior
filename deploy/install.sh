@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Установка / обновление Limoninior на Ubuntu 22.04/24.04 (или Debian 12).
+# Установка / обновление Limochat на Ubuntu 22.04/24.04 (или Debian 12).
 # Первый запуск из папки с проектом:  sudo bash deploy/install.sh chat.example.ru you@gmail.com
 # Повторные запуски (и автообновление) можно делать без аргументов — домен запоминается.
 set -euo pipefail
@@ -171,7 +171,7 @@ if [[ -n "${NEW_SECRET:-}" ]]; then
   echo "================ АДМИНКА ================"
   echo "Добавьте этот ключ в Google Authenticator / Яндекс Ключ / Aegis:"
   echo "    $NEW_SECRET"
-  echo "или ссылкой: otpauth://totp/Limoninior:${ADMIN_EMAIL}?secret=${NEW_SECRET}&issuer=Limoninior"
+  echo "или ссылкой: otpauth://totp/Limochat:${ADMIN_EMAIL}?secret=${NEW_SECRET}&issuer=Limochat"
   echo "Он показывается ОДИН раз (хранится в $APP_DIR/.env)."
   echo "========================================="
 fi

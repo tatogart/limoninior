@@ -2069,3 +2069,59 @@ body:has(.modal-backdrop.show) .gc-overlay.mini, body:has(.story-viewer) .gc-ove
 .bot-code { max-width: 100%; -webkit-overflow-scrolling: touch; }
 .bot-methods span { overflow-wrap: anywhere; }
 @media (max-width: 720px) { .bot-code { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 340px; } }
+
+/* ===================== v16: Limochat extras — capsules, wheel, reminders ===================== */
+.time-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { padding: 7px 12px; border-radius: 999px; font-size: 13.5px; font-weight: 600; background: var(--bg-2); color: var(--text); border: 1.5px solid transparent; }
+.chip.on { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.cap-hero { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-radius: 18px; background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.cap-hero-ic { font-size: 34px; line-height: 1; }
+.cap-hero > div:last-child { display: grid; gap: 2px; font-size: 13.5px; }
+.cap-hero span { color: var(--text-2); }
+
+.capsule-bubble, .wheel-bubble { padding: 8px !important; }
+.capsule { width: min(260px, 64vw); display: grid; justify-items: center; gap: 4px; padding: 6px 4px 2px; text-align: center; }
+.cap-env { position: relative; width: 120px; height: 78px; border-radius: 10px; margin: 6px 0 8px;
+  background: linear-gradient(160deg, #fff6c9, #ffd95a); box-shadow: 0 6px 18px rgba(214, 160, 0, 0.25); overflow: hidden; }
+.cap-flap { position: absolute; inset: 0 0 auto; height: 52px; background: linear-gradient(180deg, #ffe680, #f7c52a);
+  clip-path: polygon(0 0, 100% 0, 50% 100%); }
+.cap-seal { position: absolute; left: 50%; top: 34px; width: 34px; height: 34px; margin-left: -17px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 18px; background: radial-gradient(circle at 35% 30%, #ff8a7a, #d63a2f); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  animation: sealPulse 2.4s ease-in-out infinite; }
+@keyframes sealPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+.cap-title { font-weight: 700; font-size: 15px; }
+.cap-count { font-variant-numeric: tabular-nums; font-weight: 800; font-size: 20px; color: var(--accent); letter-spacing: 0.01em; }
+.cap-sub { font-size: 12.5px; color: var(--text-2); }
+.capsule.opened { justify-items: start; text-align: left; }
+.cap-text { margin-top: 6px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, #ffd95a 22%, transparent); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; width: 100%; box-sizing: border-box; }
+.capsule.fresh .cap-text { animation: capReveal 1.2s var(--ease) both; }
+@keyframes capReveal { from { opacity: 0; filter: blur(8px); transform: translateY(8px) scale(0.96); } to { opacity: 1; filter: none; transform: none; } }
+
+.wheel { width: min(260px, 66vw); display: grid; justify-items: center; gap: 8px; padding: 4px; }
+.wheel-q { font-weight: 700; font-size: 15px; text-align: center; overflow-wrap: anywhere; }
+.wheel-stage { position: relative; width: 200px; height: 200px; }
+.wheel-disc { width: 100%; height: 100%; border-radius: 50%; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18), inset 0 0 0 4px rgba(255, 255, 255, 0.6); will-change: transform; }
+.wheel-svg { width: 100%; height: 100%; display: block; }
+.wheel-svg text { font: 600 10px system-ui, sans-serif; fill: #1f2937; }
+.wheel-pointer { position: absolute; left: 50%; top: -6px; z-index: 2; width: 0; height: 0; margin-left: -11px;
+  border-left: 11px solid transparent; border-right: 11px solid transparent; border-top: 20px solid #ef4444; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.3)); }
+.wheel-result { font-weight: 800; font-size: 17px; text-align: center; animation: pop 0.4s var(--ease); }
+.wheel-result.pending { visibility: hidden; }
+@keyframes pop { from { transform: scale(0.6); opacity: 0; } to { transform: none; opacity: 1; } }
+.wheel-by { font-size: 12px; color: var(--text-2); text-align: center; }
+.wheel-btn { justify-self: stretch; }
+.wheel-opts { display: grid; gap: 6px; }
+.wheel-opt { display: flex; align-items: center; gap: 8px; }
+.wheel-opt .input { flex: 1; min-width: 0; }
+.wheel-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+
+.rem-msg { display: flex; justify-content: center; }
+.rem-card { display: flex; align-items: center; gap: 10px; max-width: min(420px, 92%); padding: 10px 14px; border-radius: 16px; text-align: left;
+  background: var(--bg); box-shadow: var(--shadow, 0 2px 10px rgba(0, 0, 0, 0.08)); }
+.rem-card .grow { display: grid; gap: 2px; min-width: 0; }
+.rem-card span { color: var(--text-2); font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rem-ic { font-size: 24px; }
+.rem-go { display: inline-flex; align-items: center; color: var(--accent) !important; font-weight: 600; flex-shrink: 0; }
+.rem-toast .grow { display: grid; min-width: 0; }
+.rem-toast .grow span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.capsule-bubble .capsule, .wheel-bubble .wheel { padding-bottom: 14px; }

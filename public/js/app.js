@@ -15,6 +15,9 @@ import {
   initCommunities, setCommunities, upsertCommunity, removeCommunity, communities, communityItem, communityActivity, communityUnread,
   communityView, openCommunityId, openCommunity, closeCommunity, communityOf, communityInfoModal, newCommunityModal, openCommunityInvite,
 } from './communities.js';
+import {
+  initExtras, capsuleModal, capsuleEl, wheelModal, wheelEl, loadReminders, reminderItems, onReminder, reminderSystemEl,
+} from './extras.js';
 import { initStories, storiesChanged, storyViewEvent, setStripVisible, openComposer as newStory, openStoryById, storyQuote } from './stories.js';
 
 // ============================================================ state
@@ -156,6 +159,8 @@ function messagePreview(m) {
   if (m.kind === 'file') return `📎 ${m.extra?.name || 'Файл'}`;
   if (m.kind === 'call') return callText(m);
   if (m.kind === 'voice') return `🎤 Голосовое ${fmtDur(m.extra?.duration || 0)}`;
+  if (m.kind === 'capsule') return m.extra?.opened ? `🔓 ${m.text}` : '🔒 Капсула времени';
+  if (m.kind === 'wheel') return `🎡 ${m.text}`;
   if (m.kind === 'gcall') {
     const on = m.extra?.status === 'active';
     return m.extra?.live ? (on ? '🔴 Прямой эфир' : '📡 Эфир завершён') : on ? '📞 Идёт групповой звонок' : '📞 Групповой звонок';
@@ -183,7 +188,7 @@ function totalUnread() {
 }
 function updateBadge() {
   const n = totalUnread();
-  document.title = n ? `(${n}) Limoninior` : 'Limoninior';
+  document.title = n ? `(${n}) Limochat` : 'Limochat';
   if ('setAppBadge' in navigator) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
 }
 
@@ -274,7 +279,7 @@ async function installApp() {
     className: 'modal-small',
     body: h('div', { class: 'install-help' },
       h('img', { src: '/icons/icon.svg', width: 72, height: 72, alt: '' }),
-      h('p', {}, 'Limoninior работает как обычное приложение: своя иконка, отдельное окно, без адресной строки.'),
+      h('p', {}, 'Limochat работает как обычное приложение: своя иконка, отдельное окно, без адресной строки.'),
       h('ol', {}, steps.map((s) => h('li', {}, s)))),
     actions: [{ label: 'Понятно', primary: true, onClick: (c) => c() }],
   });
@@ -346,7 +351,7 @@ function renderLogin() {
 
   const card = h('div', { class: 'login-card' },
     h('img', { class: 'login-logo', src: '/icons/icon.svg', alt: '', width: 96, height: 96 }),
-    h('h1', {}, 'Limoninior'),
+    h('h1', {}, 'Limochat'),
     h('p', { class: 'login-sub' }, 'Быстрый, красивый и безопасный мессенджер'),
     form,
     S.config.googleClientId ? h('div', { class: 'or' }, h('span', {}, 'или')) : null,
@@ -481,6 +486,8 @@ function startApp() {
     joinVoice: (c) => { if (!(c.groupCall && currentRoomId() === c.groupCall.roomId)) groupCallFromChat(c, false); },
     dropCommunity,
   });
+  initExtras({ S, userName, jumpToMessage });
+  loadReminders();
   setTimeout(claimReferral, 1200);
   buildLayout();
   connectSocket();
@@ -675,6 +682,11 @@ function connectSocket() {
   s.on('community', (cm) => { upsertCommunity(cm); renderChatList(); if (communityOf(curChat())?.id === cm.id) renderHeader(); });
   s.on('community:removed', ({ communityId }) => dropCommunity(communityId));
   s.on('message:reactions', applyReactions);
+  s.on('reminder', (r) => { onReminder(r); Sounds.playMessageSound?.(); });
+  s.on('capsule:open', ({ chatId }) => {
+    const c = S.chats.get(chatId);
+    if (c && chatId !== S.current) toast(`🔓 В чате «${chatTitle(c)}» открылась капсула времени`);
+  });
   s.on('stories', storiesChanged);
   s.on('bot:answer', onBotAnswer);
   s.on('story:view', storyViewEvent);
@@ -1168,7 +1180,7 @@ function buildChatView(c) {
     V.composerRow = h('div', { class: 'composer-row' },
       h('div', { class: 'composer-box' },
         V.cmdBtn = h('button', { class: 'icon-btn cmd-btn hidden', 'aria-label': 'Команды бота', onclick: (e) => botCommandsMenu(e.currentTarget) }, h('span', {}, '/')),
-        h('button', { class: 'icon-btn attach-btn', 'aria-label': 'Прикрепить фото или файл', onclick: () => V.file.click() }, icon('attach')),
+        h('button', { class: 'icon-btn attach-btn', 'aria-label': 'Прикрепить', onclick: (e) => attachMenu(e.currentTarget) }, icon('attach')),
         V.input, V.panelBtn, V.file),
       V.sendBtn),
     V.channelBar = h('div', { class: 'channel-bar hidden' }));
@@ -1316,7 +1328,7 @@ function renderMessages({ stick = false, keepOffset = false } = {}) {
     const newDay = !prev || dayKey(prev.createdAt) !== dayKey(m.createdAt);
     if (newDay) { const lbl = dayLabel(m.createdAt); staticNode(`d:${dayKey(m.createdAt)}`, lbl, () => h('div', { class: 'date-sep' }, h('span', {}, lbl))); }
     if (m.kind === 'system') {
-      staticNode(`s:${m.id}`, m.text, () => h('div', { class: 'system-msg' }, h('span', {}, m.text)));
+      staticNode(`s:${m.id}`, m.text, () => (m.extra?.reminder ? reminderSystemEl(m) : h('div', { class: 'system-msg' }, h('span', {}, m.text))));
       return;
     }
     const first = newDay || prev.kind === 'system' || prev.senderId !== m.senderId || m.createdAt - prev.createdAt > GAP;
@@ -1328,7 +1340,8 @@ function renderMessages({ stick = false, keepOffset = false } = {}) {
     const read = m.senderId === S.me.id && typeof m.id === 'number' && m.id <= c.peerReadId;
     const sig = [m.editedAt, m.text, first, last, read, m.pending, m.views, m.comments, m.myReaction, JSON.stringify(m.reactions || []), sender?.name, sender?.avatar,
       m.replyTo?.id, m.replyTo && userName(m.replyTo.senderId),
-      m.kind === 'gcall' ? `${m.extra?.status}:${m.extra?.duration}:${c.groupCall?.roomId === m.extra?.roomId}` : ''].join('|');
+      m.kind === 'gcall' ? `${m.extra?.status}:${m.extra?.duration}:${c.groupCall?.roomId === m.extra?.roomId}` : '',
+      m.kind === 'wheel' || m.kind === 'capsule' ? JSON.stringify(m.extra) : ''].join('|');
     let cached = nodeCache.get(key);
     if (!cached || cached.sig !== sig) {
       if (!cached && m.pending && !animKeys.has(key)) animKeys.set(key, { type: 'send', t: performance.now() });
@@ -1463,6 +1476,16 @@ function messageEl(c, m, first, last, read) {
     ...(danger ? [h('div', { class: 'file-warn' }, icon('warning'), 'Потенциально опасный файл — может содержать вирус')] : []));
     if (m.text) bubble.append(h('div', { class: 'text' }, richText(m.text), h('span', { class: 'meta-spacer' })));
     bubble.append(meta);
+    return finishRow(c, m, bubble, { mine, group, first, last });
+  }
+  if (m.kind === 'capsule') {
+    bubble.classList.add('capsule-bubble');
+    bubble.append(capsuleEl(m), meta);
+    return finishRow(c, m, bubble, { mine, group, first, last });
+  }
+  if (m.kind === 'wheel') {
+    bubble.classList.add('wheel-bubble');
+    bubble.append(wheelEl(m), meta);
     return finishRow(c, m, bubble, { mine, group, first, last });
   }
   if (m.kind === 'voice') {
@@ -1634,6 +1657,28 @@ function updateDownBtn() {
   V.downBadge.classList.toggle('hidden', !c?.unread);
 }
 
+/** Open a chat and scroll to a message in it (reminders, links). */
+async function jumpToMessage(chatId, messageId) {
+  if (!S.chats.has(chatId)) return toast('Чат недоступен');
+  while (closeTopModal()) { /* close all */ }
+  if (S.current !== chatId) openChat(chatId);
+  for (let i = 0; i < 40 && !S.msgs.get(chatId)?.loaded; i++) await new Promise((r) => setTimeout(r, 100));
+  if (S.current === chatId) jumpTo(messageId);
+}
+
+/** Attach menu: files and the special Limochat messages. */
+function attachMenu(anchor) {
+  const c = curChat();
+  if (!c) return;
+  const r = anchor.getBoundingClientRect();
+  const sent = (m) => { addMessage(m); renderMessages({ stick: true }); };
+  contextMenu(r.left, r.top - 8 - 3 * 44, [
+    { icon: 'attach', label: 'Фото или файл', onClick: () => V.file.click() },
+    { icon: 'hourglass', label: 'Капсула времени', onClick: () => capsuleModal(c, sent) },
+    { icon: 'wheel', label: 'Колесо решений', onClick: () => wheelModal(c, sent) },
+  ]);
+}
+
 async function jumpTo(id) {
   let el = V.msgInner.querySelector(`[data-id="${CSS.escape(String(id))}"]`);
   if (!el && typeof id === 'number' && S.current) {
@@ -1754,7 +1799,7 @@ function attachMessageMenu(row, bubble, m) {
 function showMessageMenu(m, x, y) {
   const c = curChat();
   const mine = m.senderId === S.me.id;
-  const canDelete = mine || ((isGroup(c) || isChannel(c)) && c.ownerId === S.me.id);
+  const canDelete = mine || ((isGroup(c) || isChannel(c)) && c.ownerId === S.me.id) || ['owner', 'admin'].includes(communityOf(c)?.role);
   const reactRow = c.preview ? null : {
     node: h('div', { class: 'ctx-reactions' }, REACTIONS.map((e) => h('button', {
       class: `ctx-react ${m.myReaction === e ? 'on' : ''}`,
@@ -1769,6 +1814,7 @@ function showMessageMenu(m, x, y) {
       ? { icon: 'unpin', label: 'Открепить', onClick: () => pinMessage(c, null) }
       : { icon: 'pin', label: 'Закрепить', onClick: () => pinMessage(c, m) }) : null,
     isChannel(c) && channelLink(c) ? { icon: 'share', label: 'Ссылка на канал', onClick: () => copyText(channelLink(c)) } : null,
+    ...(c.preview ? [] : reminderItems(m)),
     m.text && m.kind !== 'sticker' ? { icon: 'copy', label: 'Копировать', onClick: () => copyText(m.text) } : null,
     m.kind === 'image' ? { icon: 'download', label: 'Открыть фото', onClick: () => openViewer(m) } : null,
     mine && (m.kind === 'text' || m.kind === 'image') ? { icon: 'edit', label: 'Изменить', onClick: () => startEdit(m) } : null,
@@ -2370,7 +2416,7 @@ function callLinkReady(token, titleText) {
     body: h('div', { class: 'stack' },
       h('button', { class: 'ref-link', onclick: () => copyText(link) }, h('span', { class: 'ellipsis' }, link.replace(/^https?:\/\//, '')), icon('copy')),
       h('div', { class: 'ref-actions' },
-        h('button', { class: 'btn btn-ghost', onclick: () => shareLink(link, titleText || 'Звонок в Limoninior') }, icon('share'), 'Поделиться'),
+        h('button', { class: 'btn btn-ghost', onclick: () => shareLink(link, titleText || 'Звонок в Limochat') }, icon('share'), 'Поделиться'),
         h('button', { class: 'btn btn-primary', onclick: () => { m.close(); joinGroupCall({ token, title: titleText }); } }, icon('phone'), 'Начать')),
       h('div', { class: 'muted small' }, 'Ссылка работает, пока вы её не удалите из звонка — в неё можно заходить снова.')),
   });
@@ -2408,7 +2454,7 @@ async function referralModal() {
         h('div', { class: 'ref-hero-sub' }, 'Друг регистрируется по вашей ссылке и получает Plus на месяц. А вам продлеваем подписку на месяц — или дарим Plus, если подписки нет.')),
       h('button', { class: 'ref-link', onclick: () => copyText(link) }, h('span', { class: 'ellipsis' }, link.replace(/^https?:\/\//, '')), icon('copy')),
       h('div', { class: 'ref-actions' },
-        h('button', { class: 'btn btn-primary', onclick: () => shareLink(link, 'Залетай в Limoninior — по моей ссылке Plus на месяц в подарок 🍋') }, icon('share'), 'Поделиться'),
+        h('button', { class: 'btn btn-primary', onclick: () => shareLink(link, 'Залетай в Limochat — по моей ссылке Plus на месяц в подарок 🍋') }, icon('share'), 'Поделиться'),
         h('button', { class: 'btn btn-ghost', onclick: () => copyText(link) }, icon('copy'), 'Копировать')),
       stats,
       list),
@@ -2897,7 +2943,7 @@ async function channelInfoModal(c) {
     verifyBlock = ch.verified
       ? h('div', { class: 'verify-box ok' }, badge(), h('div', {}, h('b', {}, 'Канал верифицирован'), h('div', { class: 'small' }, 'Галочка видна всем подписчикам и в поиске')))
       : c.verifyRequested
-        ? h('div', { class: 'verify-box wait' }, icon('shield'), h('div', {}, h('b', {}, 'Заявка на верификацию отправлена'), h('div', { class: 'small' }, 'Администрация рассмотрит её и пришлёт ответ в чат Limoninior')))
+        ? h('div', { class: 'verify-box wait' }, icon('shield'), h('div', {}, h('b', {}, 'Заявка на верификацию отправлена'), h('div', { class: 'small' }, 'Администрация рассмотрит её и пришлёт ответ в чат Limochat')))
         : h('button', { class: 'verify-box', onclick: () => requestVerification(c) }, icon('shield'),
           h('div', {}, h('b', {}, 'Получить галочку'), h('div', { class: 'small' }, 'Подать заявку на верификацию канала')));
   }
@@ -3068,14 +3114,14 @@ function openDrawer() {
       item('search', 'Каталог каналов', popularChannelsModal),
       item('bookmark', 'Избранное', openSaved),
       item('gift', 'Пригласить друзей', referralModal, 'ref-item'),
-      item('crown', S.me.subUntil ? `${planById(S.me.sub)?.name || 'Подписка'} ✓` : 'Limoninior Premium', subscriptionsModal, 'premium-item'),
+      item('crown', S.me.subUntil ? `${planById(S.me.sub)?.name || 'Подписка'} ✓` : 'Limochat Premium', subscriptionsModal, 'premium-item'),
       item('settings', 'Настройки', settingsModal),
       themeToggle,
       !isStandalone() ? item('download', 'Установить приложение', installApp) : null,
       me.isAdmin ? item('shield', 'Админ-панель', () => navigate('/admin'), 'admin') : null,
       h('div', { class: 'drawer-sep' }),
       item('logout', 'Выйти', async () => { if (await confirmDialog('Выйти из аккаунта на этом устройстве?', { ok: 'Выйти', danger: true })) logout(); }, 'danger')),
-    h('div', { class: 'drawer-foot' }, `Limoninior · ${S.config.version || 'dev'}`));
+    h('div', { class: 'drawer-foot' }, `Limochat · ${S.config.version || 'dev'}`));
   backdrop = h('div', { class: 'drawer-backdrop', onclick: (e) => { if (e.target === backdrop) close(); } }, panel);
   document.body.append(backdrop);
   requestAnimationFrame(() => backdrop.classList.add('show'));
@@ -3095,7 +3141,7 @@ const PROFILE_COLORS = [
   ['lime', 'Лайм'], ['ocean', 'Океан'], ['sunset', 'Закат'], ['berry', 'Ягода'], ['violet', 'Фиалка'], ['mint', 'Мята'], ['gold', 'Золото'], ['night', 'Ночь'],
 ];
 const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
-const joinedText = (t) => { const d = new Date(t); return `В Limoninior с ${MONTHS_GEN[d.getMonth()]} ${d.getFullYear()}`; };
+const joinedText = (t) => { const d = new Date(t); return `В Limochat с ${MONTHS_GEN[d.getMonth()]} ${d.getFullYear()}`; };
 
 /** Shared profile hero: colored cover + big avatar + name + status. */
 function profileHero(u, { avatarNode, status, onClose, extra } = {}) {
@@ -3401,7 +3447,7 @@ function settingsModal() {
           h('div', { class: 'row-sub' }, S.me.hasPassword ? `Вход по @${S.me.username} и паролю` : 'Чтобы входить без Google')), icon('key')),
       h('button', { class: 'set-row clickable', onclick: sessionsModal },
         h('div', { class: 'set-text' }, h('div', { class: 'row-main' }, 'Активные сеансы'), h('div', { class: 'row-sub' }, 'Где выполнен вход')), icon('devices'))),
-    h('div', { class: 'set-foot' }, `Limoninior · ${S.config.version || 'dev'}`));
+    h('div', { class: 'set-foot' }, `Limochat · ${S.config.version || 'dev'}`));
   openModal({ title: 'Настройки', className: 'modal-settings', body });
 }
 
@@ -3628,7 +3674,7 @@ function fileSendModal(file) {
       danger ? h('div', { class: 'danger-box' }, icon('warning'),
         h('div', {}, h('b', {}, 'Этот тип файла может навредить устройству'), h('div', { class: 'small' }, 'Получатель увидит предупреждение о потенциально опасном файле.'))) : null,
       tooBig ? h('div', { class: 'danger-box' }, icon('warning'), h('div', {}, h('b', {}, `Файл больше ${S.me.fileLimitMB} МБ`),
-        h('div', { class: 'small' }, 'С подпиской Limoninior можно отправлять файлы до 200 МБ.'),
+        h('div', { class: 'small' }, 'С подпиской Limochat можно отправлять файлы до 200 МБ.'),
         h('button', { class: 'btn btn-sm btn-primary', onclick: () => { closeTopModal(); subscriptionsModal(); } }, 'Подписки'))) : null,
       tooBig ? null : caption),
     actions: tooBig ? [{ label: 'Закрыть', onClick: (c) => c() }] : [
@@ -3704,7 +3750,7 @@ function openExternal(href) {
     body: h('div', { class: `warn-modal ${danger ? '' : 'calm'}` },
       h('div', { class: 'warn-ic' }, icon(danger ? 'warning' : 'share')),
       h('h3', {}, danger ? 'Осторожно, возможно опасно!' : 'Переход по внешней ссылке'),
-      h('p', {}, danger ? 'Ссылка выглядит подозрительно. Мошенники так крадут аккаунты, пароли и деньги.' : 'Вы покидаете Limoninior. Убедитесь, что доверяете этому сайту.'),
+      h('p', {}, danger ? 'Ссылка выглядит подозрительно. Мошенники так крадут аккаунты, пароли и деньги.' : 'Вы покидаете Limochat. Убедитесь, что доверяете этому сайту.'),
       h('div', { class: `link-box ${risk.level || ''}` }, h('b', {}, host), h('div', { class: 'small' }, href)),
       risk.reasons.length ? h('ul', { class: 'risk-list' }, risk.reasons.map((r) => h('li', {}, r))) : null,
       !risk.level ? h('label', { class: 'trust-row' }, trust, `Больше не спрашивать для ${host}`) : null),
@@ -3824,12 +3870,12 @@ async function subscriptionsModal() {
     } catch (e) { toast(errorText(e), 'error'); }
   };
   openModal({
-    title: 'Подписки Limoninior',
+    title: 'Подписки Limochat',
     className: 'modal-plans',
     body: h('div', { class: 'plans' },
       h('p', { class: 'muted small center' }, cur
         ? `У вас ${planById(cur)?.name} до ${new Date(data.until).toLocaleDateString('ru-RU')} 💛`
-        : 'Поддержите Limoninior и получите плюшки. Оплата — напрямую у владельца мессенджера.'),
+        : 'Поддержите Limochat и получите плюшки. Оплата — напрямую у владельца мессенджера.'),
       ...data.plans.map((p) => h('div', { class: `plan ${p.popular ? 'popular' : ''} ${cur === p.id ? 'current' : ''}`, style: { '--p1': p.colors[0], '--p2': p.colors[1] } },
         p.popular ? h('div', { class: 'plan-tag' }, 'Популярный') : null,
         h('div', { class: 'plan-head' },
@@ -3900,7 +3946,7 @@ function maybeOfferPush() {
       body: h('div', { class: 'warn-modal calm' },
         h('div', { class: 'warn-ic' }, icon('bell')),
         h('h3', {}, 'Включить уведомления?'),
-        h('p', {}, 'Будем сообщать о новых сообщениях и звонках, даже когда Limoninior закрыт.')),
+        h('p', {}, 'Будем сообщать о новых сообщениях и звонках, даже когда Limochat закрыт.')),
       actions: [
         { label: 'Позже', onClick: (c) => c() },
         { label: 'Включить', primary: true, onClick: async (c) => { c(); S.settings.notify = await enablePush(); saveSettings(); } },

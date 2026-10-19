@@ -57,17 +57,17 @@ export const REACTIONS = ['👍', '❤️', '🔥', '😂', '😮', '😢', '�
 export const FREE_FILE_MB = 25;
 export const PLANS = [
   {
-    id: 'plus', name: 'Limoninior Plus', short: 'Plus', emoji: '⭐', price: 99, colors: ['#ffe27a', '#f5a524'],
+    id: 'plus', name: 'Limochat Plus', short: 'Plus', emoji: '⭐', price: 99, colors: ['#ffe27a', '#f5a524'],
     bonusMult: 2, fileMB: 50,
-    perks: ['Значок ⭐ рядом с именем', 'Ежедневный бонус ×2', 'Файлы до 50 МБ', 'Поддержка развития Limoninior'],
+    perks: ['Значок ⭐ рядом с именем', 'Ежедневный бонус ×2', 'Файлы до 50 МБ', 'Поддержка развития Limochat'],
   },
   {
-    id: 'premium', name: 'Limoninior Premium', short: 'Premium', emoji: '💎', price: 249, colors: ['#a5f3fc', '#6366f1'],
+    id: 'premium', name: 'Limochat Premium', short: 'Premium', emoji: '💎', price: 249, colors: ['#a5f3fc', '#6366f1'],
     bonusMult: 3, fileMB: 100, popular: true,
     perks: ['Значок 💎 рядом с именем', 'Ежедневный бонус ×3', 'Файлы до 100 МБ', 'Всё из Plus'],
   },
   {
-    id: 'max', name: 'Limoninior Max', short: 'Max', emoji: '👑', price: 499, colors: ['#fde68a', '#d946ef'],
+    id: 'max', name: 'Limochat Max', short: 'Max', emoji: '👑', price: 499, colors: ['#fde68a', '#d946ef'],
     bonusMult: 5, fileMB: 200,
     perks: ['Значок 👑 рядом с именем', 'Ежедневный бонус ×5', 'Файлы до 200 МБ', 'Приоритетная верификация канала', 'Всё из Premium'],
   },

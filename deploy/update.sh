@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Автообновление Limoninior. Запускается systemd-таймером (limoninior-update.timer) от root.
+# Автообновление Limochat. Запускается systemd-таймером (limoninior-update.timer) от root.
 # Обновляет, если на GitHub появились новые коммиты или админ нажал «Обновить сейчас».
 set -uo pipefail
 

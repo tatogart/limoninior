@@ -86,7 +86,7 @@ export function userIps(userId) {
 const BANNED_PAGE = `<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Доступ ограничен</title><body style="margin:0;min-height:100vh;display:grid;place-items:center;font:16px system-ui,sans-serif;background:#0f172a;color:#e2e8f0;text-align:center">
 <div style="padding:24px"><div style="font-size:56px">⛔</div><h1 style="font-size:22px">Доступ ограничен</h1>
-<p style="color:#94a3b8;max-width:360px">Доступ к Limoninior с вашего IP-адреса заблокирован администрацией.</p></div></body></html>`;
+<p style="color:#94a3b8;max-width:360px">Доступ к Limochat с вашего IP-адреса заблокирован администрацией.</p></div></body></html>`;
 
 /** Express middleware: block everything from banned addresses. */
 export function ipBanGuard(req, res, next) {

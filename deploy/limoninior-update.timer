@@ -1,5 +1,5 @@
 [Unit]
-Description=Check for Limoninior updates every 2 minutes
+Description=Check for Limochat updates every 2 minutes
 
 [Timer]
 OnBootSec=1min

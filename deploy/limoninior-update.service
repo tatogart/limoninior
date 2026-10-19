@@ -1,5 +1,5 @@
 [Unit]
-Description=Limoninior auto-update (git pull + install)
+Description=Limochat auto-update (git pull + install)
 After=network-online.target
 Wants=network-online.target
 

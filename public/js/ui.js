@@ -31,6 +31,8 @@ function append(el, children) {
 
 const ICONS = {
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  wheel: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17M3.5 12h17M6 6l12 12M18 6 6 18"/><path d="m10 1.5 2 2.5 2-2.5" fill="currentColor"/>',
+  hourglass: '<path d="M7 3.5h10M7 20.5h10M8 3.5c0 4 8 5 8 8.5s-8 4.5-8 8.5M16 3.5c0 4-8 5-8 8.5s8 4.5 8 8.5"/>',
   hash: '<path d="M9.5 4 7.5 20M16.5 4l-2 16M4.5 9h16M3.5 15h16"/>',
   community: '<rect x="3" y="3" width="7.5" height="7.5" rx="2.2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="3.75"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="3.75"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2.2"/>',
   up: '<path d="m6 15 6-6 6 6"/>',
@@ -124,7 +126,7 @@ const SUB_EMOJI = { plus: '⭐', premium: '💎', max: '👑' };
 export function nameWithBadge(name, user) {
   const out = [name];
   if (user?.verified) out.push(badge());
-  if (user?.sub && SUB_EMOJI[user.sub]) out.push(h('span', { class: `sub-badge sub-${user.sub}`, title: `Limoninior ${user.sub[0].toUpperCase()}${user.sub.slice(1)}` }, SUB_EMOJI[user.sub]));
+  if (user?.sub && SUB_EMOJI[user.sub]) out.push(h('span', { class: `sub-badge sub-${user.sub}`, title: `Limochat ${user.sub[0].toUpperCase()}${user.sub.slice(1)}` }, SUB_EMOJI[user.sub]));
   return out;
 }
 export function icon(name, cls = '') {

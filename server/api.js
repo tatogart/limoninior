@@ -19,11 +19,12 @@ import { setGroupCallHooks, activeRoomForChat, kickFromChatCall } from './groupc
 import { registerStickers, customSticker, stickerExtra } from './stickers.js';
 import { registerBots, onNewMessage, isBotUser } from './bots.js';
 import { registerCommunities, communityRole } from './communities.js';
+import { registerFeatures } from './features.js';
 
 export const api = express.Router();
 
 const USERNAME_RE = /^[a-zA-Z][a-zA-Z0-9_]{4,31}$/;
-const RESERVED = new Set(['admin', 'administrator', 'support', 'limoninior', 'system', 'root', 'moderator', 'official', 'settings']);
+const RESERVED = new Set(['admin', 'administrator', 'support', 'limoninior', 'limochat', 'system', 'root', 'moderator', 'official', 'settings']);
 const MAX_TEXT = 4096;
 const PAGE = 50;
 export const OFFICIAL_SUB = 'system:limoninior';
@@ -223,6 +224,8 @@ function pushText(m) {
   if (m.kind === 'file') return `📎 ${JSON.parse(m.extra || '{}').name || 'Файл'}`;
   if (m.kind === 'call') return '📞 Звонок';
   if (m.kind === 'voice') return '🎤 Голосовое сообщение';
+  if (m.kind === 'capsule') return '🔒 Капсула времени';
+  if (m.kind === 'wheel') return `🎡 ${m.text}`;
   if (m.kind === 'gcall') return JSON.parse(m.extra || '{}').live ? '🔴 Прямой эфир' : '📞 Групповой звонок';
   return m.text.slice(0, 200);
 }
@@ -243,12 +246,12 @@ function broadcastNewMessage(chatId, msg) {
       .filter((r) => r.user_id !== msg.sender_id && !isOnline(r.user_id) && getPrefs(r)[prefKey]);
     if (rows.length) {
       const sender = msg.sender_id ? q('SELECT name FROM users WHERE id = ?').get(msg.sender_id) : null;
-      const title = chat.type === 'private' || chat.type === 'saved' ? sender?.name || 'Limoninior' : chat.title;
+      const title = chat.type === 'private' || chat.type === 'saved' ? sender?.name || 'Limochat' : chat.title;
       const body = chat.type === 'group' && sender ? `${sender.name}: ${pushText(msg)}` : pushText(msg);
       const withPreview = rows.filter((r) => getPrefs(r).pushPreview).map((r) => r.user_id);
       const noPreview = rows.filter((r) => !getPrefs(r).pushPreview).map((r) => r.user_id);
       sendPush(withPreview, { type: 'message', chatId, title, body, tag: `chat${chatId}` });
-      sendPush(noPreview, { type: 'message', chatId, title: 'Limoninior', body: 'Новое сообщение', tag: `chat${chatId}` });
+      sendPush(noPreview, { type: 'message', chatId, title: 'Limochat', body: 'Новое сообщение', tag: `chat${chatId}` });
     }
   }
   return payload;
@@ -545,16 +548,21 @@ const REF_DAYS = 30;
 const REF_WINDOW = 7 * 864e5; // the new account must claim within a week of registering
 const REF_MAX_REWARDS = 100; // per inviter
 
-/** The official "Limoninior" account used for announcements. */
+/** The official "Limochat" account used for announcements. */
 export function officialUser() {
   let u = q('SELECT * FROM users WHERE google_sub = ?').get(OFFICIAL_SUB);
   if (!u) {
     const t = now();
-    const taken = q("SELECT 1 FROM users WHERE username = 'limoninior'").get();
+    const taken = q("SELECT 1 FROM users WHERE username = 'limochat'").get();
     q(`INSERT INTO users (google_sub, email, username, name, bio, verified, created_at, last_seen)
-       VALUES (?, '', ?, 'Limoninior', 'Официальный аккаунт мессенджера', 1, ?, ?)`)
-      .run(OFFICIAL_SUB, taken ? null : 'limoninior', t, t);
+       VALUES (?, '', ?, 'Limochat', 'Официальный аккаунт мессенджера', 1, ?, ?)`)
+      .run(OFFICIAL_SUB, taken ? null : 'limochat', t, t);
     u = q('SELECT * FROM users WHERE google_sub = ?').get(OFFICIAL_SUB);
+  } else if (u.name === 'Limoninior') {
+    // Rebranded: rename the existing official account once (and take the new @handle if it's free).
+    const free = !q("SELECT 1 FROM users WHERE username = 'limochat' AND id != ?").get(u.id) && !q("SELECT 1 FROM chats WHERE username = 'limochat'").get();
+    q('UPDATE users SET name = ?, username = ? WHERE id = ?').run('Limochat', free ? 'limochat' : u.username, u.id);
+    u = q('SELECT * FROM users WHERE id = ?').get(u.id);
   }
   return u;
 }
@@ -611,6 +619,11 @@ registerBots(api, {
   postMessage: (...a) => postMessage(...a), serializeMessage: (m) => serializeMessage(m), removeMessage: (m) => removeMessage(m),
 });
 registerCommunities(api, { bad, int, clean, chatForUser, pushChat, systemMessage, deleteChat, publicUser });
+registerFeatures(api, {
+  bad, int, clean, isMember, postError, validReply, ensurePrivateChat,
+  postMessage: (...a) => postMessage(...a), serializeMessage: (m) => serializeMessage(m),
+  chatTitleFor: (chatId, userId) => chatForUser(chatId, userId)?.title || 'Чат',
+});
 
 api.get('/referrals', (req, res) => {
   const rows = q('SELECT * FROM users WHERE referred_by = ? ORDER BY created_at DESC LIMIT 200').all(req.user.id);
@@ -1634,3 +1647,6 @@ api.use((err, req, res, next) => {
   if (err?.status === 400) return bad(res, err.message);
   next(err);
 });
+
+// Make sure the official account exists (and carries the current brand name) from the start.
+officialUser();

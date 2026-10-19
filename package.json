@@ -2,7 +2,7 @@
   "name": "limoninior",
   "version": "1.0.0",
   "private": true,
-  "description": "Limoninior — быстрый и красивый мессенджер (PWA)",
+  "description": "Limochat — быстрый и красивый мессенджер (PWA)",
   "type": "module",
   "main": "server/index.js",
   "engines": {

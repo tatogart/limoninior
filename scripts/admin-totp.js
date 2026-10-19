@@ -4,7 +4,7 @@ import { generateSecret } from '../server/totp.js';
 
 const email = process.argv[2] || 'admin';
 const secret = generateSecret();
-const uri = `otpauth://totp/Limoninior:${encodeURIComponent(email)}?secret=${secret}&issuer=Limoninior&algorithm=SHA1&digits=6&period=30`;
+const uri = `otpauth://totp/Limochat:${encodeURIComponent(email)}?secret=${secret}&issuer=Limochat&algorithm=SHA1&digits=6&period=30`;
 
 console.log(`
 Секрет для админки сгенерирован.
