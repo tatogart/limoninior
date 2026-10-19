@@ -1374,6 +1374,7 @@ function renderMessages({ stick = false, keepOffset = false } = {}) {
   syncChildren(V.msgInner, nodes);
 
   if (atBottom) scrollToBottom();
+  syncStickyDates();
   if (prevH) slideList(V.msgInner.offsetHeight - prevH);
   else if (keepOffset) V.scroller.scrollTop = V.scroller.scrollHeight - fromBottom;
   updateDownBtn();
@@ -1649,7 +1650,20 @@ function keepBottom() {
   if (wasAtBottom) requestAnimationFrame(() => scrollToBottom());
 }
 
+/** Sticky day labels stack on top of each other: show only the newest one at the top. */
+let datesFrame = 0;
+function syncStickyDates() {
+  if (datesFrame) return;
+  datesFrame = requestAnimationFrame(() => {
+    datesFrame = 0;
+    const seps = V.msgInner ? [...V.msgInner.querySelectorAll('.date-sep')] : [];
+    const rects = seps.map((el) => el.getBoundingClientRect());
+    seps.forEach((el, i) => el.classList.toggle('covered', !!rects[i + 1] && rects[i + 1].top < rects[i].bottom + 2));
+  });
+}
+
 function onScroll() {
+  syncStickyDates();
   wasAtBottom = isViewingBottom();
   if (V.scroller.scrollTop < 300) loadOlder();
   if (!isViewingBottom()) stickAfterLoad = false;

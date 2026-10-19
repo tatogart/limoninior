@@ -223,16 +223,23 @@ export function wheelModal(chat, onSent) {
   if (!isTouch()) setTimeout(() => question.focus(), 50);
 }
 
-function wheelSvg(options) {
+/** `turn`: where the wheel will stop (deg), so every label ends up readable, not upside down. */
+function wheelSvg(options, turn = 0) {
   const n = options.length, r = 100, seg = (2 * Math.PI) / n;
   const pt = (a) => [r + r * Math.sin(a), r - r * Math.cos(a)];
+  // Few options: labels end up level once the wheel stops. Many: along the radius, never upside down.
+  const angle = (mid) => {
+    const deg = (mid * 180) / Math.PI;
+    if (n <= 6) return -turn;
+    return deg + (((deg + turn) % 360 + 360) % 360 > 180 ? 90 : -90);
+  };
   const parts = options.map((o, i) => {
     const [x1, y1] = pt(i * seg), [x2, y2] = pt((i + 1) * seg);
     const mid = (i + 0.5) * seg;
     const [tx, ty] = [r + 62 * Math.sin(mid), r - 62 * Math.cos(mid)];
     const label = o.length > 12 ? `${o.slice(0, 11)}…` : o;
     return `<path d="M${r} ${r} L${x1.toFixed(2)} ${y1.toFixed(2)} A${r} ${r} 0 ${seg > Math.PI ? 1 : 0} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z" fill="${WHEEL_COLORS[i % 12]}"/>`
-      + `<text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" transform="rotate(${(((mid * 180) / Math.PI) + (mid > Math.PI ? 90 : -90)).toFixed(1)} ${tx.toFixed(1)} ${ty.toFixed(1)})" text-anchor="middle" dominant-baseline="middle">${label.replace(/[<&>"]/g, (c) => `&#${c.charCodeAt(0)};`)}</text>`;
+      + `<text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" transform="rotate(${angle(mid).toFixed(1)} ${tx.toFixed(1)} ${ty.toFixed(1)})" text-anchor="middle" dominant-baseline="middle">${label.replace(/[<&>"]/g, (c) => `&#${c.charCodeAt(0)};`)}</text>`;
   }).join('');
   return `<svg viewBox="0 0 200 200" class="wheel-svg"><g>${parts}</g><circle cx="100" cy="100" r="15" fill="#fff"/><circle cx="100" cy="100" r="6" fill="#1f2937"/></svg>`;
 }
@@ -244,9 +251,9 @@ export function wheelEl(m) {
   const n = x.options.length;
   const seg = 360 / n;
   const disc = h('div', { class: 'wheel-disc' });
-  disc.innerHTML = wheelSvg(x.options);
   const has = x.result != null;
   const final = has ? 360 * 6 - (x.result + 0.5) * seg + (x.spins % 2 ? 360 : 0) : 0;
+  disc.innerHTML = wheelSvg(x.options, final);
   const key = `${m.id}:${x.spins}`;
   const live = has && x.spunAt && Date.now() - x.spunAt < 5000 && !spun.has(key);
   const resultEl = h('div', { class: `wheel-result ${has ? '' : 'hidden'}` }, has ? `🎉 ${x.options[x.result]}` : '');
