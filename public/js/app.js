@@ -163,6 +163,8 @@ function messagePreview(m) {
   if (m.kind === 'voice') return `🎤 Голосовое ${fmtDur(m.extra?.duration || 0)}`;
   if (m.kind === 'capsule') return m.extra?.opened ? `🔓 ${m.text}` : '🔒 Капсула времени';
   if (m.kind === 'wheel') return `🎡 ${m.text}`;
+  if (m.kind === 'dice') return `${m.extra?.emoji || '🎲'} ${m.extra?.label || 'Мини-игра'}`;
+  if (m.kind === 'streak_offer') return m.extra?.status === 'accepted' ? '🔥 Огонёк зажжён' : '🔥 Предложение растить огонёк';
   if (m.kind === 'gcall') {
     const on = m.extra?.status === 'active';
     return m.extra?.live ? (on ? '🔴 Прямой эфир' : '📡 Эфир завершён') : on ? '📞 Идёт групповой звонок' : '📞 Групповой звонок';
@@ -219,7 +221,7 @@ async function claimReferral() {
       className: 'modal-small',
       body: h('div', { class: 'ref-welcome' }, h('div', { class: 'ref-gift' }, '🎁'),
         h('h2', {}, 'Подарок за приглашение!'),
-        h('p', {}, `Вас пригласил @${r.inviter}. Вам начислена подписка Plus на месяц — бонусы ×2 и файлы до 50 МБ.`)),
+        h('p', {}, `Вас пригласил @${r.inviter}. Вам начислена подписка Plus на месяц — награды в мини-играх ×2 и файлы до 50 МБ.`)),
       actions: [{ label: 'Круто!', primary: true, onClick: (c) => c() }],
     });
   } catch (e) {
@@ -307,7 +309,7 @@ function renderLogin() {
       h('button', { type: 'button', class: m === 'register' ? 'on' : '', onclick: () => setMode('register') }, 'Регистрация'));
     nameField.classList.toggle('hidden', m === 'login');
     submit.textContent = m === 'login' ? 'Войти' : 'Создать аккаунт';
-    passIn.placeholder = m === 'login' ? 'Пароль' : 'Пароль (минимум 8 символов)';
+    passIn.placeholder = m === 'login' ? 'Пароль' : 'Пароль, от 8 символов';
     passIn.autocomplete = m === 'login' ? 'current-password' : 'new-password';
     userHint.textContent = m === 'register' ? 'Латиница, цифры и _, от 5 символов — по нему вас найдут' : '';
     userHint.className = 'field-hint';
@@ -1112,6 +1114,7 @@ function closeChat({ fromHistory = false } = {}) {
   S.editing = null;
   S.reply = null;
   S.current = null;
+  if (V.pane?.contains(document.activeElement)) document.activeElement.blur();
   V.layout.classList.remove('chat-open');
   renderChatList();
   setTimeout(() => { if (!S.current) V.pane.replaceChildren(emptyPane()); }, 260);
@@ -2343,7 +2346,7 @@ async function myGiftsModal() {
   const grid = await giftsGrid(S.me.id);
   m.dialog.querySelector('.modal-body > div').replaceChildren(
     h('div', { 'data-coins': '' }, coinsLine()),
-    h('p', { class: 'muted small' }, 'Лимоны можно получать ежедневным бонусом и дарить на них подарки друзьям в личных чатах (кнопка 😊 → 🎁).'),
+    h('p', { class: 'muted small' }, 'Лимоны зарабатываются в мини-играх. На них можно дарить подарки друзьям в личных чатах (кнопка 😊 → 🎁).'),
     grid);
 }
 
@@ -3267,9 +3270,16 @@ async function openUserProfile(id) {
         !u.official && !u.bot && chat ? action('phone', 'Звонок', () => { closeTopModal(); startCall(chat, u, false); }) : null,
         !u.official && !u.bot && chat ? action('video', 'Видео', () => { closeTopModal(); startCall(chat, u, true); }) : null,
         !u.official && !u.bot ? action('gift', 'Подарить', () => giftFromProfile(u)) : null,
-        chat ? action(chat.muted ? 'bell' : 'mute', chat.muted ? 'Звук' : 'Без звука', () => { toggleMute(chat); closeTopModal(); }) : null,
-        !u.official ? action('warning', 'Жалоба', () => reportModal('user', u.id, `Жалоба на ${u.name}`), 'danger') : null,
-        !u.official ? action('block', chat?.blocked === 'me' ? 'Разблок.' : 'Блок', () => { closeTopModal(); setBlocked(u, chat?.blocked !== 'me'); }, chat?.blocked === 'me' ? '' : 'danger') : null),
+        // Rarely used actions live under "More" so the row always fits (Telegram-style).
+        action('more', 'Ещё', (e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          contextMenu(r.left, r.bottom + 4, [
+            chat ? { icon: chat.muted ? 'bell' : 'mute', label: chat.muted ? 'Включить уведомления' : 'Выключить уведомления', onClick: () => { toggleMute(chat); closeTopModal(); } } : null,
+            { icon: 'share', label: 'Поделиться профилем', onClick: () => shareLink(link, u.name) },
+            !u.official ? { icon: 'warning', label: 'Пожаловаться', danger: true, onClick: () => reportModal('user', u.id, `Жалоба на ${u.name}`) } : null,
+            !u.official ? { icon: 'block', label: chat?.blocked === 'me' ? 'Разблокировать' : 'Заблокировать', danger: chat?.blocked !== 'me', onClick: () => { closeTopModal(); setBlocked(u, chat?.blocked !== 'me'); } } : null,
+          ]);
+        })),
       h('div', { class: 'pf-card' },
         h('button', { class: 'pf-row', onclick: () => copyText(link) }, icon('at'),
           h('div', {}, h('div', { class: 'row-main accent' }, `@${u.username}`), h('div', { class: 'row-sub' }, 'Юзернейм · нажмите, чтобы скопировать ссылку'))),

@@ -2262,3 +2262,20 @@ button.streak { cursor: pointer; }
 .offer.declined .offer-flame { filter: grayscale(1); animation: none; }
 .offer span { font-size: 13px; color: var(--text-2); }
 .offer-acts { display: flex; gap: 6px; margin-top: 6px; }
+
+/* ===================== v19: visual fixes ===================== */
+.pf { grid-template-columns: minmax(0, 1fr); }
+.pf-actions { flex-wrap: nowrap; }
+.pf-row > div { min-width: 0; }
+.pf-row .row-sub, .pf-row .row-main { overflow-wrap: anywhere; }
+.ref-actions > * { min-width: 0; }
+.ref-actions .btn { white-space: normal; line-height: 1.2; text-align: center; padding-left: 10px; padding-right: 10px; }
+.plan.popular { margin-top: 10px; overflow: visible; }
+.plan-tag { top: -11px; right: 16px; box-shadow: 0 4px 12px color-mix(in srgb, var(--p2) 35%, transparent); }
+/* A focused field inside the off-screen chat pane must never scroll the layout sideways. */
+#app, .layout { overflow: clip; }
+.cm-view, .cm-channels { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.cm-head > .icon-btn { flex-shrink: 0; }
+.chat-list { overflow-x: hidden; }
+/* The drawer must hide the list behind it: glass, but nearly opaque. */
+[data-style="glass"] .drawer-backdrop .drawer { background: color-mix(in srgb, var(--bg) 97%, transparent); -webkit-backdrop-filter: blur(28px) saturate(1.4); backdrop-filter: blur(28px) saturate(1.4); }
