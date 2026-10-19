@@ -2061,3 +2061,11 @@ body:has(.modal-backdrop.show) .gc-overlay.mini, body:has(.story-viewer) .gc-ove
 .pill.gold { color: #b8860b; background: color-mix(in srgb, #f4c430 22%, transparent); }
 .gc-bar-ava > .ic { width: 22px; height: 22px; color: var(--accent); }
 .header-title .title-ic { width: 18px; height: 18px; margin-right: 4px; flex-shrink: 0; color: var(--text-2); }
+/* Wide content (code, long links) must scroll inside a window, never stretch it past the screen. */
+.modal-backdrop { grid-template-columns: minmax(0, 1fr); }
+.modal { max-width: 100%; min-width: 0; justify-self: center; }
+.modal-body, .stack > * { min-width: 0; }
+.stack { grid-template-columns: minmax(0, 1fr); }
+.bot-code { max-width: 100%; -webkit-overflow-scrolling: touch; }
+.bot-methods span { overflow-wrap: anywhere; }
+@media (max-width: 720px) { .bot-code { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 340px; } }
