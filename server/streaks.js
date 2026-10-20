@@ -1,6 +1,6 @@
 // Streaks ("огоньки", like TikTok): two people who message each other every day keep a 🔥 with
 // the number of days in a row. Days are counted in Moscow time. Miss a day and it goes out;
-// it can be relit once a month for lemons if you're quick.
+// it can be relit twice a calendar month for lemons if you're quick.
 import { db, q, now } from './db.js';
 
 db.exec(`
@@ -21,6 +21,13 @@ if (!q("SELECT 1 FROM pragma_table_info('streaks') WHERE name = 'state'").get())
   db.exec("UPDATE streaks SET state = 'active' WHERE count > 0");
 }
 
+// Relights per calendar month (Moscow time), counted per chat.
+if (!q("SELECT 1 FROM pragma_table_info('streaks') WHERE name = 'restore_month'").get()) {
+  db.exec('ALTER TABLE streaks ADD COLUMN restore_month TEXT');
+  db.exec('ALTER TABLE streaks ADD COLUMN restore_count INTEGER NOT NULL DEFAULT 0');
+}
+
+export const RESTORES_PER_MONTH = 2;
 export const VISIBLE_FROM = 1; // both agreed to grow it, so it shows from the first day
 export const RESTORE_PRICE = 50;
 const MILESTONES = new Set([3, 7, 10, 30, 50, 100, 150, 200, 365, 500, 1000]);
@@ -62,8 +69,10 @@ export function streakFor(chatId, userId, peerId) {
   const days = JSON.parse(s.days || '{}');
   const alive = s.last_day === today || s.last_day === yesterday;
   const mskHour = new Date(t + MSK).getUTCHours();
-  // Gone out the day before yesterday: can still be relit (once a month).
-  const restorable = !alive && s.last_day === shift(today, -2) && s.count >= VISIBLE_FROM && t - s.restored_at > 30 * 864e5;
+  // Gone out the day before yesterday: can still be relit (twice a month).
+  const missed = !alive && s.last_day === shift(today, -2) && s.count >= VISIBLE_FROM;
+  const restoresLeft = Math.max(0, RESTORES_PER_MONTH - (s.restore_month === today.slice(0, 7) ? s.restore_count : 0));
+  const restorable = missed && restoresLeft > 0;
   return {
     state,
     count: alive ? s.count : 0,
@@ -75,7 +84,10 @@ export function streakFor(chatId, userId, peerId) {
     theirs: days[peerId] === today,
     // Not kept up today yet and the day is running out.
     danger: alive && s.last_day === yesterday && mskHour >= 18,
+    missed,
     restorable,
+    restoresLeft,
+    restoresPerMonth: RESTORES_PER_MONTH,
     restorePrice: RESTORE_PRICE,
     endsAt: alive ? Date.parse(`${shift(s.last_day, 2)}T00:00:00Z`) - MSK : 0,
   };
@@ -85,11 +97,14 @@ export function streakFor(chatId, userId, peerId) {
 export function restoreStreak(chatId, userId) {
   const s = row(chatId);
   const st = s && streakFor(chatId, userId, 0);
+  if (st?.missed && !st.restoresLeft) return 'no_restores_left';
   if (!st?.restorable) return 'not_restorable';
   const u = q('SELECT coins FROM users WHERE id = ?').get(userId);
   if (!u || u.coins < RESTORE_PRICE) return 'not_enough_coins';
   q('UPDATE users SET coins = coins - ? WHERE id = ?').run(RESTORE_PRICE, userId);
-  q('UPDATE streaks SET last_day = ?, restored_at = ? WHERE chat_id = ?').run(shift(dayOf(now()), -1), now(), chatId);
+  const today = dayOf(now()), month = today.slice(0, 7);
+  q(`UPDATE streaks SET last_day = ?, restored_at = ?,
+       restore_count = CASE WHEN restore_month = ? THEN restore_count + 1 ELSE 1 END, restore_month = ? WHERE chat_id = ?`).run(shift(today, -1), now(), month, month, chatId);
   return null;
 }
 

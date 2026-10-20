@@ -54,6 +54,7 @@ export const ERRORS = {
   bad_password: 'Слишком длинный пароль',
   bad_current_password: 'Текущий пароль неверный',
   not_enough_coins: 'Не хватает лимонов 🍋',
+  no_restores_left: 'Огонёк можно вернуть только 2 раза в месяц',
   bonus_not_ready: 'Бонус уже получен, приходите завтра',
   bad_sticker: 'Неизвестный стикер',
   bad_gift: 'Неизвестный подарок',

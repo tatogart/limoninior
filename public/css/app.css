@@ -2178,6 +2178,10 @@ button.streak { cursor: pointer; }
 .streak-who.ok b { background: #f97316; }
 .streak-left { font-size: 14px; color: var(--text-2); }
 .streak-left.danger { color: #b45309; font-weight: 600; }
+.streak-restores { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 14px; color: var(--text-2); }
+.streak-restores span { font-size: 18px; filter: grayscale(1); opacity: 0.35; }
+.streak-restores span.on { filter: none; opacity: 1; }
+.streak-restores b { margin-left: 4px; font-weight: 600; }
 .streak-msg span { background: linear-gradient(90deg, color-mix(in srgb, #fb923c 28%, var(--bg)), color-mix(in srgb, #f472b6 22%, var(--bg))) !important; color: var(--text) !important; font-weight: 700; }
 .flame-burst { position: fixed; inset: 0; z-index: 2000; pointer-events: none; overflow: hidden; }
 .flame-burst span { position: absolute; bottom: -60px; animation: flameUp 2.6s cubic-bezier(.2,.7,.3,1) forwards; }

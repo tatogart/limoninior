@@ -343,7 +343,7 @@ const streakTier = (n) => (n >= 100 ? 'legend' : n >= 30 ? 'hot' : '');
 export function streakBadge(c, onClick) {
   const s = c?.streak;
   if (!s) return null;
-  if (!s.visible && !s.restorable) return null;
+  if (!s.visible && !s.restorable && !s.missed) return null;
   const lost = !s.visible;
   const el = h(onClick ? 'button' : 'span', {
     class: `streak ${streakTier(s.count)} ${s.danger ? 'danger' : ''} ${lost ? 'lost' : ''} ${s.done ? 'done' : ''}`,
@@ -355,7 +355,9 @@ export function streakBadge(c, onClick) {
 
 export function streakModal(c, peerName, onChat) {
   const s = c.streak || { count: 0 };
-  const lost = !s.visible && s.restorable;
+  const lost = !s.visible && (s.restorable || s.missed);
+  const per = s.restoresPerMonth || 2;
+  const nextMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
   const left = s.endsAt ? s.endsAt - Date.now() : 0;
   const tick = (ok, who) => h('div', { class: `streak-who ${ok ? 'ok' : ''}` }, h('b', {}, ok ? '✓' : '…'), h('span', {}, who));
   const m = openModal({
@@ -365,12 +367,16 @@ export function streakModal(c, peerName, onChat) {
       h('div', { class: `streak-big ${streakTier(s.count)} ${lost ? 'lost' : ''}` }, h('span', {}, lost ? '🩶' : '🔥'), h('b', {}, String(lost ? s.lost : s.count))),
       h('div', { class: 'streak-title' }, lost ? 'Огонёк погас' : s.visible ? `${s.count} ${plural(s.count, 'день', 'дня', 'дней')} подряд` : 'Первый день впереди'),
       h('p', { class: 'muted small' }, lost
-        ? `Вчера никто из вас не написал. Его можно вернуть за 🍋 ${s.restorePrice} — один раз в месяц.`
+        ? (s.restorable
+          ? `Вчера кто-то из вас не написал. Огонёк можно вернуть за 🍋 ${s.restorePrice} — ${per} раза в месяц.`
+          : `Вчера кто-то из вас не написал. Возвраты в этом месяце закончились — снова можно с ${nextMonth}.`)
         : 'Пишите друг другу каждый день — огонёк растёт. Пропустите день, и он погаснет.'),
       lost ? null : h('div', { class: 'streak-today' }, h('div', { class: 'small' }, 'Сегодня'), h('div', { class: 'streak-whos' }, tick(s.mine, 'вы'), tick(s.theirs, peerName))),
       !lost && s.count && !s.done && left > 0 ? h('div', { class: `streak-left ${s.danger ? 'danger' : ''}` }, '⏳ погаснет через ', h('b', { 'data-open-at': s.endsAt }, countdownText(left))) : null,
       s.best ? h('div', { class: 'muted small' }, `Рекорд этого чата: ${s.best} ${plural(s.best, 'день', 'дня', 'дней')}`) : null,
-      lost ? h('button', { class: 'btn btn-primary btn-block', onclick: async (e) => {
+      lost ? h('div', { class: 'streak-restores' }, Array.from({ length: per }, (_, i) => h('span', { class: i < (s.restoresLeft ?? 0) ? 'on' : '' }, '🔥')),
+        h('b', {}, `Осталось ${s.restoresLeft ?? 0} из ${per} в этом месяце`)) : null,
+      lost && s.restorable ? h('button', { class: 'btn btn-primary btn-block', onclick: async (e) => {
         e.currentTarget.disabled = true;
         try { const { chat } = await api.post(`/chats/${c.id}/streak/restore`); onChat?.(chat); toast('🔥 Огонёк снова горит!'); flameBurst(); } catch (err) { toast(errorText(err), 'error'); e.currentTarget.disabled = false; }
       } }, `Вернуть огонёк за 🍋 ${s.restorePrice}`) : null,
