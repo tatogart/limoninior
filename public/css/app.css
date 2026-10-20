@@ -2300,8 +2300,3 @@ button.streak { cursor: pointer; }
 .rw-chip.on { border-color: var(--rc, var(--accent)); color: var(--rc, var(--accent)); background: color-mix(in srgb, var(--rc, var(--accent)) 12%, var(--bg)); }
 .rw-badges { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .rw-badge { padding: 4px 10px; border-radius: 999px; background: var(--bg); font-size: 13px; }
-.ln-status { padding: 10px 12px; border-radius: 14px; background: var(--bg-2); font-size: 14px; color: var(--text-2); }
-.ln-status.on { color: #15803d; background: color-mix(in srgb, #22c55e 14%, var(--bg-2)); }
-:root[data-theme="dark"] .ln-status.on { color: #4ade80; }
-.ln-dev summary { cursor: pointer; font-size: 13.5px; color: var(--text-2); padding: 4px 0; }
-.ln-dev[open] { display: grid; gap: 8px; }

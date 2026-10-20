@@ -649,8 +649,7 @@ api.post('/chats/:id/capsule', featureGate('extras'));
 api.post('/chats/:id/wheel', featureGate('extras'));
 registerCommunities(api, { bad, int, clean, chatForUser, pushChat, systemMessage, deleteChat, publicUser });
 registerReports(api, { bad, int, clean, isMember });
-/** The game launcher's API, mounted at /ext/v1 (outside /api: no cookies, its own key). */
-export const launcherApi = registerRewards(api, { bad, pushMe, notify: (...a) => officialNote(...a) });
+registerRewards(api, { bad, pushMe });
 registerGames(api, { bad, int, isMember, postError, validReply, activePlan, pushMe, postMessage: (...a) => postMessage(...a) });
 registerFeatures(api, {
   bad, int, clean, isMember, postError, validReply, ensurePrivateChat,

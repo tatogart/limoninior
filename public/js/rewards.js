@@ -1,6 +1,6 @@
-// Roles and badges earned in the owner's game launcher ("Лимон чат" rewards) + linking the launcher.
+// Roles and badges for playing in the owner's game launcher ("Лимон чат" rewards). The admin grants them.
 import { api, errorText } from './api.js';
-import { h, icon, toast, openModal, confirmDialog } from './ui.js';
+import { h, toast } from './ui.js';
 
 let catalog = new Map();
 let d = null; // { me(), setMe(patch) }
@@ -42,47 +42,11 @@ export async function rolePicker() {
     roles.length ? h('div', { class: 'rw-roles' },
       h('button', { type: 'button', class: `rw-chip ${d.me().role ? '' : 'on'}`, onclick: () => choose(null) }, 'Не показывать'),
       ...roles.map((r) => h('button', { type: 'button', class: `rw-chip ${d.me().role === r.id ? 'on' : ''}`, style: { '--rc': r.color }, onclick: () => choose(r.id) }, `${r.emoji} ${r.name}`)))
-      : h('div', { class: 'muted small' }, 'Ролей пока нет — их выдаёт лаунчер с играми за достижения.'),
+      : h('div', { class: 'muted small' }, 'Ролей пока нет — их выдаёт администрация за достижения в играх.'),
     badges.length ? h('div', { class: 'rw-badges' }, h('span', { class: 'field-label' }, 'Значки:'), ...badges.map((b) => h('span', { class: 'rw-badge', title: `${b.name}${b.desc ? ` — ${b.desc}` : ''}` }, `${b.emoji} ${b.name}`))) : null);
   const choose = async (id) => {
     try { await api.post('/me/role', { role: id }); d.setMe({ role: id }); render(); toast(id ? 'Роль показывается рядом с именем' : 'Роль скрыта'); } catch (e) { toast(errorText(e), 'error'); }
   };
   render();
   return wrap;
-}
-
-// ---------------------------------------------------------------- launcher link
-
-export async function launcherModal() {
-  let st;
-  try { st = await api.get('/me/launcher'); } catch (e) { return toast(errorText(e), 'error'); }
-  const base = `${location.origin}/ext/v1`;
-  const body = h('div', { class: 'stack' });
-  const keyBox = (token) => h('div', { class: 'stack' },
-    h('p', { class: 'small' }, 'Ваш ключ для лаунчера. Вставьте его в лаунчер. Показываем один раз — сохраните. Никому не передавайте.'),
-    h('button', { class: 'ref-link mono-link', onclick: () => navigator.clipboard?.writeText(token).then(() => toast('Ключ скопирован'), () => toast(token)) }, h('span', { class: 'ellipsis' }, token), icon('copy')));
-  const render = (token) => body.replaceChildren(
-    h('div', { class: 'cap-hero' }, h('div', { class: 'cap-hero-ic' }, '🎮'),
-      h('div', {}, h('b', {}, 'Награды из лаунчера с играми'), h('span', {}, 'Играйте в лаунчере — роли и значки за достижения появятся здесь, в профиле Limochat.'))),
-    h('div', { class: `ln-status ${st.connected ? 'on' : ''}` }, st.connected
-      ? `✅ Лаунчер подключён${st.lastUsed ? ` · последний раз ${new Date(st.lastUsed).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}` : ' · ещё не заходил'}`
-      : 'Лаунчер не подключён'),
-    token ? keyBox(token) : null,
-    h('div', { class: 'ref-actions' },
-      h('button', { class: 'btn btn-primary', onclick: async () => {
-        if (st.connected && !(await confirmDialog('Выдать новый ключ? Старый перестанет работать.', { ok: 'Выдать' }))) return;
-        try { const r = await api.post('/me/launcher'); st = { connected: true, lastUsed: 0 }; render(r.token); } catch (e) { toast(errorText(e), 'error'); }
-      } }, icon('key'), st.connected ? 'Новый ключ' : 'Подключить'),
-      st.connected ? h('button', { class: 'btn btn-danger-ghost', onclick: async () => {
-        if (!(await confirmDialog('Отключить лаунчер? Полученные роли и значки останутся.', { ok: 'Отключить', danger: true }))) return;
-        try { await api.del('/me/launcher'); st = { connected: false }; render(); } catch (e) { toast(errorText(e), 'error'); }
-      } }, 'Отключить') : null),
-    h('details', { class: 'ln-dev' }, h('summary', {}, 'Для разработчика лаунчера'),
-      h('div', { class: 'bot-methods' },
-        h('div', {}, h('code', {}, 'GET /me'), h('span', {}, 'кто подключён и какие награды уже есть')),
-        h('div', {}, h('code', {}, 'GET /rewards'), h('span', {}, 'список наград (id, роль или значок)')),
-        h('div', {}, h('code', {}, 'POST /rewards'), h('span', {}, '{"reward":"legend"} или {"rewards":["legend","explorer"]} — выдать'))),
-      h('pre', { class: 'bot-code' }, `// адрес: ${base}\nfetch('${base}/rewards', {\n  method: 'POST',\n  headers: {\n    'Authorization': 'Bearer ' + KEY,\n    'Content-Type': 'application/json',\n  },\n  body: JSON.stringify({ reward: 'legend' }),\n}).then((r) => r.json());`)));
-  render();
-  openModal({ title: 'Лаунчер игр', className: 'modal-small', body });
 }

@@ -6,7 +6,7 @@ import rateLimit from 'express-rate-limit';
 import { config } from './config.js';
 import { q, now } from './db.js';
 import { checkOrigin, requireAuth, sessionFromCookie, isAdminUser } from './auth.js';
-import { api, launcherApi } from './api.js';
+import { api } from './api.js';
 import { botApi } from './bots.js';
 import { admin } from './admin.js';
 import { serveMedia } from './media.js';
@@ -57,8 +57,6 @@ app.use(ipBanGuard);
 
 const globalLimiter = rateLimit({ windowMs: 60_000, limit: 600, standardHeaders: 'draft-7', legacyHeaders: false });
 
-// Game launcher integration: its own key, no cookies, so it lives outside /api (no origin check).
-app.use('/ext/v1', launcherApi);
 app.use('/api', globalLimiter, checkOrigin, express.json({ limit: '64kb' }), (req, res, next) => {
   res.set('Cache-Control', 'no-store');
   next();

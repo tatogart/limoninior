@@ -1,25 +1,16 @@
-// Roles and badges ("Лимон чат" rewards). They come from the owner's game launcher: a person links
-// the launcher to their account with a personal key, and the launcher grants rewards for playing.
-// Admins can also grant them by hand and add new ones without touching the code.
-import crypto from 'node:crypto';
-import express from 'express';
-import rateLimit from 'express-rate-limit';
+// Roles and badges ("Лимон чат" rewards for playing in the owner's offline game launcher).
+// The launcher is offline, so the admin grants them by hand in the panel and can add new ones there.
 import { db, q, now, kvGet, kvSet, audit } from './db.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS user_rewards (
     user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     reward     TEXT NOT NULL,
-    source     TEXT NOT NULL DEFAULT 'launcher',
+    source     TEXT NOT NULL DEFAULT 'admin',
     granted_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, reward)
   ) WITHOUT ROWID;
-  CREATE TABLE IF NOT EXISTS launcher_tokens (
-    user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-    token_hash TEXT NOT NULL UNIQUE,
-    created_at INTEGER NOT NULL,
-    last_used  INTEGER NOT NULL DEFAULT 0
-  );
+  DROP TABLE IF EXISTS launcher_tokens;
 `);
 if (!q("SELECT 1 FROM pragma_table_info('users') WHERE name = 'shown_role'").get()) db.exec('ALTER TABLE users ADD COLUMN shown_role TEXT');
 
@@ -57,10 +48,8 @@ export function revokeReward(userId, rewardId) {
   q('UPDATE users SET shown_role = NULL WHERE id = ? AND shown_role = ?').run(userId, rewardId);
 }
 
-const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
-
 /** In-app routes (signed-in user). */
-export function registerRewards(api, { bad, pushMe, notify }) {
+export function registerRewards(api, { bad, pushMe }) {
   api.get('/rewards/catalog', (req, res) => res.json({ rewards: rewardCatalog() }));
 
   api.get('/users/:id/rewards', (req, res) => {
@@ -76,59 +65,6 @@ export function registerRewards(api, { bad, pushMe, notify }) {
     pushMe(req.user.id);
     res.json({ ok: true, role: id });
   });
-
-  api.get('/me/launcher', (req, res) => {
-    const t = q('SELECT created_at, last_used FROM launcher_tokens WHERE user_id = ?').get(req.user.id);
-    res.json({ connected: !!t, createdAt: t?.created_at || 0, lastUsed: t?.last_used || 0 });
-  });
-  api.post('/me/launcher', (req, res) => {
-    const token = `lc_${crypto.randomBytes(24).toString('base64url')}`;
-    q(`INSERT INTO launcher_tokens (user_id, token_hash, created_at) VALUES (?, ?, ?)
-       ON CONFLICT(user_id) DO UPDATE SET token_hash = excluded.token_hash, created_at = excluded.created_at, last_used = 0`).run(req.user.id, sha(token), now());
-    audit(req.user.id, req.ip, 'launcher_key');
-    res.json({ token });
-  });
-  api.delete('/me/launcher', (req, res) => {
-    q('DELETE FROM launcher_tokens WHERE user_id = ?').run(req.user.id);
-    res.json({ ok: true });
-  });
-
-  // ---------- the launcher's API (no cookies: a personal key in the Authorization header) ----------
-  const ext = express.Router();
-  ext.use((req, res, next) => {
-    // The launcher may be a desktop app or a local web page: allow any origin, there are no cookies here.
-    res.set({ 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Cache-Control': 'no-store' });
-    if (req.method === 'OPTIONS') return res.sendStatus(204);
-    next();
-  });
-  ext.use(rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-7', legacyHeaders: false }));
-  ext.use(express.json({ limit: '8kb' }));
-  ext.use((req, res, next) => {
-    const m = /^Bearer\s+(lc_[A-Za-z0-9_-]{20,80})$/.exec(req.get('authorization') || '');
-    const t = m && q('SELECT * FROM launcher_tokens WHERE token_hash = ?').get(sha(m[1]));
-    const u = t && q('SELECT * FROM users WHERE id = ? AND banned = 0').get(t.user_id);
-    if (!u) return res.status(401).json({ ok: false, error: 'bad_key' });
-    if (now() - t.last_used > 60_000) q('UPDATE launcher_tokens SET last_used = ? WHERE user_id = ?').run(now(), u.id);
-    req.user = u;
-    next();
-  });
-  const view = (u) => ({ id: u.id, username: u.username, name: u.name, role: u.shown_role, rewards: userRewards(u.id).map((r) => r.id) });
-
-  ext.get('/me', (req, res) => res.json({ ok: true, user: view(req.user) }));
-  ext.get('/rewards', (req, res) => res.json({ ok: true, rewards: rewardCatalog().map(({ id, kind, name, emoji, desc }) => ({ id, kind, name, emoji, desc })) }));
-  ext.post('/rewards', (req, res) => {
-    const ids = [...new Set((Array.isArray(req.body?.rewards) ? req.body.rewards : [req.body?.reward]).map(String))].slice(0, 20);
-    const unknown = ids.filter((id) => !rewardById(id));
-    if (unknown.length) return res.status(400).json({ ok: false, error: 'unknown_reward', unknown });
-    const granted = ids.filter((id) => grantReward(req.user.id, id, 'launcher'));
-    for (const id of granted) {
-      const r = rewardById(id);
-      notify(req.user.id, `🎉 ${r.kind === 'role' ? 'Новая роль' : 'Новый значок'} ${r.emoji} «${r.name}» — за игру в лаунчере${r.desc ? ` (${r.desc})` : ''}!`);
-    }
-    if (granted.length) pushMe(req.user.id);
-    res.json({ ok: true, granted, user: view(q('SELECT * FROM users WHERE id = ?').get(req.user.id)) });
-  });
-  return ext;
 }
 
 /** Admin panel: manage the catalog and grant by hand. */
@@ -136,7 +72,12 @@ export function registerRewardsAdmin(admin, { pushMe, notify }) {
   const log = (req, action, details) => audit(req.user.id, req.ip, action, details);
   admin.get('/rewards', (req, res) => {
     const counts = new Map(q('SELECT reward, COUNT(*) AS n FROM user_rewards GROUP BY reward').all().map((r) => [r.reward, r.n]));
-    res.json({ rewards: rewardCatalog().map((r) => ({ ...r, owners: counts.get(r.id) || 0 })), linked: q('SELECT COUNT(*) AS n FROM launcher_tokens').get().n });
+    res.json({ rewards: rewardCatalog().map((r) => ({ ...r, owners: counts.get(r.id) || 0 })) });
+  });
+  admin.get('/rewards/:id/owners', (req, res) => {
+    res.json({ users: q(`SELECT u.id, u.username, u.name, u.avatar, r.granted_at FROM user_rewards r JOIN users u ON u.id = r.user_id
+                         WHERE r.reward = ? ORDER BY r.granted_at DESC LIMIT 200`).all(req.params.id)
+      .map((u) => ({ id: u.id, username: u.username, name: u.name, avatar: u.avatar ? `/media/${u.avatar}` : null, at: u.granted_at })) });
   });
   admin.post('/rewards', (req, res) => {
     const b = req.body || {};
@@ -170,7 +111,7 @@ export function registerRewardsAdmin(admin, { pushMe, notify }) {
     const r = rewardById(String(req.body?.reward || ''));
     if (!u || !r) return res.status(404).json({ error: 'not_found' });
     if (req.body?.grant === false) revokeReward(uid, r.id);
-    else if (grantReward(uid, r.id, 'admin')) notify(uid, `🎉 ${r.kind === 'role' ? 'Вам выдана роль' : 'Вам выдан значок'} ${r.emoji} «${r.name}»!`);
+    else if (grantReward(uid, r.id, 'admin')) notify(uid, `🎉 ${r.kind === 'role' ? 'Вам выдана роль' : 'Вам выдан значок'} ${r.emoji} «${r.name}»${r.desc ? ` — ${r.desc}` : ''}!`);
     pushMe(uid);
     log(req, req.body?.grant === false ? 'admin_reward_revoke' : 'admin_reward_grant', { userId: uid, username: u.username, reward: r.id });
     res.json({ ok: true, rewards: userRewards(uid) });

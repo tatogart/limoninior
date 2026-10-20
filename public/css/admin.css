@@ -362,6 +362,13 @@ button.dev-info { text-align: left; }
 .rw-admin { display: grid; gap: 6px; }
 .rw-admin-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; background: var(--bg-2); border-left: 4px solid var(--rc); min-width: 0; }
 .rw-admin-row .grow { min-width: 0; }
+.rw-admin-row.clickable { cursor: pointer; }
+.rw-admin-row.clickable:hover { filter: brightness(0.97); }
+.rw-found { display: grid; gap: 4px; }
+.rw-found:empty { display: none; }
+.rw-found .user-row, .modal .rw-admin .user-row { flex-wrap: nowrap; width: 100%; text-align: left; }
+.rw-found .user-row .user-info, .rw-admin .user-row .user-info { flex: 1; min-width: 0; }
+.rw-found .user-row .btn, .rw-admin .user-row .btn { flex: none; }
 .rw-admin-row b { color: var(--rc); }
 .rw-admin-row .pill { margin-left: 4px; }
 .rw-admin-emoji { font-size: 26px; }

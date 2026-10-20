@@ -18,7 +18,7 @@ import {
 import {
   initExtras, capsuleModal, capsuleEl, wheelModal, wheelEl, loadReminders, reminderItems, onReminder, reminderSystemEl, reportModal, bannerEl, streakBadge, streakModal, flameBurst, streakSystemEl,
 } from './extras.js';
-import { initRewards, roleTag, rewardsBlock, rolePicker, launcherModal } from './rewards.js';
+import { initRewards, roleTag, rewardsBlock, rolePicker } from './rewards.js';
 import { initGames, gamesHub, diceEl, chatGamesMenu } from './games.js';
 import { initStories, storiesChanged, storyViewEvent, setStripVisible, openComposer as newStory, openStoryById, storyQuote } from './stories.js';
 
@@ -1401,7 +1401,7 @@ function renderMessages({ stick = false, keepOffset = false } = {}) {
     used.add(key);
     const sender = S.users.get(m.senderId);
     const read = m.senderId === S.me.id && typeof m.id === 'number' && m.id <= c.peerReadId;
-    const sig = [m.editedAt, m.text, first, last, read, m.pending, m.views, m.comments, m.myReaction, JSON.stringify(m.reactions || []), sender?.name, sender?.avatar,
+    const sig = [m.editedAt, m.text, first, last, read, m.pending, m.views, m.comments, m.myReaction, JSON.stringify(m.reactions || []), sender?.name, sender?.avatar, sender?.role, sender?.verified,
       m.replyTo?.id, m.replyTo && userName(m.replyTo.senderId),
       m.kind === 'gcall' ? `${m.extra?.status}:${m.extra?.duration}:${c.groupCall?.roomId === m.extra?.roomId}` : '',
       ['wheel', 'capsule', 'streak_offer', 'dice'].includes(m.kind) ? JSON.stringify(m.extra) : ''].join('|');
@@ -3539,9 +3539,6 @@ function settingsModal() {
         h('div', { class: 'set-text' }, h('div', { class: 'row-main' }, 'Заблокированные'), h('div', { class: 'row-sub' }, 'Не могут писать и звонить вам')), icon('block'))),
     section('chat', 'Чаты',
       toggleLocal('Отправка по Enter', 'Shift+Enter — новая строка', 'enterToSend')),
-    section('gamepad', 'Игры',
-      h('button', { class: 'set-row clickable', onclick: launcherModal },
-        h('div', { class: 'set-text' }, h('div', { class: 'row-main' }, 'Лаунчер игр'), h('div', { class: 'row-sub' }, 'Роли и значки за достижения в играх')), icon('key'))),
     section('shield', 'Безопасность',
       h('button', { class: 'set-row clickable', onclick: passwordModal },
         h('div', { class: 'set-text' }, h('div', { class: 'row-main' }, S.me.hasPassword ? 'Сменить пароль' : 'Задать пароль'),
