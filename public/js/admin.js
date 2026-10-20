@@ -158,6 +158,7 @@ const SECTIONS = [
   ['users', 'Пользователи', 'user'],
   ['channels', 'Каналы', 'megaphone'],
   ['communities', 'Сообщества', 'community'],
+  ['rewards', 'Роли и значки', 'crown'],
   ['broadcast', 'Рассылка', 'send'],
   ['platform', 'Платформа', 'settings'],
   ['security', 'Безопасность', 'shield'],
@@ -226,7 +227,7 @@ function route() {
   V.title.textContent = SECTIONS.find((s) => s[0] === sec)[1];
   V.main.replaceChildren(spinner());
   window.scrollTo(0, 0);
-  const render = { overview, live, reports, users, channels, communities, broadcast, platform: platformPage, security, server, audit }[sec];
+  const render = { overview, live, reports, users, channels, communities, rewards: rewardsPage, broadcast, platform: platformPage, security, server, audit }[sec];
   Promise.resolve(render(arg)).catch(handle);
 }
 window.addEventListener('hashchange', () => { if (V.main) { closeTopModal(); route(); } });
@@ -440,6 +441,7 @@ async function dossier(id) {
     btn('🍋 Лимоны', () => coinsDialog(u, (body) => post('coins', body, 'Готово'))),
     btn(u.sub ? '👑 Подписка' : '👑 Выдать подписку', () => subDialog(u, (body) => post('subscription', body, 'Готово'))),
     btn(u.verified ? 'Снять галочку' : '✓ Галочка', () => post('verify', { verified: !u.verified }, 'Готово')),
+    btn('🏆 Роли и значки', () => rewardsDialog(u)),
     protectedUser ? null : btn(u.mutedUntil ? '🔊 Вернуть право писать' : '🔇 Запретить писать…', (e) => (u.mutedUntil ? post('mute', { hours: 0 }, 'Ограничение снято')
       : choose(e.currentTarget, [1, 24, 168, 720].map((hh) => ({ icon: 'mute', label: hh < 24 ? '1 час' : `${hh / 24} ${plural(hh / 24, 'день', 'дня', 'дней')}`, onClick: () => post('mute', { hours: hh }, 'Ограничение включено') }))))),
     protectedUser ? null : u.banned ? btn('Разбанить', () => post('unban', {}, 'Разбанен'), 'btn-primary') : btn('⛔ Забанить…', () => banDialog(u, (body) => post('ban', body, 'Забанен')), 'btn-danger-ghost'),
@@ -602,6 +604,60 @@ async function communities() {
   search.addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 250); });
   set(h('div', { class: 'toolbar' }, search), card('Сообщества', list));
   load();
+}
+
+// ================================================================ roles & badges (game launcher rewards)
+
+async function rewardsPage() {
+  const r = await api.get('/admin/rewards');
+  const id = h('input', { class: 'input', placeholder: 'id латиницей, например champion', maxLength: 32, autocomplete: 'off' });
+  const name = h('input', { class: 'input', placeholder: 'Название, например «Чемпион»', maxLength: 40 });
+  const emoji = h('input', { class: 'input', placeholder: 'Эмодзи', maxLength: 8, value: '🏆' });
+  const color = h('input', { class: 'input', type: 'color', value: '#22c55e' });
+  const desc = h('input', { class: 'input', placeholder: 'За что, например «1000 побед»', maxLength: 120 });
+  let kind = 'role';
+  const kindEl = h('div', { class: 'segmented small-seg' });
+  const drawKind = () => kindEl.replaceChildren(...[['role', 'Роль'], ['badge', 'Значок']].map(([k, l]) => h('button', { class: kind === k ? 'on' : '', onclick: () => { kind = k; drawKind(); } }, l)));
+  drawKind();
+  set(
+    h('div', { class: 'tiles' },
+      tile('Ролей и значков', r.rewards.length, { sub: `${r.rewards.filter((x) => x.custom).length} добавлено вами`, ic: 'crown', tone: 'gold' }),
+      tile('Подключили лаунчер', r.linked, { sub: 'аккаунтов с ключом лаунчера', ic: 'gamepad' }),
+      tile('Выдано наград', r.rewards.reduce((n, x) => n + x.owners, 0), { sub: 'всего у пользователей', ic: 'sparkles' })),
+    card('Каталог', h('div', { class: 'rw-admin' }, r.rewards.map((x) => h('div', { class: 'rw-admin-row', style: { '--rc': x.color } },
+      h('span', { class: 'rw-admin-emoji' }, x.emoji),
+      h('div', { class: 'grow' }, h('b', {}, x.name, ' ', h('span', { class: 'pill' }, x.kind === 'role' ? 'роль' : 'значок'), x.custom ? h('span', { class: 'pill gold' }, 'своя') : null),
+        h('div', { class: 'row-sub' }, `id: ${x.id}${x.desc ? ` · ${x.desc}` : ''} · есть у ${fmt(x.owners)}`)),
+      x.custom ? h('button', { class: 'btn btn-sm btn-danger-ghost', onclick: async () => {
+        if (!(await confirmDialog(`Удалить «${x.name}»? Она пропадёт у всех, у кого есть.`, { ok: 'Удалить', danger: true }))) return;
+        if (await call(() => api.del(`/admin/rewards/${encodeURIComponent(x.id)}`), 'Удалено')) rewardsPage();
+      } }, 'Удалить') : null)))),
+    card('Добавить роль или значок', h('div', { class: 'stack' },
+      h('p', { class: 'muted small' }, 'Лаунчер выдаёт награды по id. Добавьте новую — и лаунчер сможет её выдавать, без обновления сервера.'),
+      kindEl, h('div', { class: 'rw-form' }, id, name, emoji, color), desc,
+      h('button', { class: 'btn btn-primary', onclick: async () => {
+        if (await call(() => api.post('/admin/rewards', { id: id.value, kind, name: name.value, emoji: emoji.value, color: color.value, desc: desc.value }), 'Сохранено')) rewardsPage();
+      } }, icon('plus'), 'Добавить'))),
+    card('Как лаунчер выдаёт награды', h('div', { class: 'stack small' },
+      h('p', {}, 'Игрок открывает в Limochat «Настройки → Лаунчер игр → Подключить», получает ключ и вставляет его в лаунчер.'),
+      h('pre', { class: 'bot-code' }, `POST ${location.origin}/ext/v1/rewards\nAuthorization: Bearer <ключ игрока>\nContent-Type: application/json\n\n{ "reward": "legend" }`))));
+}
+
+async function rewardsDialog(u) {
+  let cat, mine;
+  try { [cat, mine] = await Promise.all([api.get('/admin/rewards'), api.get(`/admin/users/${u.id}/rewards`)]); } catch (e) { return handle(e); }
+  const have = new Set(mine.rewards.map((x) => x.id));
+  const list = h('div', { class: 'rw-admin' });
+  const draw = () => list.replaceChildren(...cat.rewards.map((x) => h('label', { class: 'rw-admin-row', style: { '--rc': x.color } },
+    h('span', { class: 'rw-admin-emoji' }, x.emoji),
+    h('div', { class: 'grow' }, h('b', {}, x.name), h('div', { class: 'row-sub' }, `${x.kind === 'role' ? 'роль' : 'значок'}${x.desc ? ` · ${x.desc}` : ''}`)),
+    h('input', { type: 'checkbox', class: 'tg', checked: have.has(x.id), onchange: async (e) => {
+      const grant = e.target.checked;
+      const r = await call(() => api.post(`/admin/users/${u.id}/rewards`, { reward: x.id, grant }), grant ? 'Выдано' : 'Забрано');
+      if (r) { grant ? have.add(x.id) : have.delete(x.id); } else { e.target.checked = !grant; }
+    } }))));
+  draw();
+  openModal({ title: `Роли и значки: ${u.name}`, className: 'modal-small', body: list });
 }
 
 // ================================================================ broadcast + banner

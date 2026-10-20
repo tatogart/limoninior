@@ -359,3 +359,12 @@ button.dev-info { text-align: left; }
 }
 .toolbar .segmented button, .card-head .segmented button { padding: 0 14px; }
 .adm-side { overscroll-behavior: contain; }
+.rw-admin { display: grid; gap: 6px; }
+.rw-admin-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; background: var(--bg-2); border-left: 4px solid var(--rc); min-width: 0; }
+.rw-admin-row .grow { min-width: 0; }
+.rw-admin-row b { color: var(--rc); }
+.rw-admin-row .pill { margin-left: 4px; }
+.rw-admin-emoji { font-size: 26px; }
+.rw-form { display: grid; grid-template-columns: 1fr 1.4fr 90px 60px; gap: 8px; }
+.rw-form input[type="color"] { padding: 4px; height: 44px; }
+@media (max-width: 600px) { .rw-form { grid-template-columns: 1fr 1fr; } }

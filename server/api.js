@@ -21,6 +21,7 @@ import { registerBots, onNewMessage, isBotUser } from './bots.js';
 import { registerCommunities, communityRole } from './communities.js';
 import { registerFeatures } from './features.js';
 import { registerGames } from './games.js';
+import { registerRewards } from './rewards.js';
 import { trackStreak, streakFor, restoreStreak, offerStreak, setOfferMessage, answerStreak, stopStreak } from './streaks.js';
 import { publicPlatform, platform, featureGate, filterText, moderationError, registerReports } from './moderation.js';
 
@@ -68,6 +69,7 @@ export function publicUser(u) {
     profileColor: u.profile_color || null,
     createdAt: u.created_at,
     verified: !!u.verified,
+    role: u.shown_role || null,
     official: u.google_sub === OFFICIAL_SUB,
     bot,
     sub: activePlan(u)?.id || null,
@@ -647,6 +649,8 @@ api.post('/chats/:id/capsule', featureGate('extras'));
 api.post('/chats/:id/wheel', featureGate('extras'));
 registerCommunities(api, { bad, int, clean, chatForUser, pushChat, systemMessage, deleteChat, publicUser });
 registerReports(api, { bad, int, clean, isMember });
+/** The game launcher's API, mounted at /ext/v1 (outside /api: no cookies, its own key). */
+export const launcherApi = registerRewards(api, { bad, pushMe, notify: (...a) => officialNote(...a) });
 registerGames(api, { bad, int, isMember, postError, validReply, activePlan, pushMe, postMessage: (...a) => postMessage(...a) });
 registerFeatures(api, {
   bad, int, clean, isMember, postError, validReply, ensurePrivateChat,

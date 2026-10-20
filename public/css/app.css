@@ -2279,3 +2279,29 @@ button.streak { cursor: pointer; }
 .chat-list { overflow-x: hidden; }
 /* The drawer must hide the list behind it: glass, but nearly opaque. */
 [data-style="glass"] .drawer-backdrop .drawer { background: color-mix(in srgb, var(--bg) 97%, transparent); -webkit-backdrop-filter: blur(28px) saturate(1.4); backdrop-filter: blur(28px) saturate(1.4); }
+
+/* ===================== v20: roles & badges from the game launcher ===================== */
+.role-tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px 2px 6px; border-radius: 999px; font-size: 13px; font-weight: 700; line-height: 18px; white-space: nowrap;
+  color: var(--rc); background: color-mix(in srgb, var(--rc) 15%, transparent); border: 1px solid color-mix(in srgb, var(--rc) 35%, transparent); }
+.role-tag i { font-style: normal; }
+.role-tag.small { margin-left: 6px; padding: 0 6px 0 4px; font-size: 11px; line-height: 16px; vertical-align: 1px; }
+.pf-role { display: flex; justify-content: center; margin-top: 4px; }
+.rw-block { display: grid; gap: 8px; }
+.rw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; padding: 0 16px; }
+.rw-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 16px; background: var(--bg-2); border: 1px solid color-mix(in srgb, var(--rc) 35%, var(--border)); min-width: 0; }
+.rw-item.rw-role { background: linear-gradient(135deg, color-mix(in srgb, var(--rc) 16%, var(--bg-2)), var(--bg-2)); }
+.rw-emoji { font-size: 26px; line-height: 1; }
+.rw-item .grow { display: grid; min-width: 0; }
+.rw-item b { font-size: 14px; color: var(--rc); }
+.rw-item span { font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }
+.rw-pick { display: grid; gap: 8px; }
+.rw-roles { display: flex; flex-wrap: wrap; gap: 6px; }
+.rw-chip { padding: 7px 12px; border-radius: 999px; font-size: 13.5px; font-weight: 600; background: var(--bg); border: 1.5px solid var(--border); }
+.rw-chip.on { border-color: var(--rc, var(--accent)); color: var(--rc, var(--accent)); background: color-mix(in srgb, var(--rc, var(--accent)) 12%, var(--bg)); }
+.rw-badges { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.rw-badge { padding: 4px 10px; border-radius: 999px; background: var(--bg); font-size: 13px; }
+.ln-status { padding: 10px 12px; border-radius: 14px; background: var(--bg-2); font-size: 14px; color: var(--text-2); }
+.ln-status.on { color: #15803d; background: color-mix(in srgb, #22c55e 14%, var(--bg-2)); }
+:root[data-theme="dark"] .ln-status.on { color: #4ade80; }
+.ln-dev summary { cursor: pointer; font-size: 13.5px; color: var(--text-2); padding: 4px 0; }
+.ln-dev[open] { display: grid; gap: 8px; }

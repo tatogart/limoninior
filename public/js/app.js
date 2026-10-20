@@ -18,6 +18,7 @@ import {
 import {
   initExtras, capsuleModal, capsuleEl, wheelModal, wheelEl, loadReminders, reminderItems, onReminder, reminderSystemEl, reportModal, bannerEl, streakBadge, streakModal, flameBurst, streakSystemEl,
 } from './extras.js';
+import { initRewards, roleTag, rewardsBlock, rolePicker, launcherModal } from './rewards.js';
 import { initGames, gamesHub, diceEl, chatGamesMenu } from './games.js';
 import { initStories, storiesChanged, storyViewEvent, setStripVisible, openComposer as newStory, openStoryById, storyQuote } from './stories.js';
 
@@ -492,6 +493,7 @@ function startApp() {
   });
   initExtras({ S, userName, jumpToMessage });
   initGames({ me: () => S.me });
+  initRewards({ me: () => S.me, setMe: (patch) => { S.me = { ...S.me, ...patch }; mergeUser(S.me); } }).then(() => { if (S.current) { nodeCache.clear(); renderMessages(); } });
   loadReminders();
   setTimeout(claimReferral, 1200);
   buildLayout();
@@ -1504,7 +1506,7 @@ function messageEl(c, m, first, last, read) {
   const special = m.kind === 'sticker' ? 'sticker' : m.kind === 'gift' ? 'gift-bubble' : '';
   const bubble = h('div', { class: `bubble ${bigEmoji ? 'big-emoji' : ''} ${imageOnly ? 'image-only' : ''} ${m.kind === 'image' ? 'has-image' : ''} ${special}` });
   if (group && !mine && first && !bigEmoji && m.kind !== 'sticker') {
-    bubble.append(h('div', { class: 'sender-name', style: { color: nameColor(m.senderId) } }, userName(m.senderId), S.users.get(m.senderId)?.verified ? badge() : null));
+    bubble.append(h('div', { class: 'sender-name', style: { color: nameColor(m.senderId) } }, userName(m.senderId), S.users.get(m.senderId)?.verified ? badge() : null, roleTag(S.users.get(m.senderId)?.role, 'small')));
     ensureUser(m.senderId);
   }
   if (m.extra?.fwd) {
@@ -3235,6 +3237,7 @@ function profileHero(u, { avatarNode, status, onClose, extra } = {}) {
         h('button', { class: 'pf-glass-btn', 'aria-label': 'Закрыть', onclick: onClose || (() => closeTopModal()) }, icon('close')))),
     h('div', { class: 'pf-avatar' }, avatarNode || userAvatar(u, 116)),
     h('div', { class: 'pf-name' }, nameWithBadge(u.name, u)),
+    u.role ? h('div', { class: 'pf-role' }, roleTag(u.role)) : null,
     status ? h('div', { class: `pf-status ${u.online ? 'online' : ''}` }, status) : null);
 }
 
@@ -3247,6 +3250,8 @@ async function openUserProfile(id) {
   const link = `${location.origin}/@${u.username}`;
   const chat = [...S.chats.values()].find((c) => c.type === 'private' && peerOf(c)?.id === u.id);
   const gifts = h('div', { class: 'pf-gifts' }, h('span', { class: 'spinner' }));
+  const rewardsSlot = h('div');
+  rewardsBlock(u.id).then((el) => { if (el) rewardsSlot.replaceWith(el); });
   giftsGrid(u.id).then((g) => gifts.replaceWith(g));
   const media = h('div', { class: 'pf-media' });
   if (chat) {
@@ -3286,6 +3291,7 @@ async function openUserProfile(id) {
         u.bio ? h('div', { class: 'pf-row' }, icon('info'), h('div', {}, h('div', { class: 'row-main pre' }, richText(u.bio)), h('div', { class: 'row-sub' }, 'О себе'))) : null,
         plan ? h('div', { class: 'pf-row' }, h('span', { class: 'pf-row-emoji' }, plan.emoji), h('div', {}, h('div', { class: 'row-main' }, plan.name), h('div', { class: 'row-sub' }, 'Подписка'))) : null,
         u.createdAt ? h('div', { class: 'pf-row' }, icon('calendar'), h('div', {}, h('div', { class: 'row-main' }, joinedText(u.createdAt)))) : null),
+      rewardsSlot,
       h('div', { class: 'pf-section-title' }, `Подарки${u.giftsCount ? ` · ${u.giftsCount}` : ''}`),
       gifts,
       chat ? h('div', { class: 'pf-section-title' }, 'Общие фото') : null,
@@ -3312,6 +3318,8 @@ function editProfileModal() {
   const bio = h('textarea', { class: 'input', rows: 2, maxLength: 160, placeholder: 'Пара слов о себе' });
   bio.value = me.bio || '';
   const counter = h('span', { class: 'field-counter' }, `${bio.value.length}/160`);
+  const rolesSlot = h('div', { class: 'field' });
+  rolePicker().then((el) => { if (el) rolesSlot.replaceWith(el); else rolesSlot.remove(); });
   bio.addEventListener('input', () => { counter.textContent = `${bio.value.length}/160`; });
   let color = me.profileColor || PROFILE_COLORS[Math.abs(me.id) % PROFILE_COLORS.length][0];
   const avatarWrap = h('div', { class: 'avatar-edit' });
@@ -3365,7 +3373,8 @@ function editProfileModal() {
         h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Имя'), name),
         uname.wrap,
         h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'О себе'), bio, counter),
-        h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Цвет профиля'), colors)),
+        h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Цвет профиля'), colors),
+        rolesSlot),
       me.createdAt ? h('div', { class: 'pf-joined' }, icon('calendar'), joinedText(me.createdAt)) : null),
     actions: [
       { label: 'Отмена', onClick: (c) => c() },
@@ -3530,6 +3539,9 @@ function settingsModal() {
         h('div', { class: 'set-text' }, h('div', { class: 'row-main' }, 'Заблокированные'), h('div', { class: 'row-sub' }, 'Не могут писать и звонить вам')), icon('block'))),
     section('chat', 'Чаты',
       toggleLocal('Отправка по Enter', 'Shift+Enter — новая строка', 'enterToSend')),
+    section('gamepad', 'Игры',
+      h('button', { class: 'set-row clickable', onclick: launcherModal },
+        h('div', { class: 'set-text' }, h('div', { class: 'row-main' }, 'Лаунчер игр'), h('div', { class: 'row-sub' }, 'Роли и значки за достижения в играх')), icon('key'))),
     section('shield', 'Безопасность',
       h('button', { class: 'set-row clickable', onclick: passwordModal },
         h('div', { class: 'set-text' }, h('div', { class: 'row-main' }, S.me.hasPassword ? 'Сменить пароль' : 'Задать пароль'),
