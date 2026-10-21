@@ -21,6 +21,7 @@ import { registerBots, onNewMessage, isBotUser } from './bots.js';
 import { registerCommunities, communityRole } from './communities.js';
 import { registerFeatures } from './features.js';
 import { registerGames } from './games.js';
+import { registerSocial } from './social.js';
 import { registerRewards } from './rewards.js';
 import { trackStreak, streakFor, restoreStreak, offerStreak, setOfferMessage, answerStreak, stopStreak } from './streaks.js';
 import { publicPlatform, platform, featureGate, filterText, moderationError, registerReports } from './moderation.js';
@@ -235,6 +236,7 @@ function pushText(m) {
   if (m.kind === 'streak_offer') return '🔥 Предлагает растить огонёк';
   if (m.kind === 'dice') return `${JSON.parse(m.extra || '{}').emoji || '🎲'} Мини-игра`;
   if (m.kind === 'wheel') return `🎡 ${m.text}`;
+  if (m.kind === 'theme') return `🎨 Тема «${JSON.parse(m.extra || '{}').theme?.name || ''}»`;
   if (m.kind === 'gcall') return JSON.parse(m.extra || '{}').live ? '🔴 Прямой эфир' : '📞 Групповой звонок';
   return m.text.slice(0, 200);
 }
@@ -651,6 +653,7 @@ registerCommunities(api, { bad, int, clean, chatForUser, pushChat, systemMessage
 registerReports(api, { bad, int, clean, isMember });
 registerRewards(api, { bad, pushMe });
 registerGames(api, { bad, int, isMember, postError, validReply, activePlan, pushMe, postMessage: (...a) => postMessage(...a) });
+registerSocial(api, { bad, int, isMember, postError, postMessage: (...a) => postMessage(...a) });
 registerFeatures(api, {
   bad, int, clean, isMember, postError, validReply, ensurePrivateChat,
   postMessage: (...a) => postMessage(...a), serializeMessage: (m) => serializeMessage(m),
@@ -1054,7 +1057,7 @@ api.post('/chats/:id/voice', uploadLimiter, upload.single('file'), (req, res) =>
 
 // ---------- forwarding ----------
 
-const FORWARDABLE = new Set(['text', 'image', 'sticker', 'file', 'voice']);
+const FORWARDABLE = new Set(['text', 'image', 'sticker', 'file', 'voice', 'theme', 'circle']);
 
 api.post('/messages/:id/forward', sendLimiter, (req, res) => {
   const id = int(req.params.id);

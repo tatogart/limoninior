@@ -4,6 +4,7 @@
   try { s = JSON.parse(localStorage.getItem('limoninior.settings') || '{}'); } catch (e) { /* storage unavailable */ }
   var theme = s.theme || 'system';
   if (theme === 'system') theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  if (s.themeId && s.themeBase && location.pathname.indexOf('/admin') !== 0) theme = s.themeBase; // a custom theme decides light/dark
   document.documentElement.dataset.theme = theme;
   document.documentElement.dataset.accent = s.accent || 'lime';
   // "Liquid Glass" is the default look; "classic" is the flat one.

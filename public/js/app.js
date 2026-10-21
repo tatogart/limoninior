@@ -20,6 +20,7 @@ import {
 } from './extras.js';
 import { initRewards, roleTag, rewardsBlock, rolePicker } from './rewards.js';
 import { initGames, gamesHub, diceEl, chatGamesMenu } from './games.js';
+import { initThemes, applyCustomTheme, ensureEffect, themesModal, themeMsgEl, currentTheme, setChatPicker } from './themes.js';
 import { initStories, storiesChanged, storyViewEvent, setStripVisible, openComposer as newStory, openStoryById, storyQuote } from './stories.js';
 
 // ============================================================ state
@@ -44,6 +45,8 @@ const S = {
   settings: loadSettings(),
 };
 const V = {}; // view refs
+initThemes(S, () => { saveSettings(); nodeCache.clear(); if (S.current) renderMessages(); });
+setChatPicker((title) => pickChatModal(title));
 const nodeCache = new Map(); // message key -> { sig, el }
 let tmpSeq = 0;
 const animKeys = new Map(); // message key -> { type: 'send' | 'in', t } — entry animation in progress
@@ -76,6 +79,7 @@ function applyTheme() {
   document.documentElement.dataset.wallpaper = S.settings.wallpaper;
   document.documentElement.dataset.motion = S.settings.reduceMotion ? 'reduced' : 'full';
   document.documentElement.style.setProperty('--msg-size', `${S.settings.textSize}px`);
+  if (applyCustomTheme()) t = document.documentElement.dataset.theme;
   document.querySelectorAll('meta[name="theme-color"]').forEach((m) => { m.content = t === 'dark' ? '#17212b' : '#ffffff'; });
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
@@ -164,6 +168,7 @@ function messagePreview(m) {
   if (m.kind === 'voice') return `🎤 Голосовое ${fmtDur(m.extra?.duration || 0)}`;
   if (m.kind === 'capsule') return m.extra?.opened ? `🔓 ${m.text}` : '🔒 Капсула времени';
   if (m.kind === 'wheel') return `🎡 ${m.text}`;
+  if (m.kind === 'theme') return `🎨 Тема «${m.extra?.theme?.name || ''}»`;
   if (m.kind === 'dice') return `${m.extra?.emoji || '🎲'} ${m.extra?.label || 'Мини-игра'}`;
   if (m.kind === 'streak_offer') return m.extra?.status === 'accepted' ? '🔥 Огонёк зажжён' : '🔥 Предложение растить огонёк';
   if (m.kind === 'gcall') {
@@ -524,6 +529,7 @@ function buildLayout() {
   V.pane = h('main', { class: 'chat-pane' }, emptyPane());
   V.layout = h('div', { class: 'layout' }, V.sidebar, V.pane);
   app.replaceChildren(V.layout);
+  ensureEffect();
   renderBanner();
   renderChatList();
 }
@@ -1119,7 +1125,7 @@ function closeChat({ fromHistory = false } = {}) {
   if (V.pane?.contains(document.activeElement)) document.activeElement.blur();
   V.layout.classList.remove('chat-open');
   renderChatList();
-  setTimeout(() => { if (!S.current) V.pane.replaceChildren(emptyPane()); }, 260);
+  setTimeout(() => { if (!S.current) { V.pane.replaceChildren(emptyPane()); ensureEffect(); } }, 260);
   if (!fromHistory && history.state?.chat) goBack();
 }
 
@@ -1213,6 +1219,7 @@ function buildChatView(c) {
     if (f) { e.preventDefault(); pickFile(f); }
   });
   V.pane.replaceChildren(view);
+  ensureEffect();
   V.view = view;
   renderHeader();
   renderComposerMode();
@@ -1404,7 +1411,7 @@ function renderMessages({ stick = false, keepOffset = false } = {}) {
     const sig = [m.editedAt, m.text, first, last, read, m.pending, m.views, m.comments, m.myReaction, JSON.stringify(m.reactions || []), sender?.name, sender?.avatar, sender?.role, sender?.verified,
       m.replyTo?.id, m.replyTo && userName(m.replyTo.senderId),
       m.kind === 'gcall' ? `${m.extra?.status}:${m.extra?.duration}:${c.groupCall?.roomId === m.extra?.roomId}` : '',
-      ['wheel', 'capsule', 'streak_offer', 'dice'].includes(m.kind) ? JSON.stringify(m.extra) : ''].join('|');
+      ['wheel', 'capsule', 'streak_offer', 'dice', 'theme'].includes(m.kind) ? JSON.stringify(m.extra) : ''].join('|');
     let cached = nodeCache.get(key);
     if (!cached || cached.sig !== sig) {
       if (!cached && m.pending && !animKeys.has(key)) animKeys.set(key, { type: 'send', t: performance.now() });
@@ -1555,6 +1562,11 @@ function messageEl(c, m, first, last, read) {
   if (m.kind === 'capsule') {
     bubble.classList.add('capsule-bubble');
     bubble.append(capsuleEl(m), meta);
+    return finishRow(c, m, bubble, { mine, group, first, last });
+  }
+  if (m.kind === 'theme') {
+    bubble.classList.add('theme-bubble');
+    bubble.append(themeMsgEl(m), meta);
     return finishRow(c, m, bubble, { mine, group, first, last });
   }
   if (m.kind === 'wheel') {
@@ -2626,6 +2638,28 @@ function forwardModal(m) {
   if (!isTouch()) setTimeout(() => input.focus(), 50);
 }
 
+/** Pick a chat to send something to. Resolves to a chat id or null. */
+function pickChatModal(title) {
+  return new Promise((resolve) => {
+    let done = false;
+    const input = h('input', { class: 'input', type: 'search', placeholder: 'Поиск чата' });
+    const list = h('div', { class: 'fwd-list' });
+    const targets = () => [...S.chats.values()]
+      .filter((c) => !c.preview && c.canPost !== false && !c.blocked)
+      .sort((a, b) => (b.pinnedAt || 0) - (a.pinnedAt || 0) || (b.lastMessage?.id || 0) - (a.lastMessage?.id || 0));
+    let modal;
+    const render = () => {
+      const qv = input.value.trim().toLowerCase();
+      const items = targets().filter((c) => !qv || chatTitle(c).toLowerCase().includes(qv) || peerOf(c)?.username?.toLowerCase().includes(qv));
+      list.replaceChildren(...(items.length ? items.map((c) => h('button', { class: 'fwd-item', onclick: () => { done = true; resolve(c.id); modal.close(); } },
+        chatAvatar(c, 42), h('div', { class: 'fwd-name' }, h('span', { class: 'ellipsis' }, chatTitle(c)), chatVerified(c) ? badge() : null))) : [h('div', { class: 'list-note' }, 'Ничего не найдено')]));
+    };
+    input.addEventListener('input', render);
+    render();
+    modal = openModal({ title, className: 'modal-forward', body: h('div', { class: 'stack' }, input, list), onClose: () => { if (!done) resolve(null); } });
+  });
+}
+
 // ---------- blocking
 
 async function setBlocked(u, block) {
@@ -3508,6 +3542,10 @@ function settingsModal() {
 
   body.append(
     section('sparkles', 'Оформление',
+      h('button', { class: 'set-row clickable th-set-row', onclick: () => { themesModal(); } },
+        h('div', { class: 'set-text' }, h('div', { class: 'row-main' }, '🎨 Темы'),
+          h('div', { class: 'row-sub' }, currentTheme() ? `Включена: ${currentTheme().emoji} ${currentTheme().name}` : `${26}+ готовых тем и своя тема — цвета, обои, шрифт, эффекты`)), icon('palette')),
+      currentTheme() ? h('div', { class: 'set-note' }, 'Пока включена тема, цвет, обои и светлая/тёмная берутся из неё. Выберите «Стандартная», чтобы настроить вручную.') : null,
       row('Стиль', 'Liquid Glass — полупрозрачное «жидкое стекло»', seg('style', [['glass', 'Liquid Glass'], ['classic', 'Классический']])),
       row('Тема', null, seg('theme', [['system', 'Авто'], ['light', 'Светлая'], ['dark', 'Тёмная']])),
       h('div', { class: 'set-row col' }, h('div', { class: 'row-main' }, 'Цвет акцента'), swatches),
