@@ -3256,6 +3256,7 @@ function openDrawer() {
       // Profile and gifts open from the header above; sessions live in Settings.
       h('button', { class: 'drawer-item', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); close(); createMenu(r.left + 16, r.bottom); } }, icon('plus'), 'Создать…'),
       item('gamepad', 'Мини-игры', gamesHub),
+      featureOn('bots') ? item('bot', 'Мои боты', myBotsModal) : null,
       item('search', 'Каталог каналов', popularChannelsModal),
       item('bookmark', 'Избранное', openSaved),
       item('gift', 'Пригласить друзей', referralModal, 'ref-item'),

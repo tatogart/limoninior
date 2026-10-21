@@ -1,6 +1,7 @@
 // Bots: "My bots" manager (create, token, docs) + bot-side bits of chats (keyboards, commands).
 import { api, errorText } from './api.js';
 import { h, icon, avatar, toast, openModal, confirmDialog, isTouch } from './ui.js';
+import { newBotWizard, botBuilder } from './botbuilder.js';
 
 let deps = null; // { openChatWith(userId), prepareImage }
 export function initBotsUi(d) { deps = d; }
@@ -18,9 +19,12 @@ export async function myBotsModal() {
     className: 'modal-bots',
     body: h('div', { class: 'stack' },
       h('div', { class: 'bot-hero' }, h('div', { class: 'bot-hero-ic' }, '🤖'),
-        h('div', {}, h('b', {}, 'Боты отвечают на сообщения сами'), h('span', {}, 'Создайте бота, получите токен и подключите свою программу на любом языке.'))),
+        h('div', {}, h('b', {}, 'Боты отвечают на сообщения сами'), h('span', {}, 'Выберите шаблон — бот заработает за минуту, без программирования. Программисты могут подключить свой код.'))),
       h('div', { class: 'ref-actions' },
-        h('button', { class: 'btn btn-primary', onclick: () => newBotModal(() => load()) }, icon('plus'), 'Создать бота'),
+        h('button', { class: 'btn btn-primary', onclick: () => newBotWizard({
+          onCreated: (bot) => { load(); botBuilder(bot, { openChat: (id) => deps.openChatWith(id) }); },
+          onCode: () => newBotModal(() => load()),
+        }) }, icon('plus'), 'Создать бота'),
         h('button', { class: 'btn btn-ghost', onclick: docsModal }, icon('file'), 'Как подключить')),
       list),
   });
@@ -29,7 +33,7 @@ export async function myBotsModal() {
       const { bots } = await api.get('/bots');
       list.replaceChildren(...(bots.length ? bots.map((b) => h('button', { class: 'fwd-item', onclick: () => botModal(b, load) },
         avatar(b.user, 44),
-        h('div', { class: 'grow' }, h('div', { class: 'row-main' }, b.user.name), h('div', { class: 'row-sub' }, `@${b.user.username}`)),
+        h('div', { class: 'grow' }, h('div', { class: 'row-main' }, b.user.name, b.noCode ? h('span', { class: 'pill' }, 'конструктор') : null), h('div', { class: 'row-sub' }, `@${b.user.username}`)),
         icon('back', 'chev'))) : [h('div', { class: 'list-note' }, 'У вас пока нет ботов')]));
     } catch (e) { list.replaceChildren(h('div', { class: 'list-note' }, errorText(e))); }
   };
@@ -99,6 +103,7 @@ function botModal(b, reload) {
       h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Имя'), name),
       h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Описание'), about),
       b.commands.length ? h('div', { class: 'muted small' }, `Команды: ${b.commands.map((c) => `/${c.command}`).join(', ')}`) : null,
+      h('button', { class: 'btn btn-primary btn-block', onclick: () => botBuilder(b, { openChat: (id) => deps.openChatWith(id) }) }, '🧩 Конструктор ответов'),
       h('div', { class: 'bot-acts' },
         h('button', { class: 'btn btn-ghost', onclick: () => deps.openChatWith(b.user.id) }, icon('chat'), 'Чат с ботом'),
         h('button', { class: 'btn btn-ghost', onclick: async () => {
