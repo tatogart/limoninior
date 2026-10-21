@@ -23,6 +23,7 @@ import { registerFeatures } from './features.js';
 import { registerGames } from './games.js';
 import { registerSocial } from './social.js';
 import { registerProfiles, profileView } from './profiles.js';
+import { registerDuels, refundDuel } from './duels.js';
 import { registerRewards } from './rewards.js';
 import { trackStreak, streakFor, restoreStreak, offerStreak, setOfferMessage, answerStreak, stopStreak } from './streaks.js';
 import { publicPlatform, platform, featureGate, filterText, moderationError, registerReports } from './moderation.js';
@@ -235,6 +236,7 @@ function pushText(m) {
   if (m.kind === 'call') return '📞 Звонок';
   if (m.kind === 'voice') return '🎤 Голосовое сообщение';
   if (m.kind === 'circle') return '⭕ Видеосообщение';
+  if (m.kind === 'duel') return `⚔️ Вызов: ${m.text}`;
   if (m.kind === 'capsule') return '🔒 Капсула времени';
   if (m.kind === 'streak_offer') return '🔥 Предлагает растить огонёк';
   if (m.kind === 'dice') return `${JSON.parse(m.extra || '{}').emoji || '🎲'} Мини-игра`;
@@ -658,6 +660,7 @@ registerRewards(api, { bad, pushMe });
 registerGames(api, { bad, int, isMember, postError, validReply, activePlan, pushMe, postMessage: (...a) => postMessage(...a) });
 registerSocial(api, { bad, int, isMember, postError, postMessage: (...a) => postMessage(...a) });
 registerProfiles(api, { bad, int, pushMe, broadcastProfile: (u) => broadcastProfile(u) });
+registerDuels(api, { bad, int, isMember, postError, pushMe, postMessage: (...a) => postMessage(...a), serializeMessage: (m) => serializeMessage(m) });
 registerFeatures(api, {
   bad, int, clean, isMember, postError, validReply, ensurePrivateChat,
   postMessage: (...a) => postMessage(...a), serializeMessage: (m) => serializeMessage(m),
@@ -986,6 +989,7 @@ api.delete('/messages/:id', (req, res) => {
 
 /** Delete a message for everyone (media, pin, last message, live update). */
 export function removeMessage(m) {
+  if (m.kind === 'duel') refundDuel(m.id);
   const chat = q('SELECT * FROM chats WHERE id = ?').get(m.chat_id);
   q('DELETE FROM messages WHERE id = ?').run(m.id);
   if (m.file) deleteMediaFile(m.file);

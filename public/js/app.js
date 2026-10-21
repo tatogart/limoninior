@@ -18,6 +18,7 @@ import {
 import {
   initExtras, capsuleModal, capsuleEl, wheelModal, wheelEl, loadReminders, reminderItems, onReminder, reminderSystemEl, reportModal, bannerEl, streakBadge, streakModal, flameBurst, streakSystemEl,
 } from './extras.js';
+import { initDuels, duelModal, duelEl } from './duels.js';
 import { initCircles, recordCircle, circleEl, circlesSupported } from './circles.js';
 import { initProfileX, decorateCover, profileInfoRows, tagsEl, moodEl, trackEl, stopTrack, profileEditor } from './profilex.js';
 import { initRewards, roleTag, rewardsBlock, rolePicker } from './rewards.js';
@@ -177,6 +178,7 @@ function messagePreview(m) {
   if (m.kind === 'capsule') return m.extra?.opened ? `🔓 ${m.text}` : '🔒 Капсула времени';
   if (m.kind === 'wheel') return `🎡 ${m.text}`;
   if (m.kind === 'theme') return `🎨 Тема «${m.extra?.theme?.name || ''}»`;
+  if (m.kind === 'duel') return `⚔️ ${m.extra?.status === 'done' ? 'Игра' : 'Вызов'}: ${m.text}`;
   if (m.kind === 'dice') return `${m.extra?.emoji || '🎲'} ${m.extra?.label || 'Мини-игра'}`;
   if (m.kind === 'streak_offer') return m.extra?.status === 'accepted' ? '🔥 Огонёк зажжён' : '🔥 Предложение растить огонёк';
   if (m.kind === 'gcall') {
@@ -506,6 +508,7 @@ function startApp() {
   });
   initExtras({ S, userName, jumpToMessage });
   initGames({ me: () => S.me });
+  initDuels({ me: () => S.me, userName: (id) => userName(id), rematch: (x) => { const c = curChat(); if (c) duelModal(c, (m) => { addMessage(m); renderMessages({ stick: true }); }, x); } });
   initCircles({ inCall: () => inCall(), onSent: (m) => { addMessage(m); if (S.current === m.chatId) renderMessages({ stick: true }); } });
   initProfileX({ me: () => S.me, setMe: (patch) => { S.me = { ...S.me, ...patch }; mergeUser(S.me); }, prepareImage });
   initRewards({ me: () => S.me, setMe: (patch) => { S.me = { ...S.me, ...patch }; mergeUser(S.me); } }).then(() => { if (S.current) { nodeCache.clear(); renderMessages(); } });
@@ -1423,7 +1426,7 @@ function renderMessages({ stick = false, keepOffset = false } = {}) {
     const sig = [m.editedAt, m.text, first, last, read, m.pending, m.views, m.comments, m.myReaction, JSON.stringify(m.reactions || []), sender?.name, sender?.avatar, sender?.role, sender?.verified, sender?.px?.emoji,
       m.replyTo?.id, m.replyTo && userName(m.replyTo.senderId),
       m.kind === 'gcall' ? `${m.extra?.status}:${m.extra?.duration}:${c.groupCall?.roomId === m.extra?.roomId}` : '',
-      ['wheel', 'capsule', 'streak_offer', 'dice', 'theme'].includes(m.kind) ? JSON.stringify(m.extra) : ''].join('|');
+      ['wheel', 'capsule', 'streak_offer', 'dice', 'theme', 'duel'].includes(m.kind) ? JSON.stringify(m.extra) : ''].join('|');
     let cached = nodeCache.get(key);
     if (!cached || cached.sig !== sig) {
       if (!cached && m.pending && !animKeys.has(key)) animKeys.set(key, { type: 'send', t: performance.now() });
@@ -1584,6 +1587,11 @@ function messageEl(c, m, first, last, read) {
   if (m.kind === 'wheel') {
     bubble.classList.add('wheel-bubble');
     bubble.append(wheelEl(m), meta);
+    return finishRow(c, m, bubble, { mine, group, first, last });
+  }
+  if (m.kind === 'duel') {
+    bubble.classList.add('duel-bubble');
+    bubble.append(duelEl(m), meta);
     return finishRow(c, m, bubble, { mine, group, first, last });
   }
   if (m.kind === 'circle') {
@@ -1799,6 +1807,7 @@ function attachMenu(anchor) {
   const items = [
     { icon: 'attach', label: 'Фото или файл', onClick: () => V.file.click() },
     circlesSupported() ? { icon: 'video', label: 'Кружок (видеосообщение)', onClick: () => startCircle() } : null,
+    (c.type === 'group' || (c.type === 'private' && !peerOf(c)?.bot && !peerOf(c)?.official)) ? { icon: 'coin', label: 'Вызов на лимоны ⚔️', onClick: () => duelModal(c, sent) } : null,
     featureOn('extras') ? { icon: 'hourglass', label: 'Капсула времени', onClick: () => capsuleModal(c, sent) } : null,
     featureOn('extras') ? { icon: 'wheel', label: 'Колесо решений', onClick: () => wheelModal(c, sent) } : null,
     { icon: 'gamepad', label: 'Игры: кубик, дартс…', onClick: () => afterHistory(() => contextMenu(r.left, Math.max(8, r.top - 8 - 5 * 44), chatGamesMenu(async (emoji) => {
