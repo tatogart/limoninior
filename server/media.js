@@ -74,6 +74,22 @@ export function saveVoice(file, { ownerId, chatId }) {
   return { name };
 }
 
+/** Video circles: webm (Chrome, Firefox, Android) or mp4 (Safari). Played inline. */
+export function saveVideo(file, { ownerId, chatId }) {
+  const fail = (msg) => Object.assign(new Error(msg), { status: 400 });
+  const buf = file?.buffer;
+  if (!buf || buf.length < 12) throw fail('no_file');
+  let t = null;
+  if (buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) t = { mime: 'video/webm', ext: 'webm' };
+  else if (buf.subarray(4, 8).toString('latin1') === 'ftyp') t = { mime: 'video/mp4', ext: 'mp4' };
+  if (!t) throw fail('unsupported_video');
+  const name = `${crypto.randomBytes(16).toString('hex')}.${t.ext}`;
+  fs.writeFileSync(path.join(mediaDir, name), buf, { flag: 'wx' });
+  q('INSERT INTO media (name, owner_id, kind, chat_id, mime, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(name, ownerId, 'message', chatId, t.mime, buf.length, now());
+  return { name };
+}
+
 /** Duplicate a chat file for another chat (forwarding keeps access per chat). */
 export function copyMedia(name, { ownerId, chatId }) {
   const m = q('SELECT * FROM media WHERE name = ?').get(name);

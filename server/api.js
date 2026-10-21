@@ -9,7 +9,7 @@ import {
 import {
   isValidSticker, giftById, stickerInfo, PLANS, planById, FREE_FILE_MB, isDangerousFile, fileExt,
 } from '../public/js/catalog.js';
-import { upload, uploadFile, saveImage, saveFile, saveVoice, copyMedia, deleteMediaFile } from './media.js';
+import { upload, uploadFile, saveImage, saveFile, saveVoice, saveVideo, copyMedia, deleteMediaFile } from './media.js';
 import { sendPush, saveSubscription, removeSubscription, vapidPublicKey } from './push.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -234,6 +234,7 @@ function pushText(m) {
   if (m.kind === 'file') return `📎 ${JSON.parse(m.extra || '{}').name || 'Файл'}`;
   if (m.kind === 'call') return '📞 Звонок';
   if (m.kind === 'voice') return '🎤 Голосовое сообщение';
+  if (m.kind === 'circle') return '⭕ Видеосообщение';
   if (m.kind === 'capsule') return '🔒 Капсула времени';
   if (m.kind === 'streak_offer') return '🔥 Предлагает растить огонёк';
   if (m.kind === 'dice') return `${JSON.parse(m.extra || '{}').emoji || '🎲'} Мини-игра`;
@@ -1054,6 +1055,21 @@ api.post('/chats/:id/voice', uploadLimiter, upload.single('file'), (req, res) =>
   const msg = insertMessage(id, req.user.id, {
     kind: 'voice', file: v.name, replyTo: validReply(id, req.body?.replyTo),
     extra: { duration: Math.round(duration * 10) / 10, wave },
+  });
+  res.json({ message: broadcastNewMessage(id, msg) });
+});
+
+// ---------- video circles ----------
+
+api.post('/chats/:id/circle', uploadLimiter, upload.single('file'), (req, res) => {
+  const id = int(req.params.id);
+  if (!id || !isMember(id, req.user.id)) return bad(res, 'not_found', 404);
+  { const e = postError(id, req.user.id); if (e) return bad(res, e, 403); }
+  const duration = Math.min(Math.max(Number(req.body?.duration) || 0, 0), 61);
+  const v = saveVideo(req.file, { ownerId: req.user.id, chatId: id });
+  const msg = insertMessage(id, req.user.id, {
+    kind: 'circle', file: v.name, replyTo: validReply(id, req.body?.replyTo),
+    extra: { duration: Math.round(duration * 10) / 10 },
   });
   res.json({ message: broadcastNewMessage(id, msg) });
 });

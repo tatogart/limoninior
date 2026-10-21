@@ -18,6 +18,7 @@ import {
 import {
   initExtras, capsuleModal, capsuleEl, wheelModal, wheelEl, loadReminders, reminderItems, onReminder, reminderSystemEl, reportModal, bannerEl, streakBadge, streakModal, flameBurst, streakSystemEl,
 } from './extras.js';
+import { initCircles, recordCircle, circleEl, circlesSupported } from './circles.js';
 import { initProfileX, decorateCover, profileInfoRows, tagsEl, moodEl, trackEl, stopTrack, profileEditor } from './profilex.js';
 import { initRewards, roleTag, rewardsBlock, rolePicker } from './rewards.js';
 import { initGames, gamesHub, diceEl, chatGamesMenu } from './games.js';
@@ -172,6 +173,7 @@ function messagePreview(m) {
   if (m.kind === 'file') return `📎 ${m.extra?.name || 'Файл'}`;
   if (m.kind === 'call') return callText(m);
   if (m.kind === 'voice') return `🎤 Голосовое ${fmtDur(m.extra?.duration || 0)}`;
+  if (m.kind === 'circle') return `⭕ Видеосообщение ${fmtDur(m.extra?.duration || 0)}`;
   if (m.kind === 'capsule') return m.extra?.opened ? `🔓 ${m.text}` : '🔒 Капсула времени';
   if (m.kind === 'wheel') return `🎡 ${m.text}`;
   if (m.kind === 'theme') return `🎨 Тема «${m.extra?.theme?.name || ''}»`;
@@ -504,6 +506,7 @@ function startApp() {
   });
   initExtras({ S, userName, jumpToMessage });
   initGames({ me: () => S.me });
+  initCircles({ inCall: () => inCall(), onSent: (m) => { addMessage(m); if (S.current === m.chatId) renderMessages({ stick: true }); } });
   initProfileX({ me: () => S.me, setMe: (patch) => { S.me = { ...S.me, ...patch }; mergeUser(S.me); }, prepareImage });
   initRewards({ me: () => S.me, setMe: (patch) => { S.me = { ...S.me, ...patch }; mergeUser(S.me); } }).then(() => { if (S.current) { nodeCache.clear(); renderMessages(); } });
   loadReminders();
@@ -1211,7 +1214,9 @@ function buildChatView(c) {
       h('div', { class: 'composer-box' },
         V.cmdBtn = h('button', { class: 'icon-btn cmd-btn hidden', 'aria-label': 'Команды бота', onclick: (e) => botCommandsMenu(e.currentTarget) }, h('span', {}, '/')),
         h('button', { class: 'icon-btn attach-btn', 'aria-label': 'Прикрепить', onclick: (e) => attachMenu(e.currentTarget) }, icon('attach')),
-        V.input, V.panelBtn, V.file),
+        V.input,
+        V.circleBtn = circlesSupported() ? h('button', { class: 'icon-btn circle-btn', 'aria-label': 'Записать кружок', title: 'Видеосообщение (кружок)', onclick: () => startCircle() }, h('span', { class: 'circle-ic' }, icon('video'))) : null,
+        V.panelBtn, V.file),
       V.sendBtn),
     V.channelBar = h('div', { class: 'channel-bar hidden' }));
 
@@ -1581,6 +1586,11 @@ function messageEl(c, m, first, last, read) {
     bubble.append(wheelEl(m), meta);
     return finishRow(c, m, bubble, { mine, group, first, last });
   }
+  if (m.kind === 'circle') {
+    bubble.classList.add('circle-bubble');
+    bubble.append(circleEl(m), meta);
+    return finishRow(c, m, bubble, { mine, group, first, last });
+  }
   if (m.kind === 'voice') {
     bubble.classList.add('voice-bubble');
     bubble.append(voiceEl(m), meta);
@@ -1773,19 +1783,29 @@ async function jumpToMessage(chatId, messageId) {
 }
 
 /** Attach menu: files and the special Limochat messages. */
+function startCircle() {
+  const c = curChat();
+  if (!c) return;
+  const reply = S.reply;
+  if (reply) { S.reply = null; renderBar(); }
+  recordCircle(c.id, reply?.id || null);
+}
+
 function attachMenu(anchor) {
   const c = curChat();
   if (!c) return;
   const r = anchor.getBoundingClientRect();
   const sent = (m) => { addMessage(m); renderMessages({ stick: true }); };
-  contextMenu(r.left, Math.max(8, r.top - 8 - 4 * 44), [
+  const items = [
     { icon: 'attach', label: 'Фото или файл', onClick: () => V.file.click() },
+    circlesSupported() ? { icon: 'video', label: 'Кружок (видеосообщение)', onClick: () => startCircle() } : null,
     featureOn('extras') ? { icon: 'hourglass', label: 'Капсула времени', onClick: () => capsuleModal(c, sent) } : null,
     featureOn('extras') ? { icon: 'wheel', label: 'Колесо решений', onClick: () => wheelModal(c, sent) } : null,
     { icon: 'gamepad', label: 'Игры: кубик, дартс…', onClick: () => afterHistory(() => contextMenu(r.left, Math.max(8, r.top - 8 - 5 * 44), chatGamesMenu(async (emoji) => {
       try { sent((await api.post(`/chats/${c.id}/dice`, { emoji })).message); } catch (e) { toast(errorText(e), 'error'); }
     }))) },
-  ]);
+  ].filter(Boolean);
+  contextMenu(r.left, Math.max(8, r.top - 8 - items.length * 44), items);
 }
 
 async function jumpTo(id) {
@@ -2045,6 +2065,7 @@ function updateSendBtn() {
   const voice = !hasText && !rec && !!window.MediaRecorder;
   V.sendBtn.classList.toggle('active', hasText || !!rec);
   V.sendBtn.classList.toggle('mic', voice);
+  V.circleBtn?.classList.toggle('hidden', hasText || !!rec);
   if (V.sendBtn.dataset.mode !== (voice ? 'mic' : 'send')) {
     V.sendBtn.dataset.mode = voice ? 'mic' : 'send';
     V.sendBtn.replaceChildren(icon(voice ? 'mic' : 'send'));
