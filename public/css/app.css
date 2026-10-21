@@ -2599,3 +2599,6 @@ button, input, textarea, select { font-family: inherit; }
 .anon-open-row { border-radius: 16px; background: var(--bg-2); }
 .anon-empty { display: grid; justify-items: center; gap: 8px; padding: 30px 16px; text-align: center; color: var(--text-2); }
 .anon-empty div { font-size: 52px; }
+/* stacked dialogs: the top one is solid so the one below does not show through */
+[data-style="glass"] .modal-backdrop ~ .modal-backdrop .modal { background: var(--bg); }
+[data-style="glass"] .modal-backdrop ~ .modal-backdrop .modal::before { opacity: 0.6; }
