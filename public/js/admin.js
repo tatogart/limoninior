@@ -355,6 +355,8 @@ function reportCard(x, reasons) {
       s.file && /\.(jpe?g|png|webp|gif)$/i.test(s.file) ? h('img', { src: s.file, alt: '', class: 'rep-img', loading: 'lazy' }) : null,
       s.text ? h('div', { class: 'rep-text' }, s.text) : h('div', { class: 'muted small' }, `[${s.kind}]`),
       x.alive ? null : h('div', { class: 'pill danger' }, 'сообщение уже удалено'))
+    : x.type === 'anon'
+      ? h('div', { class: 'rep-snap' }, h('div', { class: 'rep-meta' }, `🎭 Анонимное послание · настоящий автор: ${s.sender?.name || '—'}${s.sender?.username ? ` @${s.sender.username}` : ''}${s.at ? ` · ${when(s.at)}` : ''}`), h('div', { class: 'rep-text' }, s.text))
     : x.type === 'user'
       ? h('div', { class: 'rep-snap' }, h('div', { class: 'rep-meta' }, 'Профиль'), h('div', { class: 'rep-text' }, `${s.name} @${s.username || '—'}${s.bio ? `\n${s.bio}` : ''}`))
       : h('div', { class: 'rep-snap' }, h('div', { class: 'rep-meta' }, x.type === 'community' ? 'Сообщество' : s.type === 'channel' ? 'Канал' : 'Группа'),
@@ -371,7 +373,7 @@ function reportCard(x, reasons) {
     x.comment ? h('div', { class: 'rep-comment' }, `💬 «${x.comment}»`) : null,
     h('div', { class: 'rep-by muted small' }, `пожаловался: ${x.reporter ? `${x.reporter.name}${x.reporter.username ? ` @${x.reporter.username}` : ''}` : '—'}${x.resolution ? ` · решение: ${x.resolution}` : ''}`),
     open ? h('div', { class: 'rep-actions' },
-      x.type === 'message' && x.alive ? act('🗑 Удалить', 'delete', { cls: 'btn-primary' }) : null,
+      (x.type === 'message' && x.alive) || x.type === 'anon' ? act('🗑 Удалить', 'delete', { cls: 'btn-primary' }) : null,
       x.type === 'message' && x.alive && canPunish ? act('🗑 + 🔇 24 ч', 'delete_mute', { hours: 24 }) : null,
       x.type === 'message' && x.alive && canPunish ? act('🗑 + бан 7 дн', 'delete_ban', { hours: 168, cls: 'btn-danger-ghost', confirm: 'Удалить сообщение и забанить автора на 7 дней?' }) : null,
       x.type === 'chat' || x.type === 'community' ? act('🗑 Удалить целиком', 'delete', { cls: 'btn-danger-ghost', confirm: 'Удалить это навсегда вместе с перепиской?' }) : null,

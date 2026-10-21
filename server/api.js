@@ -24,6 +24,7 @@ import { registerGames } from './games.js';
 import { registerSocial } from './social.js';
 import { registerProfiles, profileView } from './profiles.js';
 import { registerDuels, refundDuel } from './duels.js';
+import { registerAnon } from './anon.js';
 import { registerRewards } from './rewards.js';
 import { trackStreak, streakFor, restoreStreak, offerStreak, setOfferMessage, answerStreak, stopStreak } from './streaks.js';
 import { publicPlatform, platform, featureGate, filterText, moderationError, registerReports } from './moderation.js';
@@ -660,6 +661,7 @@ registerRewards(api, { bad, pushMe });
 registerGames(api, { bad, int, isMember, postError, validReply, activePlan, pushMe, postMessage: (...a) => postMessage(...a) });
 registerSocial(api, { bad, int, isMember, postError, postMessage: (...a) => postMessage(...a) });
 registerProfiles(api, { bad, int, pushMe, broadcastProfile: (u) => broadcastProfile(u) });
+registerAnon(api, { bad, int, clean, publicUser, pushMe, isBlocked: (owner, other) => !!q('SELECT 1 FROM blocks WHERE user_id = ? AND blocked_id = ?').get(owner, other) });
 registerDuels(api, { bad, int, isMember, postError, pushMe, postMessage: (...a) => postMessage(...a), serializeMessage: (m) => serializeMessage(m) });
 registerFeatures(api, {
   bad, int, clean, isMember, postError, validReply, ensurePrivateChat,

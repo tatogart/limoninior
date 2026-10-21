@@ -39,6 +39,7 @@ export function profileView(u) {
   if (p.tags?.length) out.tags = p.tags;
   if (p.effect && p.effect !== 'none') out.effect = p.effect;
   if (p.track) out.track = { url: `/media/${p.track.file}`, name: p.track.name, dur: p.track.dur };
+  if (!p.anonOff && !/^(bot|system):/.test(String(u?.google_sub))) out.anon = true;
   return out;
 }
 

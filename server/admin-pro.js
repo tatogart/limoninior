@@ -221,6 +221,7 @@ export function registerAdminPro(admin, { targetUser, anyUser, deviceInfo, notif
       const m = r.target_type === 'message' && q('SELECT * FROM messages WHERE id = ?').get(r.target_id);
       if (m) { removeMessage(m); done.push('сообщение удалено'); }
       if (r.target_type === 'chat') { deleteChat(r.target_id); done.push('чат удалён'); }
+      if (r.target_type === 'anon' && q('DELETE FROM anon_msgs WHERE id = ?').run(r.target_id).changes) done.push('послание удалено');
       if (r.target_type === 'community') { destroyCommunity(r.target_id); done.push('сообщество удалено'); }
     }
     if ((action === 'ban' || action === 'delete_ban') && canPunish) {

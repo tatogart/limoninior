@@ -18,6 +18,7 @@ import {
 import {
   initExtras, capsuleModal, capsuleEl, wheelModal, wheelEl, loadReminders, reminderItems, onReminder, reminderSystemEl, reportModal, bannerEl, streakBadge, streakModal, flameBurst, streakSystemEl,
 } from './extras.js';
+import { initAnon, anonCard, anonSendModal, anonInbox } from './anon.js';
 import { initDuels, duelModal, duelEl } from './duels.js';
 import { initCircles, recordCircle, circleEl, circlesSupported } from './circles.js';
 import { initProfileX, decorateCover, profileInfoRows, tagsEl, moodEl, trackEl, stopTrack, profileEditor } from './profilex.js';
@@ -508,6 +509,8 @@ function startApp() {
   });
   initExtras({ S, userName, jumpToMessage });
   initGames({ me: () => S.me });
+  initAnon({ reportModal: (...a) => reportModal(...a), onUnread: (n) => setAnonUnread(n) });
+  api.get('/anon/unread').then((r) => setAnonUnread(r.unread)).catch(() => {});
   initDuels({ me: () => S.me, userName: (id) => userName(id), rematch: (x) => { const c = curChat(); if (c) duelModal(c, (m) => { addMessage(m); renderMessages({ stick: true }); }, x); } });
   initCircles({ inCall: () => inCall(), onSent: (m) => { addMessage(m); if (S.current === m.chatId) renderMessages({ stick: true }); } });
   initProfileX({ me: () => S.me, setMe: (patch) => { S.me = { ...S.me, ...patch }; mergeUser(S.me); }, prepareImage });
@@ -531,7 +534,7 @@ function buildLayout() {
   V.conn = h('div', { class: 'conn-status hidden' }, h('span', { class: 'spinner' }), 'Соединение…');
   V.sidebar = h('aside', { class: 'sidebar' },
     h('div', { class: 'sidebar-header' },
-      h('button', { class: 'icon-btn', 'aria-label': 'Меню', onclick: openDrawer }, icon('menu')),
+      V.menuBtn = h('button', { class: 'icon-btn menu-btn', 'aria-label': 'Меню', onclick: openDrawer }, icon('menu')),
       h('div', { class: 'search-wrap' }, icon('search', 'search-ic'), V.search,
         h('button', { class: 'search-clear', 'aria-label': 'Очистить', onclick: clearSearch }, icon('close')))),
     V.conn,
@@ -545,6 +548,11 @@ function buildLayout() {
   ensureEffect();
   renderBanner();
   renderChatList();
+}
+
+function setAnonUnread(n) {
+  S.anonUnread = n || 0;
+  V.menuBtn?.classList.toggle('has-dot', S.anonUnread > 0);
 }
 
 function renderBanner() {
@@ -764,6 +772,11 @@ function connectSocket() {
     renderChatList();
     if (S.current) renderHeaderStatus();
   });
+  s.on('anon:new', ({ unread }) => {
+    if (unread > (S.anonUnread || 0)) { toast('🎭 Вам пришло анонимное послание'); Sounds.playMessageSound(); }
+    setAnonUnread(unread);
+  });
+  s.on('anon:reply', ({ name }) => toast(`🎭 ${name} ответил(а) на ваше анонимное послание`));
   s.on('user', (u) => {
     mergeUser(u);
     renderChatList();
@@ -3266,6 +3279,7 @@ function openDrawer() {
       h('button', { class: 'drawer-item', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); close(); createMenu(r.left + 16, r.bottom); } }, icon('plus'), 'Создать…'),
       item('gamepad', 'Мини-игры', gamesHub),
       featureOn('bots') ? item('bot', 'Мои боты', myBotsModal) : null,
+      item('eye', ['Анонимные послания', S.anonUnread ? h('span', { class: 'drawer-badge' }, String(S.anonUnread)) : null], () => anonInbox()),
       item('search', 'Каталог каналов', popularChannelsModal),
       item('bookmark', 'Избранное', openSaved),
       item('gift', 'Пригласить друзей', referralModal, 'ref-item'),
@@ -3357,6 +3371,7 @@ async function openUserProfile(id) {
           contextMenu(r.left, r.bottom + 4, [
             chat ? { icon: chat.muted ? 'bell' : 'mute', label: chat.muted ? 'Включить уведомления' : 'Выключить уведомления', onClick: () => { toggleMute(chat); closeTopModal(); } } : null,
             { icon: 'share', label: 'Поделиться профилем', onClick: () => shareLink(link, u.name) },
+            u.px?.anon ? { icon: 'eye', label: 'Написать анонимно 🎭', onClick: () => anonSendModal(u) } : null,
             !u.official ? { icon: 'warning', label: 'Пожаловаться', danger: true, onClick: () => reportModal('user', u.id, `Жалоба на ${u.name}`) } : null,
             !u.official ? { icon: 'block', label: chat?.blocked === 'me' ? 'Разблокировать' : 'Заблокировать', danger: chat?.blocked !== 'me', onClick: () => { closeTopModal(); setBlocked(u, chat?.blocked !== 'me'); } } : null,
           ]);
@@ -3370,6 +3385,7 @@ async function openUserProfile(id) {
         u.createdAt ? h('div', { class: 'pf-row' }, icon('calendar'), h('div', {}, h('div', { class: 'row-main' }, joinedText(u.createdAt)))) : null),
       trackEl(u.px?.track),
       tagsEl(u),
+      anonCard(u),
       rewardsSlot,
       h('div', { class: 'pf-section-title' }, `Подарки${u.giftsCount ? ` · ${u.giftsCount}` : ''}`),
       gifts,

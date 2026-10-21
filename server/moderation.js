@@ -1,5 +1,6 @@
 // Moderation & platform controls: reports from users, temporary bans and mutes, stop words,
 // maintenance mode, feature switches, the announcement banner and daily-activity stats.
+import { anonSnapshot } from './anon.js';
 import rateLimit from 'express-rate-limit';
 import { db, q, now, kvGet, kvSet } from './db.js';
 import { emitAll, emitToUsers } from './realtime.js';
@@ -130,6 +131,7 @@ export function registerReports(api, { bad, int, clean, isMember }) {
       if (!c || (!isMember(c.id, userId) && !c.username)) return null;
       return { offender: c.owner_id, data: { title: c.title, username: c.username, type: c.type, description: c.description, ownerId: c.owner_id } };
     }
+    if (type === 'anon') return anonSnapshot(id, userId);
     if (type === 'community') {
       const c = q('SELECT * FROM communities WHERE id = ?').get(id);
       if (!c || !q('SELECT 1 FROM community_members WHERE community_id = ? AND user_id = ?').get(c.id, userId)) return null;
