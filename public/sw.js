@@ -1,8 +1,8 @@
 // Limochat service worker: app-shell caching + notification clicks.
-const VERSION = 'v29';
+const VERSION = 'v30';
 const SHELL = `shell-${VERSION}`;
 const ASSETS = [
-  '/', '/css/app.css', '/js/app.js', '/js/ui.js', '/js/api.js', '/js/theme.js', '/js/calls.js', '/js/catalog.js', '/js/emoji.js', '/js/sounds.js', '/js/stories.js', '/js/groupcall.js', '/js/stickerpacks.js', '/js/botsui.js', '/js/communities.js', '/js/extras.js', '/js/games.js', '/js/rewards.js', '/js/themes.js',
+  '/', '/css/app.css', '/js/app.js', '/js/ui.js', '/js/api.js', '/js/theme.js', '/js/calls.js', '/js/catalog.js', '/js/emoji.js', '/js/sounds.js', '/js/stories.js', '/js/groupcall.js', '/js/stickerpacks.js', '/js/botsui.js', '/js/communities.js', '/js/extras.js', '/js/games.js', '/js/rewards.js', '/js/themes.js', '/js/profilex.js',
   '/vendor/socket.io.esm.min.js', '/icons/icon.svg', '/icons/icon-192.png', '/manifest.webmanifest',
 ];
 

@@ -22,6 +22,7 @@ import { registerCommunities, communityRole } from './communities.js';
 import { registerFeatures } from './features.js';
 import { registerGames } from './games.js';
 import { registerSocial } from './social.js';
+import { registerProfiles, profileView } from './profiles.js';
 import { registerRewards } from './rewards.js';
 import { trackStreak, streakFor, restoreStreak, offerStreak, setOfferMessage, answerStreak, stopStreak } from './streaks.js';
 import { publicPlatform, platform, featureGate, filterText, moderationError, registerReports } from './moderation.js';
@@ -71,6 +72,7 @@ export function publicUser(u) {
     createdAt: u.created_at,
     verified: !!u.verified,
     role: u.shown_role || null,
+    px: profileView(u),
     official: u.google_sub === OFFICIAL_SUB,
     bot,
     sub: activePlan(u)?.id || null,
@@ -654,6 +656,7 @@ registerReports(api, { bad, int, clean, isMember });
 registerRewards(api, { bad, pushMe });
 registerGames(api, { bad, int, isMember, postError, validReply, activePlan, pushMe, postMessage: (...a) => postMessage(...a) });
 registerSocial(api, { bad, int, isMember, postError, postMessage: (...a) => postMessage(...a) });
+registerProfiles(api, { bad, int, pushMe, broadcastProfile: (u) => broadcastProfile(u) });
 registerFeatures(api, {
   bad, int, clean, isMember, postError, validReply, ensurePrivateChat,
   postMessage: (...a) => postMessage(...a), serializeMessage: (m) => serializeMessage(m),

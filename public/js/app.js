@@ -18,6 +18,7 @@ import {
 import {
   initExtras, capsuleModal, capsuleEl, wheelModal, wheelEl, loadReminders, reminderItems, onReminder, reminderSystemEl, reportModal, bannerEl, streakBadge, streakModal, flameBurst, streakSystemEl,
 } from './extras.js';
+import { initProfileX, decorateCover, profileInfoRows, tagsEl, moodEl, trackEl, stopTrack, profileEditor } from './profilex.js';
 import { initRewards, roleTag, rewardsBlock, rolePicker } from './rewards.js';
 import { initGames, gamesHub, diceEl, chatGamesMenu } from './games.js';
 import { initThemes, applyCustomTheme, ensureEffect, themesModal, themeMsgEl, currentTheme, setChatPicker } from './themes.js';
@@ -99,6 +100,11 @@ function mergeUser(u) {
   const prev = S.users.get(u.id);
   S.users.set(u.id, { ...prev, ...u });
   if (S.me && u.id === S.me.id) S.me = { ...S.me, ...u };
+}
+/** Emoji status of the other person in a private chat. */
+function peerEmoji(c) {
+  const p = c?.type === 'private' ? peerOf(c) : null;
+  return p?.px?.emoji ? h('span', { class: 'emoji-status', title: p.px.mood || '' }, p.px.emoji) : null;
 }
 function peerOf(c) {
   return c?.peer ? S.users.get(c.peer.id) || c.peer : null;
@@ -498,6 +504,7 @@ function startApp() {
   });
   initExtras({ S, userName, jumpToMessage });
   initGames({ me: () => S.me });
+  initProfileX({ me: () => S.me, setMe: (patch) => { S.me = { ...S.me, ...patch }; mergeUser(S.me); }, prepareImage });
   initRewards({ me: () => S.me, setMe: (patch) => { S.me = { ...S.me, ...patch }; mergeUser(S.me); } }).then(() => { if (S.current) { nodeCache.clear(); renderMessages(); } });
   loadReminders();
   setTimeout(claimReferral, 1200);
@@ -872,7 +879,7 @@ function chatItem(c) {
   h('div', { class: 'chat-item-body' },
     h('div', { class: 'chat-item-top' },
       h('span', { class: 'chat-item-title' }, isGroup(c) ? icon('group', 'title-ic') : isChannel(c) ? icon('megaphone', 'title-ic') : peerOf(c)?.bot ? icon('bot', 'title-ic') : null,
-        h('span', { class: 'ellipsis' }, chatTitle(c)), chatVerified(c) ? badge() : null, streakBadge(c), c.muted ? icon('mute', 'mute-ic') : null),
+        h('span', { class: 'ellipsis' }, chatTitle(c)), chatVerified(c) ? badge() : null, peerEmoji(c), streakBadge(c), c.muted ? icon('mute', 'mute-ic') : null),
       h('span', { class: 'chat-item-time' }, mine ? icon(read ? 'checks' : 'check', 'tick') : null, lm ? listTime(lm.createdAt) : '')),
     h('div', { class: 'chat-item-bottom' },
       h('span', { class: 'chat-item-preview' }, preview),
@@ -1235,7 +1242,7 @@ function renderHeader() {
   const cm = communityOf(c);
   V.headerAvatar.replaceChildren(chatAvatar(c, 42));
   V.headerTitle.replaceChildren(...[cm ? icon(c.ckind === 'voice' ? 'headphones' : c.ckind === 'news' ? 'megaphone' : 'hash', 'title-ic') : null,
-    h('span', { class: 'ellipsis' }, chatTitle(c)), chatVerified(c) ? badge() : null, streakBadge(c, () => openStreak(c))].filter(Boolean));
+    h('span', { class: 'ellipsis' }, chatTitle(c)), chatVerified(c) ? badge() : null, peerEmoji(c), streakBadge(c, () => openStreak(c))].filter(Boolean));
   renderHeaderStatus();
 }
 
@@ -1408,7 +1415,7 @@ function renderMessages({ stick = false, keepOffset = false } = {}) {
     used.add(key);
     const sender = S.users.get(m.senderId);
     const read = m.senderId === S.me.id && typeof m.id === 'number' && m.id <= c.peerReadId;
-    const sig = [m.editedAt, m.text, first, last, read, m.pending, m.views, m.comments, m.myReaction, JSON.stringify(m.reactions || []), sender?.name, sender?.avatar, sender?.role, sender?.verified,
+    const sig = [m.editedAt, m.text, first, last, read, m.pending, m.views, m.comments, m.myReaction, JSON.stringify(m.reactions || []), sender?.name, sender?.avatar, sender?.role, sender?.verified, sender?.px?.emoji,
       m.replyTo?.id, m.replyTo && userName(m.replyTo.senderId),
       m.kind === 'gcall' ? `${m.extra?.status}:${m.extra?.duration}:${c.groupCall?.roomId === m.extra?.roomId}` : '',
       ['wheel', 'capsule', 'streak_offer', 'dice', 'theme'].includes(m.kind) ? JSON.stringify(m.extra) : ''].join('|');
@@ -1513,7 +1520,7 @@ function messageEl(c, m, first, last, read) {
   const special = m.kind === 'sticker' ? 'sticker' : m.kind === 'gift' ? 'gift-bubble' : '';
   const bubble = h('div', { class: `bubble ${bigEmoji ? 'big-emoji' : ''} ${imageOnly ? 'image-only' : ''} ${m.kind === 'image' ? 'has-image' : ''} ${special}` });
   if (group && !mine && first && !bigEmoji && m.kind !== 'sticker') {
-    bubble.append(h('div', { class: 'sender-name', style: { color: nameColor(m.senderId) } }, userName(m.senderId), S.users.get(m.senderId)?.verified ? badge() : null, roleTag(S.users.get(m.senderId)?.role, 'small')));
+    bubble.append(h('div', { class: 'sender-name', style: { color: nameColor(m.senderId) } }, userName(m.senderId), S.users.get(m.senderId)?.verified ? badge() : null, S.users.get(m.senderId)?.px?.emoji ? h('span', { class: 'emoji-status' }, S.users.get(m.senderId).px.emoji) : null, roleTag(S.users.get(m.senderId)?.role, 'small')));
     ensureUser(m.senderId);
   }
   if (m.extra?.fwd) {
@@ -3263,15 +3270,18 @@ const joinedText = (t) => { const d = new Date(t); return `В Limochat с ${MONT
 /** Shared profile hero: colored cover + big avatar + name + status. */
 function profileHero(u, { avatarNode, status, onClose, extra } = {}) {
   const color = u.profileColor || (u.official ? 'lime' : PROFILE_COLORS[Math.abs(u.id || 0) % PROFILE_COLORS.length][0]);
+  const cover = h('div', { class: 'pf-cover' },
+    h('div', { class: 'pf-cover-shine' }),
+    h('div', { class: 'pf-cover-btns' },
+      extra || null,
+      h('button', { class: 'pf-glass-btn', 'aria-label': 'Закрыть', onclick: onClose || (() => closeTopModal()) }, icon('close'))));
+  decorateCover(cover, u);
   return h('div', { class: `pf-hero pc-${color}` },
-    h('div', { class: 'pf-cover' },
-      h('div', { class: 'pf-cover-shine' }),
-      h('div', { class: 'pf-cover-btns' },
-        extra || null,
-        h('button', { class: 'pf-glass-btn', 'aria-label': 'Закрыть', onclick: onClose || (() => closeTopModal()) }, icon('close')))),
+    cover,
     h('div', { class: 'pf-avatar' }, avatarNode || userAvatar(u, 116)),
     h('div', { class: 'pf-name' }, nameWithBadge(u.name, u)),
     u.role ? h('div', { class: 'pf-role' }, roleTag(u.role)) : null,
+    moodEl(u),
     status ? h('div', { class: `pf-status ${u.online ? 'online' : ''}` }, status) : null);
 }
 
@@ -3281,6 +3291,7 @@ async function openUserProfile(id) {
   let u = S.users.get(id);
   try { u = (await api.get(`/users/${id}`)).user; mergeUser(u); } catch { /* use cache */ }
   if (!u) return toast('Пользователь не найден');
+  api.post(`/users/${u.id}/view`).catch(() => {});
   const link = `${location.origin}/@${u.username}`;
   const chat = [...S.chats.values()].find((c) => c.type === 'private' && peerOf(c)?.id === u.id);
   const gifts = h('div', { class: 'pf-gifts' }, h('span', { class: 'spinner' }));
@@ -3324,12 +3335,16 @@ async function openUserProfile(id) {
           h('div', {}, h('div', { class: 'row-main accent' }, `@${u.username}`), h('div', { class: 'row-sub' }, 'Юзернейм · нажмите, чтобы скопировать ссылку'))),
         u.bio ? h('div', { class: 'pf-row' }, icon('info'), h('div', {}, h('div', { class: 'row-main pre' }, richText(u.bio)), h('div', { class: 'row-sub' }, 'О себе'))) : null,
         plan ? h('div', { class: 'pf-row' }, h('span', { class: 'pf-row-emoji' }, plan.emoji), h('div', {}, h('div', { class: 'row-main' }, plan.name), h('div', { class: 'row-sub' }, 'Подписка'))) : null,
+        ...profileInfoRows(u),
         u.createdAt ? h('div', { class: 'pf-row' }, icon('calendar'), h('div', {}, h('div', { class: 'row-main' }, joinedText(u.createdAt)))) : null),
+      trackEl(u.px?.track),
+      tagsEl(u),
       rewardsSlot,
       h('div', { class: 'pf-section-title' }, `Подарки${u.giftsCount ? ` · ${u.giftsCount}` : ''}`),
       gifts,
       chat ? h('div', { class: 'pf-section-title' }, 'Общие фото') : null,
       chat ? media : null),
+    onClose: stopTrack,
   });
   return m;
 }
@@ -3388,33 +3403,50 @@ function editProfileModal() {
     status: me.email || `@${me.username}`,
     extra: h('button', { class: 'pf-glass-btn', 'aria-label': 'Поделиться', onclick: () => shareLink(`${location.origin}/@${S.me.username}`, S.me.name) }, icon('share')),
   });
+  let hero2 = hero;
+  const decor = profileEditor(me, (px) => {
+    const fresh = profileHero({ ...S.me, profileColor: color, px }, {
+      avatarNode: h('div', {}, avatarWrap, fileIn),
+      status: me.email || `@${me.username}`,
+      extra: h('button', { class: 'pf-glass-btn', 'aria-label': 'Поделиться', onclick: () => shareLink(`${location.origin}/@${S.me.username}`, S.me.name) }, icon('share')),
+    });
+    hero2.replaceWith(fresh);
+    hero2 = fresh;
+  });
+  const views = h('b', {}, '👀 …');
+  api.get('/me/profile-stats').then((r) => { views.textContent = `👀 ${r.week}`; }).catch(() => { views.textContent = '👀 0'; });
   const colors = h('div', { class: 'pf-colors' });
   const renderColors = () => colors.replaceChildren(...PROFILE_COLORS.map(([v, l]) => h('button', {
     class: `pf-color pc-${v} ${color === v ? 'on' : ''}`, title: l, 'aria-label': l,
-    onclick: () => { color = v; hero.className = `pf-hero pc-${v}`; renderColors(); },
+    onclick: () => { color = v; hero2.className = `pf-hero pc-${v}`; renderColors(); },
   })));
   renderColors();
   const plan = me.sub ? planById(me.sub) : null;
   openModal({
     className: 'modal-profile2',
+    onClose: stopTrack,
     body: h('div', { class: 'pf' },
       hero,
       h('div', { class: 'pf-stats' },
         h('button', { class: 'pf-stat', onclick: myGiftsModal }, h('b', {}, `🍋 ${me.coins ?? 0}`), h('span', {}, 'лимонов')),
         h('button', { class: 'pf-stat', onclick: myGiftsModal }, h('b', {}, `🎁 ${me.giftsCount || 0}`), h('span', {}, 'подарков')),
-        h('button', { class: 'pf-stat', onclick: subscriptionsModal }, h('b', {}, plan ? plan.emoji : '👑'), h('span', {}, plan ? plan.short : 'Подписка'))),
+        h('button', { class: 'pf-stat', onclick: subscriptionsModal }, h('b', {}, plan ? plan.emoji : '👑'), h('span', {}, plan ? plan.short : 'Подписка')),
+        h('div', { class: 'pf-stat', title: 'Сколько человек открывали ваш профиль за 7 дней' }, views, h('span', {}, 'просмотров'))),
       h('div', { class: 'pf-card pf-form' },
         h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Имя'), name),
         uname.wrap,
         h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'О себе'), bio, counter),
         h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Цвет профиля'), colors),
         rolesSlot),
+      decor.el,
       me.createdAt ? h('div', { class: 'pf-joined' }, icon('calendar'), joinedText(me.createdAt)) : null),
     actions: [
       { label: 'Отмена', onClick: (c) => c() },
       { label: 'Сохранить', primary: true, onClick: async (close) => {
         try {
           S.me = { ...S.me, ...(await api.patch('/me', { name: name.value, username: uname.input.value, bio: bio.value, profileColor: color })).user };
+          const { px } = await api.patch('/me/profile', decor.patch());
+          S.me = { ...S.me, px };
           mergeUser(S.me);
           close();
           toast('Профиль сохранён');

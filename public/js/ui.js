@@ -129,6 +129,9 @@ export function nameWithBadge(name, user) {
   const out = [name];
   if (user?.verified) out.push(badge());
   if (user?.sub && SUB_EMOJI[user.sub]) out.push(h('span', { class: `sub-badge sub-${user.sub}`, title: `Limochat ${user.sub[0].toUpperCase()}${user.sub.slice(1)}` }, SUB_EMOJI[user.sub]));
+  if (user?.px?.emoji) out.push(h('span', { class: 'emoji-status', title: user.px.mood || 'Эмодзи-статус' }, user.px.emoji));
+  const b = user?.px?.bday, d = new Date();
+  if (b && b.d === d.getDate() && b.m === d.getMonth() + 1) out.push(h('span', { class: 'emoji-status bday', title: 'Сегодня день рождения!' }, '🎂'));
   return out;
 }
 export function icon(name, cls = '') {

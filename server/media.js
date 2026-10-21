@@ -152,7 +152,7 @@ export function deleteMediaFile(name) {
 /** GET /media/:name — avatars visible to any signed-in user, chat media only to members. */
 export function serveMedia(req, res) {
   const name = req.params.name;
-  if (!/^[a-f0-9]{32}\.(jpg|png|gif|webp|bin|webm|ogg|m4a)$/.test(name)) return res.status(404).end();
+  if (!/^[a-f0-9]{32}\.(jpg|png|gif|webp|bin|webm|ogg|m4a|mp3|wav|mp4)$/.test(name)) return res.status(404).end();
   const m = q('SELECT * FROM media WHERE name = ?').get(name);
   if (!m) return res.status(404).end();
   if (m.kind === 'message') {
