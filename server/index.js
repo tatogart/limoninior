@@ -83,6 +83,8 @@ app.get('/admin', (req, res) => {
 });
 app.get('/admin.html', (req, res) => res.redirect('/admin'));
 app.get('/privacy', (req, res) => res.sendFile(path.join(pub, 'privacy.html')));
+app.get('/help', (req, res) => res.sendFile(path.join(pub, 'help.html')));
+app.get('/about', (req, res) => res.sendFile(path.join(pub, 'about.html')));
 
 app.use(express.static(pub, {
   index: 'index.html',

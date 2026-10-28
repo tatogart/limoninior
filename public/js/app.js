@@ -402,7 +402,7 @@ function renderLogin() {
   if (!isStandalone()) {
     card.append(h('button', { class: 'link-btn', 'data-install': '', onclick: installApp }, icon('download'), 'Установить приложение'));
   }
-  card.append(h('p', { class: 'login-foot' }, 'Пароли хранятся только в зашифрованном виде. ', h('a', { href: '/privacy' }, 'Конфиденциальность')));
+  card.append(h('p', { class: 'login-foot' }, 'Пароли хранятся только в зашифрованном виде. ', h('a', { href: '/privacy' }, 'Конфиденциальность'), ' · ', h('a', { href: '/about' }, 'О Limochat'), ' · ', h('a', { href: '/help' }, 'Справка')));
   app.replaceChildren(h('div', { class: 'login' }, h('div', { class: 'blob b1' }), h('div', { class: 'blob b2' }), h('div', { class: 'blob b3' }), card));
 
   if (!S.config.googleClientId) return;
@@ -3288,6 +3288,7 @@ function openDrawer() {
       item('gift', 'Пригласить друзей', referralModal, 'ref-item'),
       item('crown', S.me.subUntil ? `${planById(S.me.sub)?.name || 'Подписка'} ✓` : 'Limochat Premium', subscriptionsModal, 'premium-item'),
       item('settings', 'Настройки', settingsModal),
+      item('info', 'Справка', () => window.open('/help', '_blank', 'noopener')),
       themeToggle,
       !isStandalone() ? item('download', 'Установить приложение', installApp) : null,
       me.isAdmin ? item('shield', 'Админ-панель', () => navigate('/admin'), 'admin') : null,
