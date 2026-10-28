@@ -18,6 +18,7 @@ import {
 import {
   initExtras, capsuleModal, capsuleEl, wheelModal, wheelEl, loadReminders, reminderItems, onReminder, reminderSystemEl, reportModal, bannerEl, streakBadge, streakModal, flameBurst, streakSystemEl,
 } from './extras.js';
+import { initCustom, applyCustomLook, nickname, nicknameModal, nameStyleProps, quickReactions, chatWallModal, applyChatWall, sendEffect, customSection } from './custom.js';
 import { initAnon, anonCard, anonSendModal, anonInbox } from './anon.js';
 import { initDuels, duelModal, duelEl } from './duels.js';
 import { initCircles, recordCircle, circleEl, circlesSupported } from './circles.js';
@@ -51,6 +52,7 @@ const S = {
 const V = {}; // view refs
 initThemes(S, () => { saveSettings(); nodeCache.clear(); if (S.current) renderMessages(); });
 setChatPicker((title) => pickChatModal(title));
+initCustom(S, () => { saveSettings(); nodeCache.clear(); if (V.list) renderChatList(); if (S.current) { renderHeader(); renderMessages(); } });
 const nodeCache = new Map(); // message key -> { sig, el }
 let tmpSeq = 0;
 const animKeys = new Map(); // message key -> { type: 'send' | 'in', t } — entry animation in progress
@@ -84,6 +86,7 @@ function applyTheme() {
   document.documentElement.dataset.motion = S.settings.reduceMotion ? 'reduced' : 'full';
   document.documentElement.style.setProperty('--msg-size', `${S.settings.textSize}px`);
   if (applyCustomTheme()) t = document.documentElement.dataset.theme;
+  applyCustomLook();
   document.querySelectorAll('meta[name="theme-color"]').forEach((m) => { m.content = t === 'dark' ? '#17212b' : '#ffffff'; });
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
@@ -114,7 +117,7 @@ function peerOf(c) {
 }
 function userName(id) {
   if (id === S.me.id) return S.me.name;
-  return S.users.get(id)?.name || 'Пользователь';
+  return nickname(id) || S.users.get(id)?.name || 'Пользователь';
 }
 const pendingUsers = new Set();
 async function ensureUser(id) {
@@ -134,12 +137,12 @@ function chatAvatar(c, size) {
   if (c.type === 'saved') return avatar({ saved: true }, size);
   if (c.type === 'private') {
     const p = peerOf(c);
-    return avatar({ id: p?.id, name: p?.name || '?', src: p?.avatar, online: p?.online, official: p?.official }, size);
+    return avatar({ id: p?.id, name: p?.name || '?', src: p?.avatar, online: p?.online, official: p?.official, frame: p?.px?.frame }, size);
   }
   return avatar({ id: c.id, name: c.title, src: c.avatar }, size);
 }
 function userAvatar(u, size, withOnline = false) {
-  return avatar({ id: u?.id, name: u?.name || '?', src: u?.avatar, online: withOnline && u?.online, official: u?.official }, size);
+  return avatar({ id: u?.id, name: u?.name || '?', src: u?.avatar, online: withOnline && u?.online, official: u?.official, frame: u?.px?.frame }, size);
 }
 /** Chat title with the verified badge for private chats. */
 function chatTitleNodes(c) {
@@ -148,7 +151,7 @@ function chatTitleNodes(c) {
 /** Is the chat/peer verified (for the badge next to the title)? */
 const chatVerified = (c) => (c.type === 'private' ? !!peerOf(c)?.verified : !!c.verified);
 function chatTitle(c) {
-  if (c.type === 'private') return peerOf(c)?.name || c.title;
+  if (c.type === 'private') return nickname(peerOf(c)?.id) || peerOf(c)?.name || c.title;
   return c.title;
 }
 const NAME_COLORS = ['#e17076', '#eda86c', '#a695e7', '#7bc862', '#6ec9cb', '#65aadd', '#ee7aae'];
@@ -1151,7 +1154,7 @@ function closeChat({ fromHistory = false } = {}) {
   if (V.pane?.contains(document.activeElement)) document.activeElement.blur();
   V.layout.classList.remove('chat-open');
   renderChatList();
-  setTimeout(() => { if (!S.current) { V.pane.replaceChildren(emptyPane()); ensureEffect(); } }, 260);
+  setTimeout(() => { if (!S.current) { V.pane.replaceChildren(emptyPane()); ensureEffect(); applyChatWall(V.pane, null); } }, 260);
   if (!fromHistory && history.state?.chat) goBack();
 }
 
@@ -1248,6 +1251,7 @@ function buildChatView(c) {
   });
   V.pane.replaceChildren(view);
   ensureEffect();
+  applyChatWall(V.pane, c.id);
   V.view = view;
   renderHeader();
   renderComposerMode();
@@ -1439,7 +1443,7 @@ function renderMessages({ stick = false, keepOffset = false } = {}) {
     used.add(key);
     const sender = S.users.get(m.senderId);
     const read = m.senderId === S.me.id && typeof m.id === 'number' && m.id <= c.peerReadId;
-    const sig = [m.editedAt, m.text, first, last, read, m.pending, m.views, m.comments, m.myReaction, JSON.stringify(m.reactions || []), sender?.name, sender?.avatar, sender?.role, sender?.verified, sender?.px?.emoji,
+    const sig = [m.editedAt, m.text, first, last, read, m.pending, m.views, m.comments, m.myReaction, JSON.stringify(m.reactions || []), sender?.name, sender?.avatar, sender?.role, sender?.verified, sender?.px?.emoji, sender?.px?.nameColor, sender?.px?.frame, nickname(m.senderId),
       m.replyTo?.id, m.replyTo && userName(m.replyTo.senderId),
       m.kind === 'gcall' ? `${m.extra?.status}:${m.extra?.duration}:${c.groupCall?.roomId === m.extra?.roomId}` : '',
       ['wheel', 'capsule', 'streak_offer', 'dice', 'theme', 'duel'].includes(m.kind) ? JSON.stringify(m.extra) : ''].join('|');
@@ -1544,7 +1548,7 @@ function messageEl(c, m, first, last, read) {
   const special = m.kind === 'sticker' ? 'sticker' : m.kind === 'gift' ? 'gift-bubble' : '';
   const bubble = h('div', { class: `bubble ${bigEmoji ? 'big-emoji' : ''} ${imageOnly ? 'image-only' : ''} ${m.kind === 'image' ? 'has-image' : ''} ${special}` });
   if (group && !mine && first && !bigEmoji && m.kind !== 'sticker') {
-    bubble.append(h('div', { class: 'sender-name', style: { color: nameColor(m.senderId) } }, userName(m.senderId), S.users.get(m.senderId)?.verified ? badge() : null, S.users.get(m.senderId)?.px?.emoji ? h('span', { class: 'emoji-status' }, S.users.get(m.senderId).px.emoji) : null, roleTag(S.users.get(m.senderId)?.role, 'small')));
+    bubble.append(h('div', { class: 'sender-name' }, h('span', nameStyleProps(S.users.get(m.senderId), nameColor(m.senderId)), userName(m.senderId)), S.users.get(m.senderId)?.verified ? badge() : null, S.users.get(m.senderId)?.px?.emoji ? h('span', { class: 'emoji-status' }, S.users.get(m.senderId).px.emoji) : null, roleTag(S.users.get(m.senderId)?.role, 'small')));
     ensureUser(m.senderId);
   }
   if (m.extra?.fwd) {
@@ -1955,7 +1959,7 @@ function showMessageMenu(m, x, y) {
   const mine = m.senderId === S.me.id;
   const canDelete = mine || ((isGroup(c) || isChannel(c)) && c.ownerId === S.me.id) || ['owner', 'admin'].includes(communityOf(c)?.role);
   const reactRow = c.preview ? null : {
-    node: h('div', { class: 'ctx-reactions' }, REACTIONS.map((e) => h('button', {
+    node: h('div', { class: 'ctx-reactions' }, quickReactions(REACTIONS).map((e) => h('button', {
       class: `ctx-react ${m.myReaction === e ? 'on' : ''}`,
       onclick: () => { closeMenu(); react(m, m.myReaction === e ? null : e); },
     }, e))),
@@ -2120,6 +2124,7 @@ async function submitComposer() {
   autosize();
   updateSendBtn();
   flySendBtn();
+  sendEffect(V.sendBtn);
   sendText(text);
 }
 
@@ -2629,6 +2634,7 @@ function chatMoreMenu(anchor) {
   contextMenu(r.right - 8, r.bottom + 4, [
     { icon: 'info', label: communityOf(c) ? 'О сообществе' : 'Информация', onClick: () => openInfo(c) },
     { icon: 'search', label: 'Поиск по чату', onClick: openChatSearch },
+    !c.preview ? { icon: 'image', label: 'Обои чата', onClick: () => chatWallModal(c, chatTitle(c), V.pane) } : null,
     !c.preview ? { icon: c.pinnedAt ? 'unpin' : 'pin', label: c.pinnedAt ? 'Открепить чат' : 'Закрепить чат', onClick: () => togglePinChat(c) } : null,
     c.type !== 'saved' && !c.preview ? { icon: c.muted ? 'bell' : 'mute', label: c.muted ? 'Включить уведомления' : 'Выключить уведомления', onClick: () => toggleMute(c) } : null,
     peer && !peer.official ? { icon: 'block', label: c.blocked === 'me' ? 'Разблокировать' : 'Заблокировать', danger: c.blocked !== 'me', onClick: () => setBlocked(peer, c.blocked !== 'me') } : null,
@@ -3294,7 +3300,7 @@ function openDrawer() {
       me.isAdmin ? item('shield', 'Админ-панель', () => navigate('/admin'), 'admin') : null,
       h('div', { class: 'drawer-sep' }),
       item('logout', 'Выйти', async () => { if (await confirmDialog('Выйти из аккаунта на этом устройстве?', { ok: 'Выйти', danger: true })) logout(); }, 'danger')),
-    h('div', { class: 'drawer-foot' }, `Limochat · ${S.config.version || 'dev'}`));
+    h('div', { class: 'drawer-foot' }, h('img', { src: '/icons/icon.svg', alt: '' }), h('b', {}, 'Limochat'), h('span', {}, S.config.version || 'dev')));
   backdrop = h('div', { class: 'drawer-backdrop', onclick: (e) => { if (e.target === backdrop) close(); } }, panel);
   document.body.append(backdrop);
   requestAnimationFrame(() => backdrop.classList.add('show'));
@@ -3328,7 +3334,7 @@ function profileHero(u, { avatarNode, status, onClose, extra } = {}) {
   return h('div', { class: `pf-hero pc-${color}` },
     cover,
     h('div', { class: 'pf-avatar' }, avatarNode || userAvatar(u, 116)),
-    h('div', { class: 'pf-name' }, nameWithBadge(u.name, u)),
+    h('div', { class: 'pf-name' }, h('span', nameStyleProps(u), u.name), ...nameWithBadge(u.name, u).slice(1)),
     u.role ? h('div', { class: 'pf-role' }, roleTag(u.role)) : null,
     moodEl(u),
     status ? h('div', { class: `pf-status ${u.online ? 'online' : ''}` }, status) : null);
@@ -3375,6 +3381,7 @@ async function openUserProfile(id) {
           contextMenu(r.left, r.bottom + 4, [
             chat ? { icon: chat.muted ? 'bell' : 'mute', label: chat.muted ? 'Включить уведомления' : 'Выключить уведомления', onClick: () => { toggleMute(chat); closeTopModal(); } } : null,
             { icon: 'share', label: 'Поделиться профилем', onClick: () => shareLink(link, u.name) },
+            { icon: 'pencil', label: nickname(u.id) ? 'Изменить имя контакта' : 'Переименовать для себя', onClick: () => nicknameModal(u) },
             u.px?.anon ? { icon: 'eye', label: 'Написать анонимно 🎭', onClick: () => anonSendModal(u) } : null,
             !u.official ? { icon: 'warning', label: 'Пожаловаться', danger: true, onClick: () => reportModal('user', u.id, `Жалоба на ${u.name}`) } : null,
             !u.official ? { icon: 'block', label: chat?.blocked === 'me' ? 'Разблокировать' : 'Заблокировать', danger: chat?.blocked !== 'me', onClick: () => { closeTopModal(); setBlocked(u, chat?.blocked !== 'me'); } } : null,
@@ -3423,7 +3430,8 @@ function editProfileModal() {
   bio.addEventListener('input', () => { counter.textContent = `${bio.value.length}/160`; });
   let color = me.profileColor || PROFILE_COLORS[Math.abs(me.id) % PROFILE_COLORS.length][0];
   const avatarWrap = h('div', { class: 'avatar-edit' });
-  const renderAv = () => avatarWrap.replaceChildren(userAvatar(S.me, 116), h('span', { class: 'avatar-edit-overlay' }, icon('camera')));
+  let previewPx = null;
+  const renderAv = () => avatarWrap.replaceChildren(userAvatar({ ...S.me, px: previewPx || S.me.px }, 116), h('span', { class: 'avatar-edit-overlay' }, icon('camera')));
   renderAv();
   const fileIn = h('input', { type: 'file', accept: 'image/*', class: 'hidden' });
   fileIn.addEventListener('change', async () => {
@@ -3456,6 +3464,8 @@ function editProfileModal() {
   });
   let hero2 = hero;
   const decor = profileEditor(me, (px) => {
+    previewPx = px;
+    renderAv();
     const fresh = profileHero({ ...S.me, profileColor: color, px }, {
       avatarNode: h('div', {}, avatarWrap, fileIn),
       status: me.email || `@${me.username}`,
@@ -3636,6 +3646,7 @@ function settingsModal() {
       h('div', { class: 'set-row col' }, h('div', { class: 'row-main' }, 'Размер текста ', sizeLabel), textSize,
         h('div', { class: 'size-preview', style: { fontSize: 'var(--msg-size)' } }, 'Так будут выглядеть сообщения 🍋')),
       toggleLocal('Меньше анимаций', 'Для слабых устройств и экономии батареи', 'reduceMotion')),
+    customSection({ section, row, seg, defaultsReactions: REACTIONS }),
     section('bell', 'Уведомления и звуки',
       toggleLocal('Push-уведомления', 'Сообщения и звонки, даже когда приложение закрыто', 'notify', async (v) => {
         if (!v) { await disablePush(); return false; }

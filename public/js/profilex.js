@@ -3,6 +3,7 @@
 import { api, errorText } from './api.js';
 import { h, icon, toast, openModal, richText } from './ui.js';
 import { EFFECTS, effectLayer } from './themes.js';
+import { lookPicker } from './custom.js';
 
 const MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
 export const STATUS_EMOJI = ['😎', '🔥', '🍋', '💚', '⭐', '👑', '🎮', '🎧', '📚', '💻', '🏀', '⚽', '🎨', '🎬', '✈️', '🌙', '☕', '🍕', '🐱', '🐶', '🦊', '🐼', '🦄', '🌸', '🌈', '⚡', '💎', '🚀', '🎵', '❤️', '💜', '💙', '🤍', '🖤', '😴', '🤒', '🏖️', '🎉', '💪', '🧠'];
@@ -103,8 +104,9 @@ export function profileEditor(me, onPreview) {
     coverColors: px.coverColors || null, tags: (px.tags || []).join(', '),
     links: (px.links || []).map((l) => ({ ...l })),
     bday: px.bday ? { ...px.bday } : null,
+    nameColor: px.nameColor || null, frame: px.frame || 'none',
   };
-  const preview = () => onPreview?.({ ...px, emoji: state.emoji, mood: state.mood, effect: state.effect, coverColors: state.coverColors });
+  const preview = () => onPreview?.({ ...px, emoji: state.emoji, mood: state.mood, effect: state.effect, coverColors: state.coverColors, nameColor: state.nameColor, frame: state.frame });
 
   const emojiBtn = h('button', { type: 'button', class: 'pf-emoji-pick' });
   const drawEmoji = () => emojiBtn.replaceChildren(state.emoji ? h('span', { class: 'pf-emoji-cur' }, state.emoji) : icon('smile'), h('span', {}, state.emoji ? 'Сменить эмодзи-статус' : 'Эмодзи-статус рядом с именем'));
@@ -222,6 +224,7 @@ export function profileEditor(me, onPreview) {
   const el = h('div', { class: 'pf-card pf-form pf-decor' },
     h('div', { class: 'pf-decor-title' }, '✨ Оформление профиля'),
     emojiBtn,
+    lookPicker(state, () => preview(), me),
     h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Настроение'), input('mood', 'Например: 🎮 играю в лаунчер', 60)),
     h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Обложка'), coverActs, coverIn),
     h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Эффект профиля'), fx),
@@ -235,6 +238,7 @@ export function profileEditor(me, onPreview) {
   const patch = () => ({
     emoji: state.emoji, mood: state.mood, city: state.city, effect: state.effect, coverColors: state.coverColors,
     tags: state.tags, links: state.links.filter((l) => l.url.trim()), bday: state.bday,
+    nameColor: state.nameColor, frame: state.frame,
   });
   return { el, patch };
 }

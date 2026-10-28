@@ -156,7 +156,7 @@ export function initials(name) {
   return chars.map((p) => Array.from(p)[0]).join('').toUpperCase();
 }
 
-export function avatar({ id = 0, name = '', src = null, saved = false, online = false, official = false }, size = 48) {
+export function avatar({ id = 0, name = '', src = null, saved = false, online = false, official = false, frame = null }, size = 48) {
   const [a, b] = GRADIENTS[Math.abs(Number(id) || 0) % GRADIENTS.length];
   const el = h('div', { class: 'avatar', style: { width: `${size}px`, height: `${size}px`, fontSize: `${Math.round(size * 0.38)}px` } });
   if (official) {
@@ -172,6 +172,7 @@ export function avatar({ id = 0, name = '', src = null, saved = false, online = 
     el.append(initials(name));
   }
   if (online) el.append(h('span', { class: 'online-dot' }));
+  if (frame && frame !== 'none') el.classList.add('framed', `frame-${String(frame).replace(/[^a-z]/g, '')}`);
   return el;
 }
 

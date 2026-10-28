@@ -20,6 +20,9 @@ db.exec(`
 
 const HEX = /^#[0-9a-f]{6}$/i;
 const EFFECTS = new Set(['none', 'snow', 'hearts', 'stars', 'lemons', 'leaves', 'bubbles', 'sakura', 'fire']);
+// Seen by everyone: the colour of your name in groups and the profile, and a frame around the avatar.
+export const NAME_GRADIENTS = new Set(['rainbow', 'sunset', 'ocean', 'neon', 'gold', 'lemon', 'candy', 'forest']);
+export const FRAMES = new Set(['none', 'rainbow', 'fire', 'neon', 'gold', 'love', 'ice', 'lemon', 'galaxy']);
 const clean = (v, n) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
 const mediaDir = path.join(config.dataDir, 'media');
 
@@ -38,6 +41,8 @@ export function profileView(u) {
   if (p.city) out.city = p.city;
   if (p.tags?.length) out.tags = p.tags;
   if (p.effect && p.effect !== 'none') out.effect = p.effect;
+  if (p.nameColor) out.nameColor = p.nameColor;
+  if (p.frame && p.frame !== 'none') out.frame = p.frame;
   if (p.track) out.track = { url: `/media/${p.track.file}`, name: p.track.name, dur: p.track.dur };
   if (!p.anonOff && !/^(bot|system):/.test(String(u?.google_sub))) out.anon = true;
   return out;
@@ -49,6 +54,8 @@ function cleanPatch(b, cur) {
   if (b.mood !== undefined) p.mood = clean(b.mood, 60) || null;
   if (b.city !== undefined) p.city = clean(b.city, 40) || null;
   if (b.effect !== undefined) p.effect = EFFECTS.has(b.effect) ? b.effect : 'none';
+  if (b.nameColor !== undefined) p.nameColor = HEX.test(b.nameColor) ? b.nameColor.toLowerCase() : NAME_GRADIENTS.has(b.nameColor) ? b.nameColor : null;
+  if (b.frame !== undefined) p.frame = FRAMES.has(b.frame) ? b.frame : 'none';
   if (b.coverColors !== undefined) {
     const c = Array.isArray(b.coverColors) ? b.coverColors.filter((x) => HEX.test(x)).slice(0, 2) : [];
     p.coverColors = c.length === 2 ? c.map((x) => x.toLowerCase()) : null;
