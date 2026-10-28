@@ -1181,7 +1181,7 @@ function buildChatView(c) {
     h('button', { class: 'header-info', onclick: () => openInfo(curChat()) }, V.headerAvatar,
       h('div', { class: 'header-text' }, V.headerTitle, V.headerStatus)),
     V.callBtns = h('div', { class: 'header-calls' }),
-    h('button', { class: 'icon-btn', 'aria-label': 'Поиск по чату', title: 'Поиск по чату', onclick: openChatSearch }, icon('search')),
+    h('button', { class: 'icon-btn hdr-search', 'aria-label': 'Поиск по чату', title: 'Поиск по чату', onclick: openChatSearch }, icon('search')),
     h('button', { class: 'icon-btn', 'aria-label': 'Ещё', onclick: (e) => chatMoreMenu(e.currentTarget) }, icon('more')),
     V.gcBar = h('div', { class: 'gc-bar hidden' }),
     V.pinBar = h('div', { class: 'pin-bar hidden' }),
@@ -1263,7 +1263,7 @@ function renderHeader() {
   const cm = communityOf(c);
   V.headerAvatar.replaceChildren(chatAvatar(c, 42));
   V.headerTitle.replaceChildren(...[cm ? icon(c.ckind === 'voice' ? 'headphones' : c.ckind === 'news' ? 'megaphone' : 'hash', 'title-ic') : null,
-    h('span', { class: 'ellipsis' }, chatTitle(c)), chatVerified(c) ? badge() : null, peerEmoji(c), streakBadge(c, () => openStreak(c))].filter(Boolean));
+    h('span', { class: 'ellipsis' }, chatTitle(c)), chatVerified(c) ? badge() : null, peerEmoji(c)].filter(Boolean));
   renderHeaderStatus();
 }
 
@@ -1323,7 +1323,10 @@ function renderHeaderStatus() {
     V.headerStatus.classList.add('accent');
   } else if (c.type === 'private') {
     const p = peerOf(c);
-    V.headerStatus.textContent = lastSeenText(p);
+    // The streak sits on the status line: the title row stays free for the name.
+    const fire = streakBadge(c, () => openStreak(c));
+    V.headerStatus.replaceChildren(...[fire, h('span', { class: 'ellipsis' }, lastSeenText(p))].filter(Boolean));
+    if (fire) V.headerStatus.classList.add('with-streak');
     if (p?.online) V.headerStatus.classList.add('accent');
   } else if (communityOf(c)) {
     V.headerStatus.textContent = `${communityOf(c).title} · ${c.membersCount} ${plural(c.membersCount, 'участник', 'участника', 'участников')}`;

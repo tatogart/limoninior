@@ -2602,3 +2602,10 @@ button, input, textarea, select { font-family: inherit; }
 /* stacked dialogs: the top one is solid so the one below does not show through */
 [data-style="glass"] .modal-backdrop ~ .modal-backdrop .modal { background: var(--bg); }
 [data-style="glass"] .modal-backdrop ~ .modal-backdrop .modal::before { opacity: 0.6; }
+
+/* streak on the header's status line */
+.header-status.with-streak { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.header-status.with-streak .streak { flex: none; transform: scale(0.88); transform-origin: left center; margin-right: -4px; }
+.header-status .ellipsis { min-width: 0; }
+/* phones: search lives in the ⋮ menu, the name gets the room */
+@media (max-width: 480px) { .hdr-search { display: none; } }
