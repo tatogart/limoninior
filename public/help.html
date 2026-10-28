@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Справка Limochat</title>
+  <meta name="description" content="Как пользоваться Limochat: чаты, кружки, темы, профиль, огоньки, игры на лимоны, боты без кода, анонимные послания.">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/app.css">
+  <script src="/js/theme.js"></script>
+  <style>
+    body { overflow: auto; background: var(--bg-2); }
+    .hp-top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(14px); border-bottom: 1px solid var(--border); }
+    .hp-top img { width: 34px; height: 34px; }
+    .hp-top b { font-size: 17px; }
+    .hp-top a.btn { margin-left: auto; text-decoration: none; }
+    .hp { max-width: 1120px; margin: 0 auto; padding: 24px 20px 80px; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 28px; align-items: start; }
+    .hp-toc { position: sticky; top: 76px; max-height: calc(100dvh - 96px); overflow: auto; display: grid; gap: 2px; padding: 12px; border-radius: 20px; background: var(--bg); box-shadow: var(--shadow-sm); }
+    .hp-toc a { padding: 7px 10px; border-radius: 10px; color: var(--text); text-decoration: none; font-size: 14.5px; }
+    .hp-toc a:hover { background: var(--hover); }
+    .hp-main { display: grid; gap: 18px; min-width: 0; }
+    .hero { padding: 28px; border-radius: 26px; color: #fff; background: radial-gradient(120% 120% at 0% 0%, #a3e635, #16a34a 55%, #0e7490); box-shadow: var(--shadow); }
+    .hero h1 { margin: 0 0 8px; font-size: 30px; }
+    .hero p { margin: 0; font-size: 16.5px; opacity: 0.95; max-width: 640px; line-height: 1.5; }
+    .hero .search { margin-top: 16px; width: min(420px, 100%); padding: 12px 16px; border-radius: 14px; border: 0; font: inherit; font-size: 15.5px; }
+    section.card { scroll-margin-top: 80px; padding: 24px; border-radius: 22px; background: var(--bg); box-shadow: var(--shadow-sm); line-height: 1.6; }
+    section.card h2 { margin: 0 0 6px; font-size: 22px; display: flex; gap: 10px; align-items: center; }
+    section.card h2 span { font-size: 26px; }
+    section.card h3 { font-size: 16.5px; margin: 18px 0 4px; }
+    section.card p, section.card li { font-size: 15.5px; }
+    section.card .lead { color: var(--text-2); margin-top: 0; }
+    .with-pic { display: grid; grid-template-columns: minmax(0, 1fr) 210px; gap: 22px; align-items: start; }
+    .with-pic.two { grid-template-columns: minmax(0, 1fr) 210px; }
+    .with-pic.two > div { grid-row: span 2; }
+    .with-pic.two figure { grid-column: 2; }
+    .shot { width: 100%; border-radius: 24px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18); border: 5px solid #111; background: #111; }
+    .shot.wide { border-width: 4px; border-radius: 14px; }
+    figure { margin: 0; }
+    figcaption { font-size: 12.5px; color: var(--text-2); text-align: center; margin-top: 6px; }
+    .steps { counter-reset: s; list-style: none; padding: 0; display: grid; gap: 8px; }
+    .steps li { counter-increment: s; position: relative; padding-left: 38px; }
+    .steps li::before { content: counter(s); position: absolute; left: 0; top: 1px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: #fff; font-weight: 800; font-size: 13.5px; }
+    .tip { margin-top: 12px; padding: 12px 14px; border-radius: 14px; background: color-mix(in srgb, var(--accent) 12%, var(--bg-2)); font-size: 14.5px; }
+    .warn { background: color-mix(in srgb, #f59e0b 16%, var(--bg-2)); }
+    kbd, .ui { display: inline-block; padding: 1px 8px; border-radius: 8px; background: var(--bg-2); border: 1px solid var(--border-strong); font: inherit; font-size: 14px; font-weight: 600; white-space: nowrap; }
+    table { width: 100%; border-collapse: collapse; font-size: 14.5px; margin-top: 8px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { color: var(--text-2); font-weight: 600; }
+    details { padding: 12px 0; border-bottom: 1px solid var(--border); }
+    details summary { cursor: pointer; font-weight: 700; font-size: 15.5px; }
+    details p { margin: 8px 0 0; }
+    .hidden-by-search { display: none !important; }
+    @media (max-width: 860px) {
+      .hp { grid-template-columns: minmax(0, 1fr); padding: 16px 12px 60px; }
+      .hp-toc { position: static; max-height: none; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .with-pic, .with-pic.two { grid-template-columns: minmax(0, 1fr); }
+      .with-pic.two > div { grid-row: auto; }
+      .with-pic.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .with-pic.two > div { grid-column: 1 / -1; }
+      .with-pic.two figure { grid-column: auto; }
+      .with-pic figure { max-width: 240px; justify-self: center; }
+      .hero { padding: 22px; }
+      .hero h1 { font-size: 25px; }
+      section.card { padding: 18px; }
+    }
+  </style>
+</head>
+<body>
+<header class="hp-top">
+  <img src="/icons/icon.svg" alt="">
+  <b>Справка Limochat</b>
+  <a class="btn btn-primary btn-sm" href="/">Открыть Limochat</a>
+</header>
+<div class="hp">
+  <nav class="hp-toc" aria-label="Содержание">
+    <a href="#start">🚀 Начало</a>
+    <a href="#chats">💬 Чаты и сообщения</a>
+    <a href="#circles">⭕ Голосовые и кружки</a>
+    <a href="#calls">📞 Звонки и эфиры</a>
+    <a href="#themes">🎨 Темы оформления</a>
+    <a href="#custom">🪄 Кастомизация</a>
+    <a href="#profile">👤 Профиль</a>
+    <a href="#streaks">🔥 Огоньки</a>
+    <a href="#lemons">🍋 Лимоны и мини-игры</a>
+    <a href="#duels">⚔️ Игры на лимоны</a>
+    <a href="#anon">🎭 Анонимные послания</a>
+    <a href="#bots">🤖 Боты без кода</a>
+    <a href="#extras">✨ Фишки Limochat</a>
+    <a href="#communities">🏘 Каналы и сообщества</a>
+    <a href="#premium">💎 Подписка и подарки</a>
+    <a href="#safety">🛡 Безопасность</a>
+    <a href="#faq">❓ Частые вопросы</a>
+  </nav>
+  <main class="hp-main">
+    <div class="hero">
+      <h1>Как пользоваться Limochat 🍋</h1>
+      <p>Всё о мессенджере в одном месте: от первого сообщения до своих тем, ботов и игр на лимоны. Ищите нужное или листайте по разделам.</p>
+      <input class="search" type="search" placeholder="🔍 Поиск по справке, например «кружок»" aria-label="Поиск по справке">
+    </div>
+
+    <section class="card" id="start">
+      <h2><span>🚀</span>Начало</h2>
+      <div class="with-pic">
+        <div>
+          <h3>Вход</h3>
+          <ol class="steps">
+            <li>Откройте сайт Limochat и войдите через Google — или откройте вкладку <span class="ui">Регистрация</span> и создайте аккаунт с юзернеймом и паролем.</li>
+            <li>Придумайте <b>юзернейм</b> (например, <code>@sonya_lemon</code>) — по нему вас найдут друзья.</li>
+            <li>Готово! Найдите друга в поиске сверху по имени или @юзернейму и напишите первое сообщение.</li>
+          </ol>
+          <h3>Установить как приложение</h3>
+          <p>Limochat работает как обычное приложение — с иконкой на рабочем столе и уведомлениями:</p>
+          <ul>
+            <li><b>Android / компьютер:</b> меню <span class="ui">☰</span> → <span class="ui">Установить приложение</span>.</li>
+            <li><b>iPhone:</b> в Safari нажмите <span class="ui">Поделиться</span> → <span class="ui">На экран «Домой»</span>.</li>
+          </ul>
+          <div class="tip">💡 Включите уведомления: <span class="ui">Настройки</span> → <span class="ui">Push-уведомления</span>. Тогда сообщения и звонки придут, даже когда приложение закрыто.</div>
+        </div>
+        <figure><img class="shot" src="/promo/01-list.jpg" alt="Список чатов" loading="lazy"><figcaption>Список чатов</figcaption></figure>
+      </div>
+    </section>
+
+    <section class="card" id="chats">
+      <h2><span>💬</span>Чаты и сообщения</h2>
+      <p class="lead">Личные чаты, группы, каналы и «Избранное» — заметки для себя.</p>
+      <div class="with-pic">
+        <div>
+          <h3>Новый чат</h3>
+          <p>Нажмите карандаш <span class="ui">✏️</span> внизу списка: можно написать по @юзернейму, создать группу, канал, сообщество, историю, звонок по ссылке, набор стикеров или бота.</p>
+          <h3>Что можно сделать с сообщением</h3>
+          <p>Нажмите на сообщение (на телефоне — подержите палец), и появится меню:</p>
+          <ul>
+            <li><b>Реакция</b> — эмодзи под сообщением.</li>
+            <li><b>Ответить</b> — свайп по сообщению вправо тоже работает.</li>
+            <li><b>Переслать, Копировать, Закрепить</b> вверху чата.</li>
+            <li><b>Изменить</b> или <b>Удалить</b> своё сообщение.</li>
+            <li><b>Напомнить…</b> — сообщение вернётся к вам в нужное время.</li>
+            <li><b>Пожаловаться</b> — если пишут что-то плохое.</li>
+          </ul>
+          <h3>Скрепка 📎</h3>
+          <p>Через <span class="ui">📎</span> отправляются фото и файлы, кружки, вызов на лимоны, капсула времени, колесо решений и игры 🎲 🎯 🏀 ⚽ 🎳.</p>
+          <div class="tip">💡 Фото можно просто вставить из буфера (Ctrl+V) или перетащить в окно чата.</div>
+        </div>
+        <figure><img class="shot" src="/promo/10-attach.jpg" alt="Меню скрепки" loading="lazy"><figcaption>Меню «📎»</figcaption></figure>
+      </div>
+    </section>
+
+    <section class="card" id="circles">
+      <h2><span>⭕</span>Голосовые и кружки</h2>
+      <div class="with-pic">
+        <div>
+          <h3>Голосовое сообщение</h3>
+          <p>Когда поле ввода пустое, вместо кнопки отправки появляется микрофон <span class="ui">🎤</span>. Нажмите — начнётся запись, нажмите ещё раз — голосовое уйдёт. <span class="ui">Отмена</span> — передумали.</p>
+          <h3>Кружок — круглое видео до 60 секунд</h3>
+          <ol class="steps">
+            <li>Нажмите кнопку с камерой в кружочке рядом со смайликом (или <span class="ui">📎</span> → <span class="ui">Кружок</span>).</li>
+            <li>Нажмите красную кнопку ⏺ — пошла запись. Кольцо вокруг показывает, сколько осталось.</li>
+            <li>Кнопка 🔄 переключает фронтальную и основную камеру. Нажмите ⏹ — кружок отправлен.</li>
+          </ol>
+          <p>В чате кружки крутятся без звука. Нажмите на кружок — он увеличится и заиграет со звуком.</p>
+        </div>
+        <figure><img class="shot" src="/promo/03-group-circle.jpg" alt="Кружок в группе" loading="lazy"><figcaption>Кружок в группе</figcaption></figure>
+      </div>
+    </section>
+
+    <section class="card" id="calls">
+      <h2><span>📞</span>Звонки и эфиры</h2>
+      <ul>
+        <li><b>Аудио- и видеозвонок</b> — кнопки 📞 и 🎥 в шапке личного чата.</li>
+        <li><b>Групповой звонок</b> — те же кнопки в группе. Участники присоединяются из плашки вверху чата.</li>
+        <li><b>Прямой эфир</b> в канале: кнопка эфира в шапке канала → <span class="ui">Видеоэфир</span> или <span class="ui">Аудиоэфир</span>. Подписчики смотрят и слушают.</li>
+        <li><b>Звонок по ссылке</b> — <span class="ui">✏️</span> → <span class="ui">Звонок по ссылке</span>: отправьте ссылку кому угодно.</li>
+      </ul>
+      <div class="tip">💡 Кто может вам звонить, настраивается в <span class="ui">Настройки</span> → <span class="ui">Конфиденциальность</span>.</div>
+    </section>
+
+    <section class="card" id="themes">
+      <h2><span>🎨</span>Темы оформления</h2>
+      <p class="lead">26 готовых тем и своя — с цветами, обоями, шрифтом и живыми эффектами.</p>
+      <div class="with-pic two">
+        <div>
+          <ol class="steps">
+            <li><span class="ui">☰</span> → <span class="ui">Настройки</span> → <span class="ui">Оформление</span> → <span class="ui">🎨 Темы</span>.</li>
+            <li>Нажмите на любую тему — она включится сразу. Ещё раз — выключится.</li>
+            <li><span class="ui">Создать свою</span>: светлая или тёмная, цвета, обои чата, скругление сообщений, шрифт и эффект (снег, сердечки, звёзды, лимоны, сакура…). Кнопка <span class="ui">🎲 Случайные цвета</span> придумает тему за вас.</li>
+          </ol>
+          <h3>Поделиться темой</h3>
+          <p>Нажмите стрелку на карточке темы → <span class="ui">Отправить в чат</span>. У друга появится карточка с кнопкой <span class="ui">Применить тему</span>. Можно и скопировать код темы — его вставляют через <span class="ui">Ввести код</span>.</p>
+          <div class="tip">💡 Если эффекты мешают — выключите галочку «Анимированные эффекты тем» внизу списка тем или включите «Меньше анимаций».</div>
+        </div>
+        <figure><img class="shot" src="/promo/08-themes.jpg" alt="Галерея тем" loading="lazy"><figcaption>Галерея тем</figcaption></figure>
+        <figure><img class="shot" src="/promo/18-neon-chat.jpg" alt="Тема Неон" loading="lazy"><figcaption>Тема «Неон»</figcaption></figure>
+      </div>
+    </section>
+
+    <section class="card" id="custom">
+      <h2><span>🪄</span>Кастомизация</h2>
+      <p class="lead">Настройте Limochat под себя — от формы сообщений до обоев каждого чата.</p>
+      <h3>Видят все</h3>
+      <ul>
+        <li><b>Цвет имени</b> — 10 цветов и 8 градиентов (радуга, закат, неон, золото…). Имя окрашивается в группах и в профиле.</li>
+        <li><b>Рамка аватарки</b> — радуга, огонь, неон, золото, любовь, лёд, лимон, галактика. Рамка медленно переливается.</li>
+      </ul>
+      <p>Где: ваш профиль → «✨ Оформление профиля».</p>
+      <h3>Видите только вы</h3>
+      <ul>
+        <li><b>Обои для отдельного чата</b> — своё фото, цвет или градиент, с затемнением и размытием: меню <span class="ui">⋮</span> в чате → <span class="ui">Обои чата</span>.</li>
+        <li><b>Имя контакта</b> — подпишите друга по-своему: его профиль → <span class="ui">Ещё</span> → <span class="ui">Переименовать для себя</span>.</li>
+        <li><b>Форма сообщений</b> — округлые, мягкие, строгие, капсулы или без хвостиков.</li>
+        <li><b>Цвет чужих сообщений</b>, <b>плотность списка чатов</b> (плотный, обычный, крупный) и <b>эффект отправки</b> (пружинка, полёт, конфетти).</li>
+        <li><b>Быстрые реакции</b> — выберите до 8 своих эмодзи для меню сообщения.</li>
+      </ul>
+      <p>Где: <span class="ui">Настройки</span> → <span class="ui">Кастомизация</span>.</p>
+    </section>
+
+    <section class="card" id="profile">
+      <h2><span>👤</span>Профиль</h2>
+      <div class="with-pic two">
+        <div>
+          <p>Нажмите на свою аватарку в меню <span class="ui">☰</span> — откроется ваш профиль. В блоке <b>«✨ Оформление профиля»</b> можно настроить:</p>
+          <ul>
+            <li><b>Эмодзи-статус</b> — значок рядом с именем, его видно везде: в чатах, группах, списке.</li>
+            <li><b>Настроение</b> — короткая строчка под именем.</li>
+            <li><b>Обложку</b> — своё фото или градиент из двух цветов, и <b>эффект</b> на ней.</li>
+            <li><b>Трек профиля</b> — песня (mp3, m4a, ogg, до 10 МБ), её послушают гости профиля.</li>
+            <li><b>Город, день рождения</b> (в этот день у имени появится 🎂), <b>интересы</b> и до 4 <b>ссылок</b>.</li>
+          </ul>
+          <p>Вверху профиля видно, сколько у вас лимонов, подарков и сколько людей заходили в профиль за неделю 👀.</p>
+          <div class="tip">💡 Цвет профиля, роль рядом с именем и значки — там же, в редактировании профиля.</div>
+        </div>
+        <figure><img class="shot" src="/promo/14-friend-profile.jpg" alt="Профиль" loading="lazy"><figcaption>Профиль друга</figcaption></figure>
+        <figure><img class="shot" src="/promo/12-my-profile.jpg" alt="Редактирование профиля" loading="lazy"><figcaption>Ваш профиль</figcaption></figure>
+      </div>
+    </section>
+
+    <section class="card" id="streaks">
+      <h2><span>🔥</span>Огоньки</h2>
+      <p>Огонёк растёт, когда вы с другом пишете друг другу <b>каждый день</b>.</p>
+      <ol class="steps">
+        <li>В личном чате откройте <span class="ui">⋮</span> → <span class="ui">🔥 Предложить огонёк</span>. Друг увидит предложение и нажмёт <span class="ui">Принять</span>.</li>
+        <li>Пишите друг другу каждый день (по Москве) — число рядом с 🔥 растёт. Вечером появится ⏳ — значит, сегодня ещё никто не написал.</li>
+        <li>Пропустили день — огонёк погас 🩶. Его можно вернуть за 🍋 50 на следующий день, <b>2 раза в месяц</b>.</li>
+      </ol>
+      <div class="tip">💡 На 3, 7, 10, 30, 50, 100 днях — салют и поздравление в чате.</div>
+    </section>
+
+    <section class="card" id="lemons">
+      <h2><span>🍋</span>Лимоны и мини-игры</h2>
+      <p>Лимоны — внутренняя валюта: на них дарят подарки, играют на ставки, возвращают огоньки.</p>
+      <ul>
+        <li><span class="ui">☰</span> → <span class="ui">Мини-игры</span>: «Ловец лимонов», «Лимонные пары», «Реакция». За игры дают лимоны — до 60 в день, с подпиской ×2, ×3 или ×5. Есть таблицы рекордов.</li>
+        <li>В чате: <span class="ui">📎</span> → <span class="ui">Игры</span> — 🎲 кубик, 🎯 дартс, 🏀 баскетбол, ⚽ футбол, 🎳 боулинг. Результат выбирает сервер — всё честно.</li>
+      </ul>
+    </section>
+
+    <section class="card" id="duels">
+      <h2><span>⚔️</span>Игры на лимоны</h2>
+      <div class="with-pic two">
+        <div>
+          <p>Вызовите друга (в личке) или любого участника группы на игру со ставкой:</p>
+          <table>
+            <tr><th>Игра</th><th>Как играют</th></tr>
+            <tr><td>🎲 Кости</td><td>Каждый бросает два кубика, у кого больше — забирает банк</td></tr>
+            <tr><td>✊ Камень, ножницы, бумага</td><td>Ваш выбор тайный, пока соперник не сходит</td></tr>
+            <tr><td>🪙 Монетка</td><td>Вы выбираете сторону, сервер подбрасывает</td></tr>
+            <tr><td>❌ Крестики-нолики</td><td>Ходите по очереди прямо в чате</td></tr>
+          </table>
+          <ol class="steps" style="margin-top:12px">
+            <li><span class="ui">📎</span> → <span class="ui">Вызов на лимоны ⚔️</span>, выберите игру и ставку (или «На интерес»).</li>
+            <li>Соперник нажимает <span class="ui">Принять</span> — ставки уходят в банк, игра начинается.</li>
+            <li>Победитель забирает весь банк. Ничья, отмена, отказ или вызов без ответа за сутки — лимоны возвращаются.</li>
+          </ol>
+          <div class="tip">💡 Проиграли? Кнопка <span class="ui">🔁 Реванш</span> — новый вызов с той же игрой и ставкой.</div>
+        </div>
+        <figure><img class="shot" src="/promo/11-duel-new.jpg" alt="Новый вызов" loading="lazy"><figcaption>Новый вызов</figcaption></figure>
+        <figure><img class="shot" src="/promo/02-chat-games.jpg" alt="Крестики-нолики" loading="lazy"><figcaption>Крестики-нолики в чате</figcaption></figure>
+      </div>
+    </section>
+
+    <section class="card" id="anon">
+      <h2><span>🎭</span>Анонимные послания</h2>
+      <div class="with-pic two">
+        <div>
+          <h3>Написать анонимно</h3>
+          <p>Откройте профиль человека и нажмите карточку <span class="ui">🎭 Напиши анонимно</span>. Выберите цвет открытки и отправьте. Получатель не узнает, кто вы.</p>
+          <h3>Получить послания</h3>
+          <p><span class="ui">☰</span> → <span class="ui">Анонимные послания</span>. Там можно <b>ответить</b> (автор увидит ответ), удалить послание, <b>заблокировать анонима</b> (вы так и не узнаете, кто это) или пожаловаться.</p>
+          <p>Не хотите получать анонимки — выключите <span class="ui">Принимать анонимные послания</span> там же.</p>
+          <div class="tip warn">⚠️ Анонимно — не значит безнаказанно. Если на послание пожалуются, модераторы увидят настоящего автора.</div>
+        </div>
+        <figure><img class="shot" src="/promo/16-anon-write.jpg" alt="Написать анонимно" loading="lazy"><figcaption>Новое послание</figcaption></figure>
+        <figure><img class="shot" src="/promo/06-anon.jpg" alt="Входящие послания" loading="lazy"><figcaption>Входящие</figcaption></figure>
+      </div>
+    </section>
+
+    <section class="card" id="bots">
+      <h2><span>🤖</span>Боты без кода</h2>
+      <div class="with-pic two">
+        <div>
+          <ol class="steps">
+            <li><span class="ui">☰</span> → <span class="ui">Мои боты</span> → <span class="ui">Создать бота</span>.</li>
+            <li>Выберите шаблон: <b>Приветствие</b>, <b>Вопрос-ответ</b>, <b>Магазин</b>, <b>Развлечения</b>, <b>Автоответчик</b> или <b>С нуля</b>.</li>
+            <li>Придумайте имя — юзернейм подставится сам. Нажмите <span class="ui">Создать</span>: бот уже отвечает!</li>
+            <li>В <b>конструкторе</b> меняйте приветствие, команды (меню «/»), ответы на слова, кнопки (ответ или ссылка) и что сказать, если бот не понял.</li>
+          </ol>
+          <h3>Подстановки в ответах</h3>
+          <table>
+            <tr><td><code>{first}</code></td><td>имя собеседника</td></tr>
+            <tr><td><code>{username}</code></td><td>его @юзернейм</td></tr>
+            <tr><td><code>{date}</code>, <code>{time}</code></td><td>дата и время</td></tr>
+            <tr><td><code>{random:да|нет|может}</code></td><td>случайный вариант</td></tr>
+          </table>
+          <div class="tip">💡 Ботов можно добавлять в группы. Для программистов есть Bot API — <span class="ui">Мои боты</span> → <span class="ui">Как подключить</span>.</div>
+        </div>
+        <figure><img class="shot" src="/promo/07-bot-templates.jpg" alt="Шаблоны ботов" loading="lazy"><figcaption>Шаблоны</figcaption></figure>
+        <figure><img class="shot" src="/promo/04-bot.jpg" alt="Чат с ботом" loading="lazy"><figcaption>Бот отвечает сам</figcaption></figure>
+      </div>
+    </section>
+
+    <section class="card" id="extras">
+      <h2><span>✨</span>Фишки Limochat</h2>
+      <ul>
+        <li><b>⏳ Капсула времени</b> — сообщение, которое откроется для всех в выбранный момент: через час, год или десять лет.</li>
+        <li><b>⏰ Напоминания</b> на любом сообщении — <span class="ui">Напомнить…</span> в меню сообщения.</li>
+        <li><b>🎡 Колесо решений</b> — впишите варианты, крутите всем чатом. Результат честный и одинаковый у всех.</li>
+        <li><b>📸 Истории</b> — фото или текст на сутки, вверху списка чатов.</li>
+        <li><b>🏆 Роли и значки</b> — награды за достижения в играх; роль показывается рядом с именем.</li>
+        <li><b>😀 Свои стикеры</b> — <span class="ui">✏️</span> → <span class="ui">Набор стикеров</span>.</li>
+        <li><b>🔗 Ссылки под защитой</b> — подозрительные ссылки подсвечиваются предупреждением.</li>
+      </ul>
+    </section>
+
+    <section class="card" id="communities">
+      <h2><span>🏘</span>Каналы и сообщества</h2>
+      <ul>
+        <li><b>Канал</b> — пишете вы, остальные читают и комментируют. Публичный канал получает ссылку <code>limochat/@название</code>.</li>
+        <li><b>Сообщество</b> — как сервер в Discord: несколько текстовых, новостных и голосовых каналов в одном месте.</li>
+        <li><b>Каталог каналов</b> в меню <span class="ui">☰</span> — популярные каналы Limochat.</li>
+      </ul>
+    </section>
+
+    <section class="card" id="premium">
+      <h2><span>💎</span>Подписка и подарки</h2>
+      <table>
+        <tr><th>Тариф</th><th>Цена</th><th>Что даёт</th></tr>
+        <tr><td>⭐ Plus</td><td>99 ₽/мес</td><td>Значок, награды в играх ×2, файлы до 50 МБ</td></tr>
+        <tr><td>💎 Premium</td><td>249 ₽/мес</td><td>Значок, награды ×3, файлы до 100 МБ</td></tr>
+        <tr><td>👑 Max</td><td>499 ₽/мес</td><td>Значок, награды ×5, файлы до 200 МБ, приоритетная верификация канала</td></tr>
+      </table>
+      <p>Оформить: <span class="ui">☰</span> → <span class="ui">Limochat Premium</span>. <b>Подарки</b> за лимоны — в панели смайликов, вкладка с подарком 🎁, или кнопка <span class="ui">Подарить</span> в профиле. <b>Пригласите друзей</b> по своей ссылке — и получите подписку в подарок.</p>
+    </section>
+
+    <section class="card" id="safety">
+      <h2><span>🛡</span>Безопасность и приватность</h2>
+      <ul>
+        <li><b>Заблокировать</b> человека — его профиль → <span class="ui">Ещё</span> → <span class="ui">Заблокировать</span>. Он не сможет писать и звонить.</li>
+        <li><b>Пожаловаться</b> — на сообщение, профиль, группу или анонимное послание. Модераторы проверят.</li>
+        <li><b>Кто видит «был(а) в сети»</b> и <b>кто может звонить</b> — <span class="ui">Настройки</span> → <span class="ui">Конфиденциальность</span>.</li>
+        <li><b>Активные сеансы</b> — где выполнен вход; лишние можно завершить. Там же — <b>пароль</b> для входа без Google.</li>
+      </ul>
+      <p><a href="/privacy">Политика конфиденциальности →</a></p>
+    </section>
+
+    <section class="card" id="faq">
+      <h2><span>❓</span>Частые вопросы</h2>
+      <details><summary>Limochat бесплатный?</summary><p>Да. Всё основное бесплатно. Подписка даёт значок и бонусы, но не нужна для общения.</p></details>
+      <details><summary>Не приходят уведомления</summary><p>Включите <span class="ui">Push-уведомления</span> в настройках и разрешите уведомления для сайта в браузере. На iPhone уведомления работают, только если Limochat установлен на экран «Домой».</p></details>
+      <details><summary>Не записывается кружок или голосовое</summary><p>Разрешите доступ к камере и микрофону для сайта Limochat в настройках браузера. Во время звонка записывать нельзя.</p></details>
+      <details><summary>Как вернуть стандартный вид после темы?</summary><p><span class="ui">Настройки</span> → <span class="ui">🎨 Темы</span> → <span class="ui">Стандартная</span>.</p></details>
+      <details><summary>Куда делись лимоны после игры?</summary><p>Ставка списывается при вызове и принятии. Победитель получает весь банк, а при ничьей или отмене лимоны возвращаются автоматически.</p></details>
+      <details><summary>Можно узнать, кто написал анонимку?</summary><p>Нет — получатель никогда не видит автора. Но модераторы видят автора, если на послание пожаловались.</p></details>
+      <details><summary>Бот не отвечает</summary><p>Проверьте в <span class="ui">Мои боты</span> → бот → <span class="ui">Конструктор ответов</span>, что включено «Конструктор включён». В группах — «Отвечать и в группах».</p></details>
+      <details><summary>Обновление не появилось</summary><p>Закройте Limochat полностью и откройте снова — приложение обновится само.</p></details>
+    </section>
+    <p style="text-align:center"><a href="/">← Вернуться в Limochat</a> · <a href="/about">О Limochat</a></p>
+  </main>
+</div>
+<script src="/js/help-page.js" defer></script>
+</body>
+</html>
