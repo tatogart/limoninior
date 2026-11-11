@@ -1,5 +1,6 @@
 import { io } from '/vendor/socket.io.esm.min.js';
 import { api, errorText } from './api.js';
+import { loadDrafts, persistDrafts } from './drafts.js';
 import {
   h, icon, avatar, timeHM, listTime, dayLabel, lastSeenText, plural, richText, emojiCount,
   toast, openModal, closeTopModal, confirmDialog, contextMenu, closeMenu, registerOverlay, handleBack, goBack, navigate, afterHistory, isTouch, badge, nameWithBadge, linkRisk, bytes,
@@ -501,6 +502,7 @@ async function logout() {
 // ============================================================ main layout
 
 function startApp() {
+  S.drafts = loadDrafts(S.me.id);
   mergeUser(S.me);
   initStickerPacks({ onChange: () => { if (panelTab === 'stickers' && V.panel && !V.panel.classList.contains('hidden')) renderPanel(); } });
   initBotsUi({ openChatWith: (id) => { while (closeTopModal()) { /* close all */ } startPrivate(id); }, prepareImage, openUrl: (u) => openExternal(u) });
@@ -625,7 +627,9 @@ function dropCommunity(id) {
     S.chats.delete(c.id);
     S.msgs.delete(c.id);
     if (S.current === c.id) closeChat();
+    S.drafts.delete(c.id);
   }
+  persistDrafts(S.me.id, S.drafts);
   removeCommunity(id);
   renderChatList();
   updateBadge();
@@ -752,6 +756,8 @@ function connectSocket() {
     S.chats.delete(chatId);
     S.msgs.delete(chatId);
     if (S.current === chatId) closeChat();
+    S.drafts.delete(chatId);
+    persistDrafts(S.me.id, S.drafts);
     renderChatList();
     updateBadge();
   });
@@ -873,6 +879,8 @@ function chatItem(c) {
   let preview;
   if (typing) {
     preview = h('span', { class: 'typing-text' }, typing, typingDots());
+  } else if (S.drafts.get(c.id)?.trim()) {
+    preview = [h('span', { class: 'preview-who' }, 'Черновик: '), S.drafts.get(c.id)];
   } else if (!lm) {
     preview = h('span', { class: 'muted' }, c.type === 'saved' ? 'Сохраняйте сюда заметки и файлы' : 'Нет сообщений');
   } else if (lm.kind === 'system') {
@@ -1058,6 +1066,7 @@ function openChat(id, { fromHistory = false } = {}) {
   if (!c) return;
   closeMenu();
   saveDraft();
+  S.drafts.delete(-1);
   cancelRecording();
   closeChatSearch();
   if (V.panel && panelRelease) togglePanel(false);
@@ -1148,6 +1157,7 @@ function closeChat({ fromHistory = false } = {}) {
   closeChatSearch();
   if (V.panel && panelRelease) togglePanel(false);
   saveDraft();
+  S.drafts.delete(-1);
   S.editing = null;
   S.reply = null;
   S.current = null;
@@ -1876,7 +1886,11 @@ function markRead() {
     }
   }, 150);
 }
-document.addEventListener('visibilitychange', () => { if (!document.hidden) markRead(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) saveDraft();
+  else markRead();
+});
+window.addEventListener('pagehide', saveDraft);
 
 // ---------- message context menu
 
@@ -1998,11 +2012,14 @@ async function deleteMessage(m) {
 /** Save the composer as the chat's draft (while editing, the real draft is the one put aside). */
 function saveDraft() {
   if (!S.current || !V.input) return;
-  S.drafts.set(S.current, S.editing ? (S.drafts.get(-1) || '') : V.input.value);
-  S.drafts.delete(-1);
+  const text = S.editing ? (S.drafts.get(-1) || '') : V.input.value;
+  if (text) S.drafts.set(S.current, text);
+  else S.drafts.delete(S.current);
+  persistDrafts(S.me?.id, S.drafts);
 }
 
 function startReply(m) {
+  if (S.editing) cancelBar();
   S.editing = null;
   S.reply = m;
   renderBar();
@@ -2050,7 +2067,11 @@ function renderBar() {
 }
 
 let lastTypingSent = 0;
+let draftListTimer;
 function onComposerInput() {
+  saveDraft();
+  clearTimeout(draftListTimer);
+  draftListTimer = setTimeout(renderChatList, 150);
   autosize();
   updateSendBtn();
   const t = Date.now();
@@ -2121,6 +2142,8 @@ async function submitComposer() {
   if (!text) return;
   V.input.value = '';
   S.drafts.delete(S.current);
+  persistDrafts(S.me.id, S.drafts);
+  renderChatList();
   autosize();
   updateSendBtn();
   flySendBtn();
@@ -2160,7 +2183,13 @@ async function sendText(text) {
   } catch (e) {
     if (st) st.items = st.items.filter((x) => x !== tmp);
     toast(errorText(e), 'error');
-    if (S.current === chatId && !V.input.value) { V.input.value = text; autosize(); updateSendBtn(); }
+    if (S.current === chatId && !V.input.value && !S.editing) {
+      V.input.value = text; saveDraft(); autosize(); updateSendBtn(); renderChatList();
+    } else if (S.current !== chatId && !S.drafts.has(chatId) && S.chats.has(chatId)) {
+      S.drafts.set(chatId, text);
+      persistDrafts(S.me.id, S.drafts);
+      renderChatList();
+    }
   }
   if (S.current === chatId) renderMessages({ stick: true });
 }
