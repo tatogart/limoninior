@@ -2,7 +2,8 @@ import { api, errorText } from './api.js';
 import { h, icon, toast, openModal, isTouch, richText } from './ui.js';
 import { SURPRISE_SKINS, ScratchProgress } from './surprise-shared.js';
 
-export function surpriseModal(chat, onSent) {
+export function surpriseModal(chat, onSent, { mode = 'scratch' } = {}) {
+  const catching = mode === 'catch';
   let skin = 'lemon';
   const title = h('input', { class: 'input', maxLength: 60, placeholder: 'Надпись на обложке (необязательно)', 'aria-label': 'Надпись на обложке' });
   const text = h('textarea', { class: 'input', rows: 4, maxLength: 1000, placeholder: 'Комплимент, смешное предсказание или неожиданный план…', 'aria-label': 'Текст сюрприза' });
@@ -18,13 +19,13 @@ export function surpriseModal(chat, onSent) {
     const s = SURPRISE_SKINS[skin];
     preview.style.background = `linear-gradient(130deg, ${s.colors[0]}, ${s.colors[1]})`;
     preview.style.color = s.ink;
-    preview.replaceChildren(h('span', {}, s.emoji), h('b', {}, 'Сотри — и улыбнись'));
+    preview.replaceChildren(h('span', {}, s.emoji), h('b', {}, catching ? 'Поймай — и прочитай' : 'Сотри — и улыбнись'));
   };
   render();
   openModal({
-    title: 'Лимонный сюрприз', className: 'modal-small',
+    title: catching ? 'Поймай лимон' : 'Лимонный сюрприз', className: 'modal-small',
     body: h('div', { class: 'stack' }, preview,
-      h('p', { class: 'muted small' }, 'Спрячь послание под обложкой. Собеседник сотрёт её пальцем — и найдёт твой сюрприз.'),
+      h('p', { class: 'muted small' }, catching ? 'Послание откроется, когда собеседник поймает лимон пять раз. После попадания лимон меняет место — спешить не нужно.' : 'Спрячь послание под обложкой. Собеседник сотрёт её пальцем — и найдёт твой сюрприз.'),
       choices, title, text, count),
     actions: [
       { label: 'Отмена', onClick: (close) => close() },
@@ -32,7 +33,7 @@ export function surpriseModal(chat, onSent) {
         if (!text.value.trim()) { text.focus(); return; }
         button.disabled = true;
         try {
-          const { message } = await api.post(`/chats/${chat.id}/surprise`, { title: title.value, text: text.value, skin });
+          const { message } = await api.post(`/chats/${chat.id}/surprise`, { title: title.value, text: text.value, skin, mode });
           close(); onSent?.(message); toast('Сюрприз отправлен 🍋');
         } catch (e) { button.disabled = false; toast(errorText(e), 'error'); }
       } },

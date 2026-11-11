@@ -2,7 +2,8 @@ import { io } from '/vendor/socket.io.esm.min.js';
 import { api, errorText } from './api.js';
 import { loadDrafts, persistDrafts } from './drafts.js';
 import { surpriseModal, surpriseEl } from './surprises.js';
-import { melodyModal, melodyEl, stopMelody } from './melodies.js';
+import { catchEl } from './catch.js';
+import { createAdminTapHandler } from './admin-entry.js';
 import {
   h, icon, avatar, timeHM, listTime, dayLabel, lastSeenText, plural, richText, emojiCount,
   toast, openModal, closeTopModal, confirmDialog, contextMenu, closeMenu, registerOverlay, handleBack, goBack, navigate, afterHistory, isTouch, badge, nameWithBadge, linkRisk, bytes,
@@ -164,7 +165,6 @@ const fmtDur = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).
 
 /** One-line description of a replied-to message. */
 function replyPreview(r) {
-  if (r.kind === 'melody') return `🎵 ${r.text}`;
   if (r.kind === 'surprise') return `🍋 ${r.text || 'Лимонный сюрприз'}`;
   if (r.kind === 'image') return `🖼 ${r.text || 'Фото'}`;
   if (r.kind === 'sticker') return 'Стикер';
@@ -177,8 +177,7 @@ function replyPreview(r) {
 
 function messagePreview(m) {
   if (!m) return '';
-  if (m.kind === 'melody') return `🎵 ${m.text}`;
-  if (m.kind === 'surprise') return '🍋 Лимонный сюрприз — сотри обложку';
+  if (m.kind === 'surprise') return m.extra?.mode === 'catch' ? '🍋 Поймай лимон — интерактивное послание' : '🍋 Лимонный сюрприз — сотри обложку';
   if (m.kind === 'image') return m.text ? `🖼 ${m.text}` : '🖼 Фото';
   if (m.kind === 'sticker') return `${stickerInfo(m.text)?.emoji || m.extra?.emoji || '🍋'} Стикер`;
   if (m.kind === 'gift') return `🎁 Подарок: ${giftById(m.extra?.giftId)?.name || ''}`;
@@ -1070,7 +1069,6 @@ const openSaved = () => startPrivate(S.me.id);
 function openChat(id, { fromHistory = false } = {}) {
   const c = S.chats.get(id);
   if (!c) return;
-  stopMelody();
   closeMenu();
   saveDraft();
   S.drafts.delete(-1);
@@ -1160,7 +1158,6 @@ function renderComposerMode() {
 
 function closeChat({ fromHistory = false } = {}) {
   if (!S.current) return;
-  stopMelody();
   cancelRecording();
   closeChatSearch();
   if (V.panel && panelRelease) togglePanel(false);
@@ -1612,14 +1609,9 @@ function messageEl(c, m, first, last, read) {
     bubble.append(streakOfferEl(c, m, mine), meta);
     return finishRow(c, m, bubble, { mine, group, first, last });
   }
-  if (m.kind === 'melody') {
-    bubble.classList.add('melody-bubble');
-    bubble.append(melodyEl(m, () => S.settings.volume), meta);
-    return finishRow(c, m, bubble, { mine, group, first, last });
-  }
   if (m.kind === 'surprise') {
     bubble.classList.add('surprise-bubble');
-    bubble.append(surpriseEl(m, S.me.id), meta);
+    bubble.append(m.extra?.mode === 'catch' ? catchEl(m, S.me.id) : surpriseEl(m, S.me.id), meta);
     return finishRow(c, m, bubble, { mine, group, first, last });
   }
   if (m.kind === 'capsule') {
@@ -1856,7 +1848,7 @@ function attachMenu(anchor) {
     { icon: 'attach', label: 'Фото или файл', onClick: () => V.file.click() },
     circlesSupported() ? { icon: 'video', label: 'Кружок (видеосообщение)', onClick: () => startCircle() } : null,
     (c.type === 'group' || (c.type === 'private' && !peerOf(c)?.bot && !peerOf(c)?.official)) ? { icon: 'coin', label: 'Вызов на лимоны ⚔️', onClick: () => duelModal(c, sent) } : null,
-    featureOn('extras') ? { icon: 'music', label: 'Сообщение-мелодия 🎵', onClick: () => melodyModal(c, sent) } : null,
+    featureOn('extras') ? { icon: 'gamepad', label: 'Поймай лимон 🍋', onClick: () => surpriseModal(c, sent, { mode: 'catch' }) } : null,
     featureOn('extras') ? { icon: 'sparkles', label: 'Лимонный сюрприз 🍋', onClick: () => surpriseModal(c, sent) } : null,
     featureOn('extras') ? { icon: 'hourglass', label: 'Капсула времени', onClick: () => capsuleModal(c, sent) } : null,
     featureOn('extras') ? { icon: 'wheel', label: 'Колесо решений', onClick: () => wheelModal(c, sent) } : null,
@@ -3346,10 +3338,12 @@ function openDrawer() {
       item('info', 'Справка', () => window.open('/help', '_blank', 'noopener')),
       themeToggle,
       !isStandalone() ? item('download', 'Установить приложение', installApp) : null,
-      me.isAdmin ? item('shield', 'Админ-панель', () => navigate('/admin'), 'admin') : null,
       h('div', { class: 'drawer-sep' }),
       item('logout', 'Выйти', async () => { if (await confirmDialog('Выйти из аккаунта на этом устройстве?', { ok: 'Выйти', danger: true })) logout(); }, 'danger')),
-    h('div', { class: 'drawer-foot' }, h('img', { src: '/icons/icon.svg', alt: '' }), h('b', {}, 'Limochat'), h('span', {}, S.config.version || 'dev')));
+    h('div', { class: 'drawer-foot' }, h('img', { src: '/icons/icon.svg', alt: '' }), h('b', {}, 'Limochat'), h(me.isAdmin ? 'button' : 'span', me.isAdmin ? {
+      type: 'button', class: 'drawer-version', 'aria-label': `Версия ${S.config.version || 'dev'}`,
+      onclick: createAdminTapHandler({ isAdmin: () => !!S.me?.isAdmin, open: () => { close(); navigate('/admin'); } }),
+    } : {}, S.config.version || 'dev')));
   backdrop = h('div', { class: 'drawer-backdrop', onclick: (e) => { if (e.target === backdrop) close(); } }, panel);
   document.body.append(backdrop);
   requestAnimationFrame(() => backdrop.classList.add('show'));

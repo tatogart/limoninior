@@ -2,8 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { registerSurprises } from '../server/surprises.js';
-import { registerMelodies } from '../server/melodies.js';
-import { melodyNotes } from '../public/js/melody-shared.js';
 import { ScratchProgress } from '../public/js/surprise-shared.js';
 
 function fixture() {
@@ -39,7 +37,6 @@ function fixture() {
   };
   const router = { post: (route, ...handlers) => routes.set(route, handlers) };
   registerSurprises(router, hooks);
-  registerMelodies(router, hooks);
   const call = (route, { id = 10, user = 1, body = {} } = {}) => {
     const response = { statusCode: 200, data: null, headers: {}, status(n) { this.statusCode = n; return this; }, json(data) { this.data = data; return this; }, set(k, v) { this.headers[k] = v; return this; } };
     const handlers = [...routes.get(route)];
@@ -145,34 +142,14 @@ test('scratch coverage counts distinct area and resets the stroke between gestur
   assert.equal(progress.move(NaN, 0), before);
 });
 
-test('melodies validate text, require membership and use normal posting permissions', () => {
-  const { db, state, call, broadcasts } = fixture();
-  const route = '/chats/:id/melody';
-  for (const text of ['', ' ', {}, 5]) assert.equal(call(route, { body: { text } }).statusCode, 400);
-  assert.equal(call(route, { body: { text: 'x'.repeat(241) } }).data.error, 'too_long');
-  assert.equal(call(route, { user: 3, body: { text: 'hi' } }).statusCode, 404);
-  state.denied = 'blocked';
-  assert.equal(call(route, { body: { text: 'hi' } }).statusCode, 403);
-  state.denied = null; state.enabled = false;
-  assert.equal(call(route, { body: { text: 'hi' } }).data.error, 'feature_off');
-  state.enabled = true;
-  const response = call(route, { body: { text: '  На одной волне 🍋  ' } });
-  assert.equal(response.data.message.text, 'На одной волне 🍋');
-  assert.equal(response.data.message.kind, 'melody');
-  assert.equal(broadcasts.length, 1);
-  assert.equal(call(route, { body: { text: 'x'.repeat(240) } }).statusCode, 200);
+test('catch mode uses the surprise storage and rejects unknown interactive modes', () => {
+  const { db, call } = fixture();
+  const response = call(create, { body: { text: 'Поймал — молодец!', mode: 'catch' } });
+  assert.equal(response.statusCode, 200);
+  assert.equal(JSON.parse(response.data.message.extra).mode, 'catch');
+  assert.equal(response.data.message.text, 'Поймай мой сюрприз');
+  assert.equal(call(open, { id: response.data.message.id, user: 2 }).data.text, 'Поймал — молодец!');
+  assert.equal(call(create, { body: { text: 'hi', mode: 'melody' } }).data.error, 'bad_surprise_mode');
+  assert.equal(call(create, { body: { text: 'hi', mode: ['catch'] } }).data.error, 'bad_surprise_mode');
   db.close();
-});
-
-test('the same normalized phrase produces the same short, finite twelve-note melody', () => {
-  assert.deepEqual(melodyNotes(' e\u0301 '), melodyNotes('é'));
-  assert.deepEqual(melodyNotes('🍋 Limochat'), melodyNotes('🍋 Limochat'));
-  assert.notDeepEqual(melodyNotes('Привет'), melodyNotes('Пока'));
-  for (const input of ['', '🍋', 'Привет\nмир', 'x'.repeat(240)]) {
-    const notes = melodyNotes(input);
-    assert.equal(notes.length, 12);
-    assert.ok(notes.every(n => Number.isFinite(n.frequency) && n.frequency >= 261 && n.frequency <= 785));
-    assert.ok(notes.every(n => n.duration === 0.2 || n.duration === 0.3));
-    assert.ok(notes.reduce((s, n) => s + n.duration, 0) <= 3.61);
-  }
 });

@@ -2731,21 +2731,18 @@ button, input, textarea, select { font-family: inherit; }
 [data-motion="reduced"] .surprise *, [data-motion="reduced"] .surprise-hint { animation: none !important; transition: none !important; }
 @media (prefers-reduced-motion: reduce) { .surprise *, .surprise-hint { animation: none !important; transition: none !important; } }
 
-/* Words become a quiet, deterministic twelve-note melody. */
-.melody-bubble { max-width: min(340px, 100%); padding: 8px !important; }
-.melody-card { width: min(280px, 64vw); max-width: 100%; padding: 13px 5px 8px; }
-.melody-kicker { color: var(--text-2); font-size: 10px; font-weight: 800; letter-spacing: 1.4px; }
-.melody-phrase { margin: 12px 0 5px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 17px; line-height: 1.5; }
-.melody-bars { display: flex; align-items: center; justify-content: center; height: 82px; gap: 6px; padding: 10px; overflow: hidden; }
-.melody-bars i { display: block; flex: 1; max-width: 12px; min-width: 2px; border-radius: 8px; background: linear-gradient(var(--accent-2), var(--accent)); transform-origin: center; opacity: .7; }
-.playing .melody-bars i { animation: melody-pulse .45s ease-in-out infinite alternate; animation-delay: var(--note-delay); opacity: 1; }
-.melody-play { width: 100%; display: flex; justify-content: center; align-items: center; gap: 8px; padding: 11px; border-radius: 13px; border: 1px solid var(--border-strong); background: var(--bg); color: var(--text); cursor: pointer; font-size: 13px; }
-.melody-play:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
-.melody-play .ic { width: 18px; height: 18px; }
-.melody-play:disabled { opacity: .6; cursor: wait; }
-.melody-hero { border-radius: 18px; background: linear-gradient(120deg, var(--accent), var(--accent-2)); color: #fff; font-size: 65px; text-align: center; padding: 12px; }
-@keyframes melody-pulse { from { transform: scaleY(.4); } to { transform: scaleY(1.2); } }
-[data-motion="reduced"] .melody-bars i { animation: none !important; }
-@media (prefers-reduced-motion: reduce) { .melody-bars i { animation: none !important; } }
+.surprise-bubble .meta { position: static; display: flex; justify-content: flex-end; margin: 2px 4px 0 0; float: none; }
 
-.surprise-bubble .meta, .melody-bubble .meta { position: static; display: flex; justify-content: flex-end; margin: 2px 4px 0 0; float: none; }
+/* Interactive message: five reachable catches, with no time pressure. */
+.catch-hint { font-size: 12px; line-height: 1.45; color: var(--text-2); margin: 0 0 12px; }
+.catch-field { position: relative; min-height: 190px; width: 100%; border-radius: 18px; overflow: hidden; }
+.catch-target { position: absolute; width: 46px; height: 46px; transform: translate(-50%, -50%); border: 0; border-radius: 50%; background: #ffffffb8; box-shadow: 0 4px 14px #0002; font-size: 30px; line-height: 1; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.catch-target:focus-visible, .catch-skip:focus-visible, .drawer-version:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.catch-target:active { background: #fff; }
+.catch-target:disabled { opacity: .55; }
+.catch-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 0 2px; }
+.catch-score { font-size: 11px; color: var(--text-2); }
+.catch-skip { border: 0; background: transparent; color: var(--text-2); text-decoration: underline; font-size: 10px; padding: 6px; cursor: pointer; }
+.catch-won { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: var(--bg-2); padding: 20px; }
+.catch-trophy { font-size: 38px; }
+.drawer-foot .drawer-version { border: 0; color: inherit; background: transparent; font: inherit; padding: 4px 8px; border-radius: 5px; cursor: pointer; touch-action: manipulation; user-select: none; -webkit-user-select: none; }

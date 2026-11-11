@@ -21,10 +21,12 @@ export function registerSurprises(api, h) {
     if (text.length > 1000) return bad(res, 'too_long');
     const skin = req.body?.skin ?? 'lemon';
     if (typeof skin !== 'string' || !Object.hasOwn(SURPRISE_SKINS, skin)) return bad(res, 'bad_surprise_skin');
-    const title = clean(req.body?.title, 60) || 'Для тебя кое-что есть';
+    const mode = req.body?.mode ?? 'scratch';
+    if (mode !== 'scratch' && mode !== 'catch') return bad(res, 'bad_surprise_mode');
+    const title = clean(req.body?.title, 60) || (mode === 'catch' ? 'Поймай мой сюрприз' : 'Для тебя кое-что есть');
     const message = tx(() => {
       const m = insertMessage(chatId, req.user.id, {
-        kind: 'surprise', text: title, extra: { skin }, replyTo: validReply(chatId, req.body?.replyTo),
+        kind: 'surprise', text: title, extra: { skin, mode }, replyTo: validReply(chatId, req.body?.replyTo),
       });
       q('INSERT INTO surprises (message_id, text) VALUES (?, ?)').run(m.id, filterText(text));
       return m;
