@@ -1,7 +1,7 @@
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import { config } from './config.js';
-import { q, tx, now, audit, blockedBetween } from './db.js';
+import { db, q, tx, now, audit, blockedBetween } from './db.js';
 import {
   verifyGoogleCredential, upsertUser, createSession, destroySession,
   requireAuth, requireProfile, isAdminUser, hashPassword, verifyPassword, createLocalUser, sessionFromCookie,
@@ -20,6 +20,8 @@ import { registerStickers, customSticker, stickerExtra } from './stickers.js';
 import { registerBots, onNewMessage, isBotUser } from './bots.js';
 import { registerCommunities, communityRole } from './communities.js';
 import { registerFeatures } from './features.js';
+import { registerSurprises } from './surprises.js';
+import { registerMelodies } from './melodies.js';
 import { registerGames } from './games.js';
 import { registerSocial } from './social.js';
 import { registerProfiles, profileView } from './profiles.js';
@@ -238,6 +240,8 @@ function pushText(m) {
   if (m.kind === 'voice') return '🎤 Голосовое сообщение';
   if (m.kind === 'circle') return '⭕ Видеосообщение';
   if (m.kind === 'duel') return `⚔️ Вызов: ${m.text}`;
+  if (m.kind === 'melody') return `🎵 ${m.text}`;
+  if (m.kind === 'surprise') return '🍋 Лимонный сюрприз — сотри обложку';
   if (m.kind === 'capsule') return '🔒 Капсула времени';
   if (m.kind === 'streak_offer') return '🔥 Предлагает растить огонёк';
   if (m.kind === 'dice') return `${JSON.parse(m.extra || '{}').emoji || '🎲'} Мини-игра`;
@@ -663,6 +667,11 @@ registerSocial(api, { bad, int, isMember, postError, postMessage: (...a) => post
 registerProfiles(api, { bad, int, pushMe, broadcastProfile: (u) => broadcastProfile(u) });
 registerAnon(api, { bad, int, clean, publicUser, pushMe, isBlocked: (owner, other) => !!q('SELECT 1 FROM blocks WHERE user_id = ? AND blocked_id = ?').get(owner, other) });
 registerDuels(api, { bad, int, isMember, postError, pushMe, postMessage: (...a) => postMessage(...a), serializeMessage: (m) => serializeMessage(m) });
+registerMelodies(api, { int, clean, bad, isMember, postError, insertMessage, broadcastNewMessage, sendLimiter, featureGate, validReply });
+registerSurprises(api, {
+  db, q, tx, clean, int, bad, isMember, postError, filterText, insertMessage,
+  broadcastNewMessage, validReply, sendLimiter, featureGate,
+});
 registerFeatures(api, {
   bad, int, clean, isMember, postError, validReply, ensurePrivateChat,
   postMessage: (...a) => postMessage(...a), serializeMessage: (m) => serializeMessage(m),

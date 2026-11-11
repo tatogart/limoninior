@@ -120,7 +120,8 @@ export function registerReports(api, { bad, int, clean, isMember }) {
       const publicChan = c.type === 'channel' && c.username;
       if (!isMember(m.chat_id, userId) && !publicChan) return null;
       const s = m.sender_id ? q('SELECT id, name, username FROM users WHERE id = ?').get(m.sender_id) : null;
-      return { offender: s?.id || null, data: { kind: m.kind, text: m.text.slice(0, 2000), file: m.file ? `/media/${m.file}` : null, chatId: c.id, chatType: c.type, chatTitle: c.title || null, sender: s, at: m.created_at } };
+      const text = m.kind === 'surprise' ? `${m.text}\n${q('SELECT text FROM surprises WHERE message_id = ?').get(m.id)?.text || ''}` : m.text;
+      return { offender: s?.id || null, data: { kind: m.kind, text: text.slice(0, 2000), file: m.file ? `/media/${m.file}` : null, chatId: c.id, chatType: c.type, chatTitle: c.title || null, sender: s, at: m.created_at } };
     }
     if (type === 'user') {
       const u = q('SELECT id, name, username, bio, avatar FROM users WHERE id = ?').get(id);

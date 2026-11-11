@@ -1,6 +1,8 @@
 import { io } from '/vendor/socket.io.esm.min.js';
 import { api, errorText } from './api.js';
 import { loadDrafts, persistDrafts } from './drafts.js';
+import { surpriseModal, surpriseEl } from './surprises.js';
+import { melodyModal, melodyEl, stopMelody } from './melodies.js';
 import {
   h, icon, avatar, timeHM, listTime, dayLabel, lastSeenText, plural, richText, emojiCount,
   toast, openModal, closeTopModal, confirmDialog, contextMenu, closeMenu, registerOverlay, handleBack, goBack, navigate, afterHistory, isTouch, badge, nameWithBadge, linkRisk, bytes,
@@ -162,6 +164,8 @@ const fmtDur = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).
 
 /** One-line description of a replied-to message. */
 function replyPreview(r) {
+  if (r.kind === 'melody') return `🎵 ${r.text}`;
+  if (r.kind === 'surprise') return `🍋 ${r.text || 'Лимонный сюрприз'}`;
   if (r.kind === 'image') return `🖼 ${r.text || 'Фото'}`;
   if (r.kind === 'sticker') return 'Стикер';
   if (r.kind === 'gift') return '🎁 Подарок';
@@ -173,6 +177,8 @@ function replyPreview(r) {
 
 function messagePreview(m) {
   if (!m) return '';
+  if (m.kind === 'melody') return `🎵 ${m.text}`;
+  if (m.kind === 'surprise') return '🍋 Лимонный сюрприз — сотри обложку';
   if (m.kind === 'image') return m.text ? `🖼 ${m.text}` : '🖼 Фото';
   if (m.kind === 'sticker') return `${stickerInfo(m.text)?.emoji || m.extra?.emoji || '🍋'} Стикер`;
   if (m.kind === 'gift') return `🎁 Подарок: ${giftById(m.extra?.giftId)?.name || ''}`;
@@ -1064,6 +1070,7 @@ const openSaved = () => startPrivate(S.me.id);
 function openChat(id, { fromHistory = false } = {}) {
   const c = S.chats.get(id);
   if (!c) return;
+  stopMelody();
   closeMenu();
   saveDraft();
   S.drafts.delete(-1);
@@ -1153,6 +1160,7 @@ function renderComposerMode() {
 
 function closeChat({ fromHistory = false } = {}) {
   if (!S.current) return;
+  stopMelody();
   cancelRecording();
   closeChatSearch();
   if (V.panel && panelRelease) togglePanel(false);
@@ -1604,6 +1612,16 @@ function messageEl(c, m, first, last, read) {
     bubble.append(streakOfferEl(c, m, mine), meta);
     return finishRow(c, m, bubble, { mine, group, first, last });
   }
+  if (m.kind === 'melody') {
+    bubble.classList.add('melody-bubble');
+    bubble.append(melodyEl(m, () => S.settings.volume), meta);
+    return finishRow(c, m, bubble, { mine, group, first, last });
+  }
+  if (m.kind === 'surprise') {
+    bubble.classList.add('surprise-bubble');
+    bubble.append(surpriseEl(m, S.me.id), meta);
+    return finishRow(c, m, bubble, { mine, group, first, last });
+  }
   if (m.kind === 'capsule') {
     bubble.classList.add('capsule-bubble');
     bubble.append(capsuleEl(m), meta);
@@ -1838,6 +1856,8 @@ function attachMenu(anchor) {
     { icon: 'attach', label: 'Фото или файл', onClick: () => V.file.click() },
     circlesSupported() ? { icon: 'video', label: 'Кружок (видеосообщение)', onClick: () => startCircle() } : null,
     (c.type === 'group' || (c.type === 'private' && !peerOf(c)?.bot && !peerOf(c)?.official)) ? { icon: 'coin', label: 'Вызов на лимоны ⚔️', onClick: () => duelModal(c, sent) } : null,
+    featureOn('extras') ? { icon: 'music', label: 'Сообщение-мелодия 🎵', onClick: () => melodyModal(c, sent) } : null,
+    featureOn('extras') ? { icon: 'sparkles', label: 'Лимонный сюрприз 🍋', onClick: () => surpriseModal(c, sent) } : null,
     featureOn('extras') ? { icon: 'hourglass', label: 'Капсула времени', onClick: () => capsuleModal(c, sent) } : null,
     featureOn('extras') ? { icon: 'wheel', label: 'Колесо решений', onClick: () => wheelModal(c, sent) } : null,
     { icon: 'gamepad', label: 'Игры: кубик, дартс…', onClick: () => afterHistory(() => contextMenu(r.left, Math.max(8, r.top - 8 - 5 * 44), chatGamesMenu(async (emoji) => {

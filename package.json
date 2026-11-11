@@ -9,6 +9,7 @@
     "node": ">=22.13"
   },
   "scripts": {
+    "test": "node --test tests/*.test.js",
     "start": "node --disable-warning=ExperimentalWarning server/index.js",
     "dev": "NODE_ENV=development DEV_LOGIN=1 node --disable-warning=ExperimentalWarning --watch server/index.js",
     "admin:totp": "node scripts/admin-totp.js",
