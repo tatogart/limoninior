@@ -31,7 +31,7 @@ import { initCircles, recordCircle, circleEl, circlesSupported } from './circles
 import { initProfileX, decorateCover, profileInfoRows, tagsEl, moodEl, trackEl, stopTrack, profileEditor } from './profilex.js';
 import { initRewards, roleTag, rewardsBlock, rolePicker } from './rewards.js';
 import { initGames, gamesHub, diceEl, chatGamesMenu } from './games.js';
-import { initThemes, applyCustomTheme, ensureEffect, themesModal, themeMsgEl, currentTheme, setChatPicker } from './themes.js';
+import { initThemes, applyCustomTheme, ensureEffect, themesModal, winterSettings, themeMsgEl, currentTheme, setChatPicker } from './themes.js';
 import { initStories, storiesChanged, storyViewEvent, setStripVisible, openComposer as newStory, openStoryById, storyQuote } from './stories.js';
 
 // ============================================================ state
@@ -3716,6 +3716,7 @@ function settingsModal() {
   renderWalls();
 
   body.append(
+    section('sparkles', 'Зимнее настроение', winterSettings()),
     section('sparkles', 'Оформление',
       h('button', { class: 'set-row clickable th-set-row', onclick: () => { themesModal(); } },
         h('div', { class: 'set-text' }, h('div', { class: 'row-main' }, '🎨 Темы'),

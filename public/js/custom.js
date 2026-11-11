@@ -61,7 +61,8 @@ export function applyCustomLook(root = document.documentElement) {
   const st = S?.settings || {};
   root.dataset.bubble = st.bubbleShape || 'round';
   root.dataset.density = st.listDensity || 'normal';
-  if (st.bubbleIn && st.bubbleIn !== 'auto') {
+  // A selected theme owns its palette. Keep the saved manual colour for Standard.
+  if (!root.dataset.custom && st.bubbleIn && st.bubbleIn !== 'auto') {
     root.style.setProperty('--bubble-in', st.bubbleIn);
     // Dark incoming colour → light text on it.
     const n = parseInt(st.bubbleIn.slice(1), 16), lum = 0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
