@@ -52,6 +52,8 @@ if git -C "$SRC_DIR" rev-parse HEAD >/dev/null 2>&1; then
   BRANCH=$(git -C "$SRC_DIR" rev-parse --abbrev-ref HEAD)
 fi
 cd "$APP_DIR"
+# Версионируем весь граф JS/CSS в установленной копии, чтобы PWA не смешивала релизы.
+node scripts/build-client.mjs "$APP_DIR/public"
 # Зависимости ставим заново только если они поменялись (и сначала из локального кэша) —
 # так обновление не ломается, когда npm временно недоступен.
 lock_hash=$(sha256sum package-lock.json | cut -d' ' -f1)

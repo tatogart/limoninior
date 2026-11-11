@@ -35,6 +35,7 @@ export const config = {
   // Lets the server request a self-update (picked up by the root update timer).
   updateFlag: '',
   version: '',
+  clientBuild: 'dev',
   adminTotpSecret: (env.ADMIN_TOTP_SECRET || '').replace(/\s+/g, '').toUpperCase(),
   adminIps: list(env.ADMIN_IPS),
   sessionDays: Number(env.SESSION_DAYS || 60),
@@ -49,3 +50,8 @@ if (isProd) {
 fs.mkdirSync(path.join(config.dataDir, 'media'), { recursive: true });
 config.updateFlag = path.join(config.dataDir, 'update-request');
 try { config.version = fs.readFileSync(path.join(root, 'VERSION'), 'utf8').trim(); } catch { config.version = 'dev'; }
+
+try {
+  const build = JSON.parse(fs.readFileSync(path.join(root, 'public/client-build.json'), 'utf8'));
+  if (/^[a-f0-9]{16}$/.test(build.id)) config.clientBuild = build.id;
+} catch { /* Development checkout, before client build. */ }

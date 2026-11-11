@@ -341,7 +341,7 @@ const searchLimiter = rateLimit({
 // ---------- auth ----------
 
 api.get('/config', (req, res) => {
-  res.json({ googleClientId: config.googleClientId, devLogin: config.devLogin, passwordLogin: true, version: config.version, platform: publicPlatform() });
+  res.json({ googleClientId: config.googleClientId, devLogin: config.devLogin, passwordLogin: true, version: config.version, clientBuild: config.clientBuild, platform: publicPlatform() });
 });
 
 // ---------- username + password accounts ----------

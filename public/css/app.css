@@ -2746,3 +2746,7 @@ button, input, textarea, select { font-family: inherit; }
 .catch-won { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: var(--bg-2); padding: 20px; }
 .catch-trophy { font-size: 38px; }
 .drawer-foot .drawer-version { border: 0; color: inherit; background: transparent; font: inherit; padding: 4px 8px; border-radius: 5px; cursor: pointer; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+
+.client-update-notice { position: fixed; z-index: 1300; left: 50%; bottom: calc(90px + env(safe-area-inset-bottom)); transform: translateX(-50%); display: flex; align-items: center; gap: 12px; width: max-content; max-width: calc(100vw - 24px); padding: 12px 14px; border: 1px solid var(--border-strong); border-radius: 18px; background: var(--bg); color: var(--text); box-shadow: var(--shadow-lg); font-size: 13px; }
+.client-update-notice > span { min-width: 0; }
+.client-update-notice > button { flex-shrink: 0; }

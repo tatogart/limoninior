@@ -4,6 +4,8 @@ import { loadDrafts, persistDrafts } from './drafts.js';
 import { surpriseModal, surpriseEl } from './surprises.js';
 import { catchEl } from './catch.js';
 import { createAdminTapHandler } from './admin-entry.js';
+import { CLIENT_BUILD, CLIENT_VERSION } from './client-build.js';
+import { clientNeedsUpdate, allowAutomaticReload } from './client-update.js';
 import {
   h, icon, avatar, timeHM, listTime, dayLabel, lastSeenText, plural, richText, emojiCount,
   toast, openModal, closeTopModal, confirmDialog, contextMenu, closeMenu, registerOverlay, handleBack, goBack, navigate, afterHistory, isTouch, badge, nameWithBadge, linkRisk, bytes,
@@ -279,7 +281,8 @@ async function boot() {
 
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
-  navigator.serviceWorker.register('/sw.js').catch(() => {});
+  navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).catch(() => {});
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (S.config) checkVersion(); });
   navigator.serviceWorker.addEventListener('message', (e) => {
     if (e.data?.type === 'open-chat' && S.chats.has(e.data.chatId)) openChat(e.data.chatId);
   });
@@ -669,7 +672,8 @@ function connectSocket() {
   s.on('connect', () => {
     S.connected = true;
     V.conn.classList.add('hidden');
-    if (wasConnected) { checkVersion(); resync(); }
+    checkVersion();
+    if (wasConnected) resync();
     wasConnected = true;
   });
   s.on('me', (u) => {
@@ -798,16 +802,50 @@ function connectSocket() {
   });
 }
 
-/** After a server update the socket reconnects — reload to pick up the new client. */
-async function checkVersion() {
-  try {
-    const cfg = await api.get('/config');
-    if (cfg.version === S.config.version) return;
-    const busy = (V.input && V.input.value.trim()) || document.querySelector('.modal-backdrop');
-    if (!busy) return location.reload();
-    toast('Вышло обновление — оно применится после перезагрузки страницы');
-  } catch { /* offline */ }
+// Compare the code actually loaded by this tab with the server build, rather than
+// two values both read from /config. Preserve drafts and don't interrupt live calls.
+const clientVersion = () => CLIENT_VERSION || S.config?.version || 'dev';
+let checkingVersion = false;
+let reloadingClient = false;
+let updateNotice = null;
+function clientBusy() {
+  return !!rec || inCall() || inGroupCall() || !!S.editing || !!document.querySelector('.modal-backdrop');
 }
+function reloadClient() {
+  if (reloadingClient) return;
+  saveDraft();
+  reloadingClient = true;
+  location.reload();
+}
+async function checkVersion({ manual = false } = {}) {
+  if (checkingVersion || !S.config || reloadingClient) return;
+  checkingVersion = true;
+  try {
+    if (manual && 'serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.getRegistration();
+      await reg?.update().catch(() => {});
+    }
+    const cfg = await api.get('/config');
+    if (!clientNeedsUpdate(cfg, CLIENT_BUILD, S.config.version)) {
+      if (manual) toast('Установлена актуальная версия');
+      return;
+    }
+    const typing = !!V.input?.value.trim();
+    if (!clientBusy() && !typing && allowAutomaticReload(CLIENT_BUILD, cfg.clientBuild || cfg.version)) return reloadClient();
+    if (!updateNotice?.isConnected) {
+      updateNotice = h('div', { class: 'client-update-notice', role: 'status' },
+        h('span', {}, 'Доступна новая версия Limochat'),
+        h('button', { class: 'btn btn-primary btn-sm', onclick: () => {
+          if (clientBusy()) return toast('Завершите запись, звонок или редактирование и закройте открытое окно');
+          reloadClient();
+        } }, 'Обновить'));
+      document.body.append(updateNotice);
+    }
+    if (manual) toast('Нажмите «Обновить» на плашке. Набранный черновик сохранится');
+  } catch { if (manual) toast('Не удалось проверить обновления. Проверьте соединение', 'error'); }
+  finally { checkingVersion = false; }
+}
+setInterval(() => { if (!document.hidden) checkVersion(); }, 60_000);
 
 function clearTyping(chatId, userId) {
   const t = S.typing.get(chatId);
@@ -1900,7 +1938,7 @@ function markRead() {
 }
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) saveDraft();
-  else markRead();
+  else { markRead(); checkVersion(); }
 });
 window.addEventListener('pagehide', saveDraft);
 
@@ -3341,9 +3379,9 @@ function openDrawer() {
       h('div', { class: 'drawer-sep' }),
       item('logout', 'Выйти', async () => { if (await confirmDialog('Выйти из аккаунта на этом устройстве?', { ok: 'Выйти', danger: true })) logout(); }, 'danger')),
     h('div', { class: 'drawer-foot' }, h('img', { src: '/icons/icon.svg', alt: '' }), h('b', {}, 'Limochat'), h(me.isAdmin ? 'button' : 'span', me.isAdmin ? {
-      type: 'button', class: 'drawer-version', 'aria-label': `Версия ${S.config.version || 'dev'}`,
+      type: 'button', class: 'drawer-version', 'aria-label': `Версия ${clientVersion()}`,
       onclick: createAdminTapHandler({ isAdmin: () => !!S.me?.isAdmin, open: () => { close(); navigate('/admin'); } }),
-    } : {}, S.config.version || 'dev')));
+    } : {}, clientVersion())));
   backdrop = h('div', { class: 'drawer-backdrop', onclick: (e) => { if (e.target === backdrop) close(); } }, panel);
   document.body.append(backdrop);
   requestAnimationFrame(() => backdrop.classList.add('show'));
@@ -3720,7 +3758,8 @@ function settingsModal() {
           h('div', { class: 'row-sub' }, S.me.hasPassword ? `Вход по @${S.me.username} и паролю` : 'Чтобы входить без Google')), icon('key')),
       h('button', { class: 'set-row clickable', onclick: sessionsModal },
         h('div', { class: 'set-text' }, h('div', { class: 'row-main' }, 'Активные сеансы'), h('div', { class: 'row-sub' }, 'Где выполнен вход')), icon('devices'))),
-    h('div', { class: 'set-foot' }, `Limochat · ${S.config.version || 'dev'}`));
+    h('button', { class: 'btn btn-ghost btn-block', onclick: () => checkVersion({ manual: true }) }, 'Проверить обновления'),
+    h('div', { class: 'set-foot' }, `Limochat · ${clientVersion()}`));
   openModal({ title: 'Настройки', className: 'modal-settings', body });
 }
 
