@@ -191,14 +191,14 @@ function setTheme(id) {
 /** Seasonal controls live directly in Settings; theme selection stays in the gallery. */
 export function winterSettings() {
   const body = h('div', { class: 'winter-settings' });
-  const draw = () => body.replaceChildren(
+  const draw = () => body.replaceChildren(...[
       h('section', { class: 'winter-feature' },
         h('div', { class: 'winter-symbol', 'aria-hidden': 'true' }, '❄'),
         h('div', { class: 'grow' }, h('b', {}, 'Зимнее настроение'), h('p', { class: 'muted small' }, 'Ледяные оттенки и тихий снег в ваших чатах.')),
         h('button', { class: 'btn btn-primary btn-sm', onclick: () => { S.settings.snowflakes = true; S.settings.themeFx = true; setTheme('winter'); draw(); } }, 'Включить зимнюю тему')),
       h('label', { class: 'th-fx-toggle' }, h('input', { type: 'checkbox', checked: S.settings.snowflakes ?? currentTheme()?.effect === 'snow', onchange: (e) => { S.settings.snowflakes = e.target.checked; if (e.target.checked) S.settings.themeFx = true; onApplied?.(); draw(); } }), 'Снежинки в чатах — с любой темой'),
       S.settings.reduceMotion ? h('p', { class: 'muted small' }, 'Снег появится, если отключить «Меньше анимаций» в настройках.') : null
-  );
+  ].filter(Boolean));
   draw();
   return body;
 }

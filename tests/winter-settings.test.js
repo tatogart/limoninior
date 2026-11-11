@@ -6,7 +6,7 @@ import vm from 'node:vm';
 function fixture(settings) {
   const vars = new Map();
   const root = { dataset: { theme: 'light' }, style: { setProperty: (k, v) => vars.set(k, v), removeProperty: (k) => vars.delete(k) } };
-  const h = (tag, props = {}, ...children) => ({ tag, props, children: children.flat().filter(Boolean), replaceChildren(...nodes) { this.children = nodes.flat().filter(Boolean); } });
+  const h = (tag, props = {}, ...children) => ({ tag, props, children: children.flat().filter(Boolean), replaceChildren(...nodes) { this.children = nodes.map((n) => n && typeof n === 'object' ? n : String(n)); } });
   const document = { documentElement: root, querySelectorAll: () => [], querySelector: () => null };
   let modal;
   const load = (file, names) => {
@@ -36,6 +36,7 @@ test('winter palette replaces a manual incoming colour and Standard restores it'
   const f = fixture(settings);
   assert.equal(f.vars.get('--bubble-in'), '#3f1d2e');
   const controls = f.themes.winterSettings();
+  assert.ok(!controls.children.includes('null'));
   find(controls, (n) => n.tag === 'button').props.onclick();
   assert.equal(settings.themeId, 'winter');
   assert.equal(f.root.dataset.theme, 'light');
