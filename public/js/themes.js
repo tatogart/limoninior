@@ -1,6 +1,7 @@
 // Personalization themes: lots of ready-made themes + your own theme editor.
 // A theme overrides colors, chat wallpaper, bubble shape, font and an optional animated effect.
 // Themes can be sent to a chat as a card — the other person applies it in one tap.
+import { selectedEffect } from './theme-effects.js';
 import { api, errorText } from './api.js';
 import { h, icon, toast, openModal, isTouch } from './ui.js';
 
@@ -27,6 +28,7 @@ export const EFFECTS = {
 // base: light | dark; wall: 3-4 mesh colors + backdrop; bubble: outgoing bubble color (optional).
 const T = (id, name, emoji, base, accent, accent2, wall, more = {}) => ({ id, name, emoji, base, accent, accent2, wall, radius: 18, font: 'system', effect: 'none', pattern: false, ...more });
 export const PRESETS = [
+  T('winter', 'Зимнее настроение', '❄️', 'light', '#287fbc', '#8bcfe5', ['#bae6fd', '#e0e7ff', '#cffafe', '#f4fbff'], { effect: 'snow', radius: 22, font: 'rounded' }),
   T('lemonade', 'Лимонад', '🍋', 'light', '#5cb85c', '#c3e15a', ['#d9f99d', '#bbf7d0', '#fef08a', '#fbfde8'], { pattern: true }),
   T('sky', 'Небо', '☁️', 'light', '#3390ec', '#6fc3ff', ['#bae6fd', '#c7d2fe', '#e0f2fe', '#f8fbff']),
   T('sakura', 'Сакура', '🌸', 'light', '#e5568d', '#ffb3cf', ['#fbcfe8', '#fde2e4', '#f5d0fe', '#fff5f8'], { effect: 'sakura', font: 'rounded', radius: 22 }),
@@ -136,11 +138,11 @@ export function applyCustomTheme(root = document.documentElement) {
 
 function renderEffect(t) {
   document.querySelectorAll('.fx-layer').forEach((x) => x.remove());
-  const fx = t && EFFECTS[t.effect];
-  if (!fx?.chars.length || S.settings.reduceMotion || S.settings.themeFx === false) return;
+  const effect = selectedEffect(t, S.settings);
+  if (!EFFECTS[effect]?.chars.length) return;
   const pane = document.querySelector('.chat-pane');
   if (!pane) return;
-  pane.prepend(effectLayer(t.effect));
+  pane.prepend(effectLayer(effect));
 }
 export function effectLayer(effect, n = 16) {
   const fx = EFFECTS[effect];
@@ -199,6 +201,12 @@ export function themesModal() {
         h('div', { class: 'th-top-acts' },
           h('button', { class: 'btn btn-ghost btn-sm', onclick: () => codeModal(render) }, 'Ввести код'),
           h('button', { class: 'btn btn-primary btn-sm', onclick: () => themeEditor(null, render) }, icon('plus'), 'Создать свою'))),
+      h('section', { class: 'winter-feature' },
+        h('div', { class: 'winter-symbol', 'aria-hidden': 'true' }, '❄'),
+        h('div', { class: 'grow' }, h('b', {}, 'Зимнее настроение'), h('p', { class: 'muted small' }, 'Ледяные оттенки и тихий снег в ваших чатах.')),
+        h('button', { class: 'btn btn-primary btn-sm', onclick: () => { S.settings.snowflakes = true; S.settings.themeFx = true; setTheme('winter'); render(); } }, 'Включить зимнюю тему')),
+      h('label', { class: 'th-fx-toggle' }, h('input', { type: 'checkbox', checked: S.settings.snowflakes ?? currentTheme()?.effect === 'snow', onchange: (e) => { S.settings.snowflakes = e.target.checked; if (e.target.checked) S.settings.themeFx = true; onApplied?.(); render(); } }), 'Снежинки в чатах — с любой темой'),
+      S.settings.reduceMotion ? h('p', { class: 'muted small' }, 'Снег появится, если отключить «Меньше анимаций» в настройках.') : null,
       mine.length ? h('div', { class: 'th-sec' }, `Мои темы · ${mine.length}`) : null,
       mine.length ? h('div', { class: 'th-grid' }, mine.map((t) => card(t, pick, h('div', { class: 'th-acts' },
         h('button', { class: 'icon-btn sm', 'aria-label': 'Изменить', onclick: () => themeEditor(t, render) }, icon('edit')),

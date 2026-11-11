@@ -1,6 +1,7 @@
 // Roles and badges ("Лимон чат" rewards for playing in the owner's offline game launcher).
 // The launcher is offline, so the admin grants them by hand in the panel and can add new ones there.
 import { db, q, now, kvGet, kvSet, audit } from './db.js';
+import { SUPPORTER_OFFER } from '../public/js/catalog.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS user_rewards (
@@ -16,12 +17,14 @@ if (!q("SELECT 1 FROM pragma_table_info('users') WHERE name = 'shown_role'").get
 
 /** Built-in rewards (from the launcher's "Лимон чат" list). Admins can add more in the panel. */
 export const BUILTIN_REWARDS = [
+  { id: SUPPORTER_OFFER.id, kind: 'badge', name: SUPPORTER_OFFER.name, emoji: SUPPORTER_OFFER.emoji, color: '#d99a24', desc: 'Поддержка развития Limochat · значок и тег навсегда' },
   { id: 'tireless', kind: 'role', name: 'Неутомимый', emoji: '⏱️', color: '#f59e0b', desc: '40 часов в играх' },
   { id: 'collector', kind: 'badge', name: 'Коллекционер', emoji: '🏅', color: '#eab308', desc: '10 достижений' },
   { id: 'legend', kind: 'role', name: 'Легенда', emoji: '👑', color: '#a855f7', desc: '51 достижение' },
   { id: 'explorer', kind: 'badge', name: 'Исследователь', emoji: '🧭', color: '#0ea5e9', desc: 'Сыграть в 17 разных игр' },
   { id: 'veteran', kind: 'role', name: 'Ветеран', emoji: '🎖️', color: '#ef4444', desc: 'Уровень профиля 15' },
 ];
+export const hasSupporter = (userId) => !!q("SELECT 1 FROM user_rewards WHERE user_id = ? AND reward = 'supporter'").get(userId);
 const ID_RE = /^[a-z][a-z0-9_-]{1,31}$/;
 
 export function rewardCatalog() {
@@ -68,7 +71,7 @@ export function registerRewards(api, { bad, pushMe }) {
 }
 
 /** Admin panel: manage the catalog and grant by hand. */
-export function registerRewardsAdmin(admin, { pushMe, notify }) {
+export function registerRewardsAdmin(admin, { pushMe, notify, broadcastUser = () => {} }) {
   const log = (req, action, details) => audit(req.user.id, req.ip, action, details);
   admin.get('/rewards', (req, res) => {
     const counts = new Map(q('SELECT reward, COUNT(*) AS n FROM user_rewards GROUP BY reward').all().map((r) => [r.reward, r.n]));
@@ -96,6 +99,7 @@ export function registerRewardsAdmin(admin, { pushMe, notify }) {
     res.json({ ok: true });
   });
   admin.delete('/rewards/:id', (req, res) => {
+    if (BUILTIN_REWARDS.some((r) => r.id === req.params.id)) return res.status(400).json({ error: 'builtin_reward' });
     let custom = [];
     try { custom = JSON.parse(kvGet('rewards_custom') || '[]'); } catch { /* reset */ }
     kvSet('rewards_custom', JSON.stringify(custom.filter((x) => x.id !== req.params.id)));
@@ -113,6 +117,7 @@ export function registerRewardsAdmin(admin, { pushMe, notify }) {
     if (req.body?.grant === false) revokeReward(uid, r.id);
     else if (grantReward(uid, r.id, 'admin')) notify(uid, `🎉 ${r.kind === 'role' ? 'Вам выдана роль' : 'Вам выдан значок'} ${r.emoji} «${r.name}»${r.desc ? ` — ${r.desc}` : ''}!`);
     pushMe(uid);
+    broadcastUser(q('SELECT * FROM users WHERE id = ?').get(uid));
     log(req, req.body?.grant === false ? 'admin_reward_revoke' : 'admin_reward_grant', { userId: uid, username: u.username, reward: r.id });
     res.json({ ok: true, rewards: userRewards(uid) });
   });

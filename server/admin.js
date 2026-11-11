@@ -8,7 +8,7 @@ import { requireAuth, isAdminUser } from './auth.js';
 import { verifyTotp } from './totp.js';
 import { isOnline, disconnectUser, disconnectSession, sessionOnline, disconnectIp } from './realtime.js';
 import { banIp, unbanIp, listIpBans, userIps, normIp, validIp } from './ipban.js';
-import { ensurePrivateChat, postMessage, pushMe, pushChat, deleteChat, OFFICIAL_SUB, sellerUser, activePlan, officialUser, removeMessage } from './api.js';
+import { ensurePrivateChat, postMessage, broadcastProfile, pushMe, pushChat, deleteChat, OFFICIAL_SUB, sellerUser, activePlan, officialUser, removeMessage } from './api.js';
 import { registerAdminPro } from './admin-pro.js';
 import { registerRewardsAdmin } from './rewards.js';
 import { planById } from '../public/js/catalog.js';
@@ -443,5 +443,5 @@ admin.post('/vacuum', (req, res) => {
   res.json({ ok: true });
 });
 
-registerRewardsAdmin(admin, { pushMe, notify: (...a) => notifyOwner(...a) });
+registerRewardsAdmin(admin, { pushMe, broadcastUser: broadcastProfile, notify: (...a) => notifyOwner(...a) });
 registerAdminPro(admin, { targetUser, anyUser, deviceInfo, notifyOwner, protectedIps });

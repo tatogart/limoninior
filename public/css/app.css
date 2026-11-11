@@ -2750,3 +2750,12 @@ button, input, textarea, select { font-family: inherit; }
 .client-update-notice { position: fixed; z-index: 1300; left: 50%; bottom: calc(90px + env(safe-area-inset-bottom)); transform: translateX(-50%); display: flex; align-items: center; gap: 12px; width: max-content; max-width: calc(100vw - 24px); padding: 12px 14px; border: 1px solid var(--border-strong); border-radius: 18px; background: var(--bg); color: var(--text); box-shadow: var(--shadow-lg); font-size: 13px; }
 .client-update-notice > span { min-width: 0; }
 .client-update-notice > button { flex-shrink: 0; }
+
+/* Seasonal theme and independent project supporter mark. */
+.winter-feature{display:flex;align-items:center;flex-wrap:wrap;gap:14px;padding:18px;border-radius:20px;background:linear-gradient(125deg,color-mix(in srgb,var(--accent) 16%,var(--bg)),var(--bg-2));border:1px solid color-mix(in srgb,var(--accent) 25%,transparent)}
+.winter-feature .grow{min-width:170px}.winter-feature p{margin:6px 0 0}.winter-symbol{font-size:42px;color:var(--accent)}
+.supporter-offer{margin-top:26px;padding:20px;border-radius:20px;border:1px solid #d99a2455;background:linear-gradient(135deg,#d99a2414,transparent)}
+.supporter-offer h3{margin:18px 0 8px}.supporter-preview,.pf-role{display:flex;align-items:center;justify-content:center;gap:7px;flex-wrap:wrap}
+.supporter-badge{display:inline-flex;align-items:center;font-size:.9em;vertical-align:middle;flex-shrink:0}.supporter-tag{white-space:normal}.supporter-offer .plan-price{margin:16px 0}
+.sender-name{flex-wrap:wrap;gap:4px;white-space:normal}
+@media(prefers-reduced-motion:reduce){.fx-layer{display:none!important}}

@@ -7,7 +7,7 @@ import {
   requireAuth, requireProfile, isAdminUser, hashPassword, verifyPassword, createLocalUser, sessionFromCookie,
 } from './auth.js';
 import {
-  isValidSticker, giftById, stickerInfo, PLANS, planById, FREE_FILE_MB, isDangerousFile, fileExt,
+  isValidSticker, giftById, stickerInfo, SUPPORTER_OFFER, PLANS, planById, FREE_FILE_MB, isDangerousFile, fileExt,
 } from '../public/js/catalog.js';
 import { upload, uploadFile, saveImage, saveFile, saveVoice, saveVideo, copyMedia, deleteMediaFile } from './media.js';
 import { sendPush, saveSubscription, removeSubscription, vapidPublicKey } from './push.js';
@@ -26,7 +26,7 @@ import { registerSocial } from './social.js';
 import { registerProfiles, profileView } from './profiles.js';
 import { registerDuels, refundDuel } from './duels.js';
 import { registerAnon } from './anon.js';
-import { registerRewards } from './rewards.js';
+import { registerRewards, hasSupporter } from './rewards.js';
 import { trackStreak, streakFor, restoreStreak, offerStreak, setOfferMessage, answerStreak, stopStreak } from './streaks.js';
 import { publicPlatform, platform, featureGate, filterText, moderationError, registerReports } from './moderation.js';
 
@@ -75,6 +75,7 @@ export function publicUser(u) {
     createdAt: u.created_at,
     verified: !!u.verified,
     role: u.shown_role || null,
+    supporter: hasSupporter(u.id),
     px: profileView(u),
     official: u.google_sub === OFFICIAL_SUB,
     bot,
@@ -340,6 +341,8 @@ const searchLimiter = rateLimit({
 
 // ---------- auth ----------
 
+api.get('/partners/contact', (req, res) => res.json({ username: sellerUser()?.username || null }));
+
 api.get('/config', (req, res) => {
   res.json({ googleClientId: config.googleClientId, devLogin: config.devLogin, passwordLogin: true, version: config.version, clientBuild: config.clientBuild, platform: publicPlatform() });
 });
@@ -524,7 +527,7 @@ api.post('/push/unsubscribe', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-function broadcastProfile(user) {
+export function broadcastProfile(user) {
   // Channels excluded: subscribers must not learn about each other.
   const ids = q(`SELECT DISTINCT m2.user_id AS id FROM chat_members m1
                  JOIN chats c ON c.id = m1.chat_id AND c.type != 'channel'
@@ -1251,7 +1254,7 @@ export function sellerUser() {
 }
 
 api.get('/subscriptions', (req, res) => {
-  res.json({ plans: PLANS, seller: publicUser(sellerUser()), current: activePlan(req.user)?.id || null, until: activePlan(req.user) ? req.user.sub_until : 0 });
+  res.json({ supporter: hasSupporter(req.user.id), supporterOffer: SUPPORTER_OFFER, plans: PLANS, seller: publicUser(sellerUser()), current: activePlan(req.user)?.id || null, until: activePlan(req.user) ? req.user.sub_until : 0 });
 });
 
 // ---------- calls ----------

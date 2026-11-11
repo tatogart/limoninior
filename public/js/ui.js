@@ -125,8 +125,15 @@ export function badge() {
 
 /** Name followed by the verified badge when applicable. */
 const SUB_EMOJI = { plus: '⭐', premium: '💎', max: '👑' };
+export function supporterBadge(user) {
+  return user?.supporter ? h('span', { class: 'supporter-badge', role: 'img', 'aria-label': 'Поддержал проект', title: 'Поддержал проект 💛' }, '💛') : null;
+}
+export function supporterTag(user, cls = '') {
+  return user?.supporter ? h('span', { class: `role-tag supporter-tag ${cls}`, style: { '--rc': '#d99a24' }, title: 'Спасибо за поддержку развития Limochat' }, 'Поддержал проект') : null;
+}
 export function nameWithBadge(name, user) {
   const out = [name];
+  if (user?.supporter) out.push(supporterBadge(user));
   if (user?.verified) out.push(badge());
   if (user?.sub && SUB_EMOJI[user.sub]) out.push(h('span', { class: `sub-badge sub-${user.sub}`, title: `Limochat ${user.sub[0].toUpperCase()}${user.sub.slice(1)}` }, SUB_EMOJI[user.sub]));
   if (user?.px?.emoji) out.push(h('span', { class: 'emoji-status', title: user.px.mood || 'Эмодзи-статус' }, user.px.emoji));

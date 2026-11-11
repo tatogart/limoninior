@@ -8,7 +8,7 @@ import { CLIENT_BUILD, CLIENT_VERSION } from './client-build.js';
 import { clientNeedsUpdate, allowAutomaticReload } from './client-update.js';
 import {
   h, icon, avatar, timeHM, listTime, dayLabel, lastSeenText, plural, richText, emojiCount,
-  toast, openModal, closeTopModal, confirmDialog, contextMenu, closeMenu, registerOverlay, handleBack, goBack, navigate, afterHistory, isTouch, badge, nameWithBadge, linkRisk, bytes,
+  toast, openModal, closeTopModal, confirmDialog, contextMenu, closeMenu, registerOverlay, handleBack, goBack, navigate, afterHistory, isTouch, badge, nameWithBadge, supporterBadge, supporterTag, linkRisk, bytes,
 } from './ui.js';
 import { STICKER_PACKS, stickerInfo, GIFTS, giftById, REACTIONS, PLANS, planById, isDangerousFile, fileExt } from './catalog.js';
 import { initCalls, startCall, inCall } from './calls.js';
@@ -1601,7 +1601,7 @@ function messageEl(c, m, first, last, read) {
   const special = m.kind === 'sticker' ? 'sticker' : m.kind === 'gift' ? 'gift-bubble' : '';
   const bubble = h('div', { class: `bubble ${bigEmoji ? 'big-emoji' : ''} ${imageOnly ? 'image-only' : ''} ${m.kind === 'image' ? 'has-image' : ''} ${special}` });
   if (group && !mine && first && !bigEmoji && m.kind !== 'sticker') {
-    bubble.append(h('div', { class: 'sender-name' }, h('span', nameStyleProps(S.users.get(m.senderId), nameColor(m.senderId)), userName(m.senderId)), S.users.get(m.senderId)?.verified ? badge() : null, S.users.get(m.senderId)?.px?.emoji ? h('span', { class: 'emoji-status' }, S.users.get(m.senderId).px.emoji) : null, roleTag(S.users.get(m.senderId)?.role, 'small')));
+    bubble.append(h('div', { class: 'sender-name' }, h('span', nameStyleProps(S.users.get(m.senderId), nameColor(m.senderId)), userName(m.senderId)), S.users.get(m.senderId)?.verified ? badge() : null, S.users.get(m.senderId)?.px?.emoji ? h('span', { class: 'emoji-status' }, S.users.get(m.senderId).px.emoji) : null, roleTag(S.users.get(m.senderId)?.role, 'small'), supporterBadge(S.users.get(m.senderId)), supporterTag(S.users.get(m.senderId), 'small')));
     ensureUser(m.senderId);
   }
   if (m.extra?.fwd) {
@@ -3373,6 +3373,7 @@ function openDrawer() {
       item('gift', 'Пригласить друзей', referralModal, 'ref-item'),
       item('crown', S.me.subUntil ? `${planById(S.me.sub)?.name || 'Подписка'} ✓` : 'Limochat Premium', subscriptionsModal, 'premium-item'),
       item('settings', 'Настройки', settingsModal),
+      item('sparkles', 'Сотрудничество', () => window.open('/partners', '_blank', 'noopener')),
       item('info', 'Справка', () => window.open('/help', '_blank', 'noopener')),
       themeToggle,
       !isStandalone() ? item('download', 'Установить приложение', installApp) : null,
@@ -3416,7 +3417,7 @@ function profileHero(u, { avatarNode, status, onClose, extra } = {}) {
     cover,
     h('div', { class: 'pf-avatar' }, avatarNode || userAvatar(u, 116)),
     h('div', { class: 'pf-name' }, h('span', nameStyleProps(u), u.name), ...nameWithBadge(u.name, u).slice(1)),
-    u.role ? h('div', { class: 'pf-role' }, roleTag(u.role)) : null,
+    u.role || u.supporter ? h('div', { class: 'pf-role' }, roleTag(u.role), supporterTag(u)) : null,
     moodEl(u),
     status ? h('div', { class: `pf-status ${u.online ? 'online' : ''}` }, status) : null);
 }
@@ -4167,17 +4168,19 @@ async function subscriptionsModal() {
   let data;
   try { data = await api.get('/subscriptions'); } catch (e) { return toast(errorText(e), 'error'); }
   const cur = data.current;
-  const buy = async (plan) => {
+  const buy = async (plan, supporter = false) => {
     if (!data.seller) return toast('Продавец не настроен — напишите администратору', 'error');
     if (data.seller.id === S.me.id) return toast('Это вы продаёте подписки 🙂');
     try {
       const { chat } = await api.post('/chats/private', { userId: data.seller.id });
       upsertChat(chat);
-      const text = `Привет! Хочу купить ${plan.name} (${plan.price} ₽/мес). Мой юзернейм: @${S.me.username}`;
+      const text = supporter
+        ? `Привет! Хочу поддержать проект за ${plan.price} ₽ и получить значок 💛 и тег «Поддержал проект». Мой юзернейм: @${S.me.username}`
+        : `Привет! Хочу купить ${plan.name} (${plan.price} ₽/мес). Мой юзернейм: @${S.me.username}`;
       while (closeTopModal()) { /* close all */ }
       renderChatList();
       openChat(chat.id);
-      if (V.input) { V.input.value = text; autosize(); updateSendBtn(); }
+      if (V.input) { V.input.value = text; saveDraft(); autosize(); updateSendBtn(); }
       toast('Напишите продавцу — сообщение уже подготовлено ✍️');
     } catch (e) { toast(errorText(e), 'error'); }
   };
@@ -4195,7 +4198,15 @@ async function subscriptionsModal() {
           h('div', {}, h('div', { class: 'plan-name' }, p.name), h('div', { class: 'plan-price' }, h('b', {}, `${p.price} ₽`), ' / месяц'))),
         h('ul', { class: 'plan-perks' }, p.perks.map((x) => h('li', {}, icon('check'), x))),
         h('button', { class: 'btn btn-block plan-buy', onclick: () => buy(p) }, cur === p.id ? 'Продлить' : 'Купить'))),
-      data.seller ? h('p', { class: 'muted small center' }, 'Кнопка «Купить» откроет чат с ', h('b', {}, `@${data.seller.username}`), '. После оплаты подписка включится вручную.') : null),
+      data.seller ? h('p', { class: 'muted small center' }, 'Кнопка «Купить» откроет чат с ', h('b', {}, `@${data.seller.username}`), '. После оплаты подписка включится вручную.') : null,
+      data.supporterOffer ? h('section', { class: 'supporter-offer' },
+        h('div', { class: 'th-sec' }, 'Поддержать проект'),
+        h('div', { class: 'supporter-preview' }, supporterBadge({ supporter: true }), h('b', {}, S.me.name), supporterTag({ supporter: true })),
+        h('h3', {}, 'Маленький знак большой поддержки'),
+        h('p', { class: 'muted small' }, 'Значок 💛 возле имени и отдельный тег «Поддержал проект» навсегда. Сочетаются с вашей подпиской и игровой ролью.'),
+        h('p', { class: 'plan-price' }, h('b', {}, `${data.supporterOffer.price} ₽`), ' · один раз'),
+        h('button', { class: 'btn btn-primary btn-block', disabled: data.supporter, onclick: () => buy(data.supporterOffer, true) }, data.supporter ? '💛 Спасибо за поддержку!' : 'Поддержать за 549 ₽'),
+        h('p', { class: 'muted small' }, 'Откроется чат с владельцем. После подтверждения оплаты он выдаст значок и тег одной кнопкой.')) : null),
   });
 }
 

@@ -17,6 +17,8 @@ const loop = monitorEventLoopDelay({ resolution: 20 });
 loop.enable();
 let cpuPrev = { usage: process.cpuUsage(), t: process.hrtime.bigint() };
 
+import { hasSupporter } from './rewards.js';
+
 const DAY = 864e5;
 const dayKey = (t) => new Date(t).toISOString().slice(0, 10);
 const media = (n) => (n ? `/media/${n}` : null);
@@ -131,7 +133,7 @@ export function registerAdminPro(admin, { targetUser, anyUser, deviceInfo, notif
         ...userBrief(u), email: u.email, bio: u.bio, createdAt: u.created_at, lastSeen: u.last_seen, coins: u.coins,
         banned: !!u.banned, bannedUntil: u.banned_until, banReason: u.ban_reason, mutedUntil: u.muted_until > t ? u.muted_until : 0,
         isAdmin: isAdminUser(u), official: u.google_sub === OFFICIAL_SUB, bot: String(u.google_sub).startsWith('bot:'),
-        hasPassword: !!u.password_hash, sub: plan?.id || null, subUntil: plan ? u.sub_until : 0,
+        supporter: hasSupporter(u.id), hasPassword: !!u.password_hash, sub: plan?.id || null, subUntil: plan ? u.sub_until : 0,
         referredBy: u.referred_by ? userBrief(q('SELECT * FROM users WHERE id = ?').get(u.referred_by)) : null,
       },
       stats: {

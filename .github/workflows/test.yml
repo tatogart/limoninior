@@ -1,0 +1,19 @@
+name: Tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm test
+      - name: Check JavaScript syntax
+        run: find server public/js scripts tests -type f \( -name '*.js' -o -name '*.mjs' \) -exec node --check {} \;
+      - name: Build installed client
+        run: node scripts/build-client.mjs public

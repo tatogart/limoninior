@@ -53,6 +53,7 @@ export const START_COINS = 100;
 export const REACTIONS = ['👍', '❤️', '🔥', '😂', '😮', '😢', '🎉', '🍋', '🤯', '👎'];
 
 // ---------- subscriptions ----------
+export const SUPPORTER_OFFER = { id: 'supporter', name: 'Поддержал проект', emoji: '💛', price: 549 };
 export const FREE_FILE_MB = 25;
 export const PLANS = [
   {

@@ -443,6 +443,7 @@ async function dossier(id) {
     btn('🍋 Лимоны', () => coinsDialog(u, (body) => post('coins', body, 'Готово'))),
     btn(u.sub ? '👑 Подписка' : '👑 Выдать подписку', () => subDialog(u, (body) => post('subscription', body, 'Готово'))),
     btn(u.verified ? 'Снять галочку' : '✓ Галочка', () => post('verify', { verified: !u.verified }, 'Готово')),
+    btn(u.supporter ? '💛 Снять отметку поддержки' : '💛 Выдать значок + тег поддержки', () => post('rewards', { reward: 'supporter', grant: !u.supporter }, u.supporter ? 'Отметка снята' : 'Значок и тег выданы')),
     btn('🏆 Роли и значки', () => rewardsDialog(u)),
     protectedUser ? null : btn(u.mutedUntil ? '🔊 Вернуть право писать' : '🔇 Запретить писать…', (e) => (u.mutedUntil ? post('mute', { hours: 0 }, 'Ограничение снято')
       : choose(e.currentTarget, [1, 24, 168, 720].map((hh) => ({ icon: 'mute', label: hh < 24 ? '1 час' : `${hh / 24} ${plural(hh / 24, 'день', 'дня', 'дней')}`, onClick: () => post('mute', { hours: hh }, 'Ограничение включено') }))))),
