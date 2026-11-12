@@ -1,3 +1,4 @@
+import {TRAITS as COLLECTIBLE_TRAITS} from './collectible-traits.js';
 // Small DOM toolkit. All user content goes through textContent — never innerHTML.
 
 export function h(tag, props = {}, ...children) {
@@ -134,7 +135,7 @@ export function supporterTag(user, cls = '') {
 export function nameWithBadge(name, user) {
   const out = [name];
   if(user?.scam)out.push(h('span',{class:'scam-badge',title:user.scamReason||'Администрация пометила этот аккаунт как SCAM'},'SCAM'));
-  if(user?.collectible)out.push(h('span',{class:'collectible-mark',title:user.collectible.name+' #'+user.collectible.id},user.collectible.emoji));
+  if(user?.collectible){const c=user.collectible,art=c.art||({'lemon-crystal':'diamond','moon-lemon':'moon','golden-orbit':'planet'}[c.collection]||'gift'),hue=COLLECTIBLE_TRAITS.color.find(x=>x.id===c.traits?.color?.id)?.hue||0;out.push(h('span',{class:'collectible-mark',title:c.name+' #'+c.id,dataset:{backdrop:c.traits?.backdrop?.id||c.backdrop||'aurora'}},h('img',{class:'collectible-mark-picture',src:'/gifts/'+art+'.svg',alt:c.name,width:24,height:24,style:{filter:'hue-rotate('+hue+'deg)'}})));}
   if (user?.supporter) out.push(supporterBadge(user));
   if (user?.verified && !user?.scam) out.push(badge());
   if (user?.sub && SUB_EMOJI[user.sub]) out.push(h('span', { class: `sub-badge sub-${user.sub}`, title: `Limochat ${user.sub[0].toUpperCase()}${user.sub.slice(1)}` }, SUB_EMOJI[user.sub]));
