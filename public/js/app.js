@@ -3614,7 +3614,7 @@ const WALLPAPERS = [
 ];
 
 function settingsModal() {
-  const body = h('div', { class: 'settings' }, h('button',{class:'btn',onclick:familyModal},'Родительский контроль'));
+  const body = h('div', { class: 'settings' });
   const section = (ic, title, ...rows) => h('section', { class: 'set-section' },
     h('div', { class: 'set-title' }, h('span', { class: 'set-ic' }, icon(ic)), title),
     h('div', { class: 'set-card' }, rows.flat().filter(Boolean)));
@@ -3721,6 +3721,7 @@ function settingsModal() {
   renderWalls();
 
   body.append(
+    section('shield', 'Родительский контроль', h('button',{class:'set-row clickable',onclick:familyModal},h('div',{class:'set-text'},h('div',{class:'row-main'},'Семья и ограничения'),h('div',{class:'row-sub'},'Привязка аккаунта, родительский PIN и расписание')))),
     section('sparkles', 'Зимнее настроение', winterSettings()),
     section('sparkles', 'Оформление',
       h('button', { class: 'set-row clickable th-set-row', onclick: () => { themesModal(); } },
