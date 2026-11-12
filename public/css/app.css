@@ -2817,3 +2817,18 @@ button, input, textarea, select { font-family: inherit; }
 .gift-item-art .gift-art-image,.pg-art .gift-art-image{width:64px;height:64px}
 
 .gift-confirm-art .gift-art-image{width:110px;height:110px}
+/* Compact gift collection: native dropdowns keep readable system colours. */
+.collectibles-ui{display:grid;gap:10px;font-size:13px}
+.collectibles-ui .collection-grid,.modal .collection-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+.collectibles-ui .collectible-card{padding:10px;gap:6px;min-width:0;font-size:13px}
+.collectibles-ui .collectible-card .btn{padding:7px 9px;min-height:32px;font-size:12px}
+.collectibles-ui .collectible-preview{max-width:180px;margin:auto;border-radius:12px}
+.collectibles-ui .ws-chip{padding:6px 10px;font-size:12px}
+.collectibles-ui .input{font-size:13px;min-height:36px;padding:7px 9px}
+.collectible-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(125px,.7fr);gap:8px}
+.collectibles-ui select option{background:#fff;color:#111}
+.collectible-hint{grid-column:1/-1;margin:0;color:var(--text-2)}
+.collectibles-ui summary{cursor:pointer;color:var(--text-2);padding:5px}
+.collectibles-ui p{margin:0}
+
+.collectibles-modal{width:min(600px,calc(100vw - 20px))}.collectibles-ui .collectible-card details{width:100%}

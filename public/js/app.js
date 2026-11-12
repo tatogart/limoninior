@@ -3356,7 +3356,7 @@ async function deleteChannel(c) {
 
 // ============================================================ drawer & modals
 
-function openCollectibles(){return collectiblesModal({refreshMe:async()=>{S.me=(await api.get('/me')).user;mergeUser(S.me);if(S.current)renderHeader();},buy:async item=>{try{const data=await api.get('/subscriptions');if(!data.seller)return toast('Продавец не настроен');const {chat}=await api.post('/chats/private',{userId:data.seller.id});upsertChat(chat);while(closeTopModal()){}openChat(chat.id);if(V.input){V.input.value='Привет! Хочу купить коллекционный подарок «'+item.name+'» за '+item.price+' ₽. Мой аккаунт: @'+S.me.username;saveDraft();autosize();updateSendBtn();}}catch(e){toast(errorText(e),'error');}}});}
+function openCollectibles(){return collectiblesModal({refreshMe:async()=>{S.me=(await api.get('/me')).user;mergeUser(S.me);if(S.current)renderHeader();}});}
 
 function ownProfilePreview(){return openUserProfile(S.me.id,true);}
 
