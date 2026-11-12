@@ -115,7 +115,7 @@ function addColumn(table, name, ddl) {
 
 addColumn('users', 'password_hash', 'TEXT');
 addColumn('users', 'verified', 'INTEGER NOT NULL DEFAULT 0');
-addColumn('users', 'coins', 'INTEGER NOT NULL DEFAULT 100');
+addColumn('users', 'coins', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('users', 'last_bonus', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('messages', 'extra', 'TEXT');
 

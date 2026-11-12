@@ -2799,3 +2799,5 @@ button, input, textarea, select { font-family: inherit; }
 @media(max-width:480px) { .ws-modal { width:calc(100vw - 12px); } .ws-grid { gap:8px; } .ws-card { padding:12px; } .ws-intro { padding:16px; } .ws-actions .btn { flex-grow:1; } }
 .ctx-menu { max-height:calc(100dvh - 16px); max-width:calc(100vw - 16px); overflow-y:auto; overscroll-behavior:contain; }
 .ws-target { border:2px solid var(--accent); background:color-mix(in srgb,var(--accent) 9%,var(--bg)); }
+
+.drawer-category summary{padding:14px 24px;cursor:pointer;font-weight:600;color:var(--text-2)}.drawer-category{border-bottom:1px solid var(--border)}.ctx-menu{max-height:min(440px,70dvh)}@media(prefers-reduced-motion:reduce){.drawer,.ctx-menu,.modal{backdrop-filter:none!important;transition:none!important}}

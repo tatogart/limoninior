@@ -33,3 +33,5 @@ async function loadContact() {
 }
 retry.addEventListener('click', loadContact);
 loadContact();
+
+document.querySelector('#team-form').addEventListener('submit',async e=>{e.preventDefault();const d=new FormData(e.currentTarget),text='Заявка в команду Limochat\\nРоль: '+d.get('role')+'\\nАккаунт: '+d.get('username')+'\\nОпыт: '+d.get('experience');const out=document.querySelector('#team-output');out.value=text;out.hidden=false;try{await navigator.clipboard.writeText(text);document.querySelector('#team-status').textContent='Заявка скопирована. Отправьте её через «Написать команде» выше.';}catch{out.focus();out.select();}});

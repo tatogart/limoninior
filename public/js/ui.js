@@ -476,6 +476,8 @@ export function closeMenu(fromBack = false) {
 /** Context menu at (x, y). items: [{ icon, label, danger, onClick }] */
 export function contextMenu(x, y, items) {
   closeMenu();
+  const all=items.filter(Boolean);
+  if(all.length>7){const primary=all.slice(0,5),rest=all.slice(5);items=[...primary,{icon:'more',label:'Ещё действия…',onClick:()=>afterHistory(()=>contextMenu(x,y,rest))}];}
   const menu = h('div', { class: 'ctx-menu', role: 'menu' }, items.filter(Boolean).map((it) => it.node || h('button', {
     class: `ctx-item ${it.danger ? 'danger' : ''}`,
     role: 'menuitem',

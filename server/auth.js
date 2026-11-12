@@ -35,8 +35,8 @@ export function upsertUser({ sub, email, name, picture }) {
     q('UPDATE users SET email = ?, google_pic = ?, last_seen = ? WHERE id = ?').run(email, picture, t, existing.id);
     return q('SELECT * FROM users WHERE id = ?').get(existing.id);
   }
-  const r = q(`INSERT INTO users (google_sub, email, name, google_pic, created_at, last_seen)
-               VALUES (?, ?, ?, ?, ?, ?)`).run(sub, email, (name || email.split('@')[0]).slice(0, 64), picture, t, t);
+  const r = q(`INSERT INTO users (google_sub, email, name, google_pic, created_at, last_seen, coins)
+               VALUES (?, ?, ?, ?, ?, ?, 0)`).run(sub, email, (name || email.split('@')[0]).slice(0, 64), picture, t, t);
   return q('SELECT * FROM users WHERE id = ?').get(r.lastInsertRowid);
 }
 
@@ -110,8 +110,8 @@ export async function verifyPassword(pw, stored) {
 /** Create a password (non-Google) account. google_sub gets a unique placeholder. */
 export function createLocalUser({ username, name, passwordHash }) {
   const t = now();
-  const r = q(`INSERT INTO users (google_sub, email, username, name, password_hash, created_at, last_seen)
-               VALUES (?, '', ?, ?, ?, ?, ?)`)
+  const r = q(`INSERT INTO users (google_sub, email, username, name, password_hash, created_at, last_seen, coins)
+               VALUES (?, '', ?, ?, ?, ?, ?, 0)`)
     .run(`local:${crypto.randomBytes(12).toString('hex')}`, username, name, passwordHash, t, t);
   return q('SELECT * FROM users WHERE id = ?').get(r.lastInsertRowid);
 }
