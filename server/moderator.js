@@ -2,14 +2,14 @@ import {db,q,now,audit} from './db.js';
 import {isAdminUser} from './auth.js';
 db.exec('CREATE TABLE IF NOT EXISTS staff_moderators(user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,granted_by INTEGER NOT NULL,granted_at INTEGER NOT NULL)');
 export const isModerator=(id)=>!!q('SELECT 1 FROM staff_moderators WHERE user_id=?').get(id);
-export function registerModeratorAdmin(admin){
+export function registerModeratorAdmin(admin,{pushMe}={}){
  admin.get('/users/:id/moderator',(req,res)=>res.json({enabled:isModerator(Number(req.params.id)||0)}));
  admin.post('/users/:id/moderator',(req,res)=>{
  const id=Number(req.params.id),u=q('SELECT * FROM users WHERE id=?').get(id||0);
  if(!u||isAdminUser(u)||typeof req.body?.enabled!=='boolean')return res.status(400).json({error:'forbidden'});
  if(req.body.enabled)q('INSERT INTO staff_moderators VALUES(?,?,?) ON CONFLICT(user_id) DO NOTHING').run(id,req.user.id,now());
  else q('DELETE FROM staff_moderators WHERE user_id=?').run(id);
- audit(req.user.id,req.ip,'moderator_access',{id,enabled:req.body.enabled});res.json({ok:true});
+ audit(req.user.id,req.ip,'moderator_access',{id,enabled:req.body.enabled});pushMe?.(id);res.json({ok:true});
  });
 }
 export function registerModerator(api,{publicUser,pushChat}){

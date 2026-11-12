@@ -2801,3 +2801,9 @@ button, input, textarea, select { font-family: inherit; }
 .ws-target { border:2px solid var(--accent); background:color-mix(in srgb,var(--accent) 9%,var(--bg)); }
 
 .drawer-category summary{padding:14px 24px;cursor:pointer;font-weight:600;color:var(--text-2)}.drawer-category{border-bottom:1px solid var(--border)}.ctx-menu{max-height:min(440px,70dvh)}@media(prefers-reduced-motion:reduce){.drawer,.ctx-menu,.modal{backdrop-filter:none!important;transition:none!important}}
+
+.custom-inline-emoji{display:inline-block;width:1.4em;height:1.4em;object-fit:contain;vertical-align:-.3em} [data-lite-glass=true] .modal,[data-lite-glass=true] .ctx-menu,[data-lite-glass=true] .drawer{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:var(--bg)!important}
+
+.collectible-card{display:grid;gap:12px;justify-items:center;padding:24px;border-radius:22px;border:1px solid var(--border);background:radial-gradient(ellipse at top,color-mix(in srgb,var(--collectible-color) 25%,var(--bg)),var(--bg));color:var(--text)}.collectible-art{font-size:72px;line-height:1.5;filter:drop-shadow(0 10px 12px color-mix(in srgb,var(--collectible-color) 35%,transparent))}.collectible-card small{color:var(--text-2)}[data-reading-font=rounded] .msg-text{font-family:ui-rounded,'Arial Rounded MT Bold',system-ui,sans-serif}[data-reading-font=mono] .msg-text{font-family:ui-monospace,Consolas,monospace}.collectible-mark{display:inline-flex;margin-left:4px;font-size:.9em}
+
+[data-lite-glass=true] .sidebar,[data-lite-glass=true] .chat-header,[data-lite-glass=true] .composer,[data-lite-glass=true] .bubble,[data-lite-glass=true] .msg-bubble{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}

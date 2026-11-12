@@ -36,6 +36,8 @@ export const api = {
 };
 
 export const ERRORS = {
+ use_studio: 'Создание перенесено в бота студии стикеров и эмодзи.',
+ subscription_required: 'Для этого нужна активная подписка. Анимация доступна с Premium и Max.',
  family_pin_required: 'Сначала сохраните родительский PIN.',
  bad_family_pin: 'Неверный родительский PIN. После 5 ошибок — пауза 15 минут.',
   bad_family: 'Приглашение истекло или привязка невозможна.',

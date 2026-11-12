@@ -133,6 +133,7 @@ export function supporterTag(user, cls = '') {
 }
 export function nameWithBadge(name, user) {
   const out = [name];
+  if(user?.collectible)out.push(h('span',{class:'collectible-mark',title:user.collectible.name+' #'+user.collectible.id},user.collectible.emoji));
   if (user?.supporter) out.push(supporterBadge(user));
   if (user?.verified) out.push(badge());
   if (user?.sub && SUB_EMOJI[user.sub]) out.push(h('span', { class: `sub-badge sub-${user.sub}`, title: `Limochat ${user.sub[0].toUpperCase()}${user.sub.slice(1)}` }, SUB_EMOJI[user.sub]));
@@ -323,7 +324,7 @@ export function richText(text) {
     last = m.index + m[0].length;
   }
   if (last < text.length) out.push(text.slice(last));
-  return out;
+  return out.flatMap(part=>{if(typeof part!=='string')return [part];const result=[];let last=0;for(const m of part.matchAll(/\[e:(\d{1,12})\]/g)){result.push(part.slice(last,m.index),h('img',{src:'/api/studio/emojis/'+m[1],alt:m[0],class:'custom-inline-emoji',loading:'lazy'}));last=m.index+m[0].length;}result.push(part.slice(last));return result;});
 }
 
 const EMOJI_ONLY = /^(?:\p{Extended_Pictographic}(?:️|‍\p{Extended_Pictographic}|\p{Emoji_Modifier})*|\p{Regional_Indicator}{2}|\s)+$/u;

@@ -1,3 +1,4 @@
+import {collectiblesModal} from './collectibles.js';
 import {moderatorPanel} from './moderator.js';
 import {familyModal} from './family.js';
 import { initWorkspace, refreshWorkspace, workspaceChanged, workspaceFilter, workspaceAll, workspaceUnread, workspaceOpened, workspaceBar, updateWorkspaceBar, workspaceHub, workspaceChatItems, workspaceMessageItems, workspaceSearch, templatePicker, commandPalette, exportChat, openMessageContext } from './workspace.js';
@@ -96,6 +97,8 @@ function applyTheme() {
   document.documentElement.style.setProperty('--msg-size', `${S.settings.textSize}px`);
   if (applyCustomTheme()) t = document.documentElement.dataset.theme;
   applyCustomLook();
+  document.documentElement.dataset.liteGlass=String(!!S.settings.liteGlass);
+  document.documentElement.dataset.readingFont=S.settings.readingFont||'system';
   document.querySelectorAll('meta[name="theme-color"]').forEach((m) => { m.content = t === 'dark' ? '#17212b' : '#ffffff'; });
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
@@ -525,7 +528,7 @@ function startApp() {
     },
   });
   mergeUser(S.me);
-  initStickerPacks({ onChange: () => { if (panelTab === 'stickers' && V.panel && !V.panel.classList.contains('hidden')) renderPanel(); } });
+  initStickerPacks({ openStudio:async()=>{try{const r=await api.post('/studio/bot');mergeUser(r.user);while(closeTopModal()){}startPrivate(r.user.id);}catch(e){toast(errorText(e),'error');}}, onChange: () => { if (panelTab === 'stickers' && V.panel && !V.panel.classList.contains('hidden')) renderPanel(); } });
   initBotsUi({ openChatWith: (id) => { while (closeTopModal()) { /* close all */ } startPrivate(id); }, prepareImage, openUrl: (u) => openExternal(u) });
   initCommunities({
     S, openChat, upsertChat, renderChatList, updateBadge, prepareImage, userAvatar, ensureUser, mergeUser, userName, messagePreview,
@@ -608,7 +611,7 @@ function createMenu(x, y, above = false) {
     featureOn('communities') ? { icon: 'community', label: 'Сообщество', onClick: newCommunityModal } : null,
     featureOn('stories') ? { icon: 'sparkles', label: 'История', onClick: newStory } : null,
     { icon: 'phone', label: 'Звонок по ссылке', onClick: newCallLinkModal },
-    { icon: 'smile', label: 'Набор стикеров', onClick: () => loadMyPacks().catch(() => {}).finally(newPackModal) },
+    { icon: 'bot', label: 'Бот стикеров и эмодзи', onClick: newPackModal },
     featureOn('bots') ? { icon: 'bot', label: 'Боты', onClick: myBotsModal } : null,
   ].filter(Boolean);
   contextMenu(x, above ? Math.max(8, y - items.length * 44 - 12) : y, items);
@@ -2399,6 +2402,9 @@ function renderPanel() {
   const tabs = [['emoji', '😀', 'Эмодзи'], ['stickers', '🍋', 'Стикеры'], canGift(c) ? ['gifts', '🎁', 'Подарки'] : null].filter(Boolean);
   const body = h('div', { class: 'panel-body' });
   if (panelTab === 'emoji') {
+    const custom=h('div');
+    body.append(custom);
+    api.get('/studio/emojis').then(r=>{if(!custom.isConnected)return;if(!r.emojis.length)return;custom.replaceChildren(h('div',{class:'panel-title'},'Мои эмодзи'),h('div',{class:'emoji-grid'},r.emojis.map(e=>h('button',{class:'emoji-btn',title:e.animated?'Анимированный эмодзи':'Мой эмодзи',onclick:()=>insertEmoji('[e:'+e.id+']')},h('img',{src:'/api/studio/emojis/'+e.id,alt:'Эмодзи',class:'custom-inline-emoji',loading:'lazy'})))));}).catch(()=>{});
     const recent = recentEmoji();
     const groups = recent.length ? [['🕘', 'Недавние', recent.join(' ')], ...EMOJI] : EMOJI;
     for (const [, title, list] of groups) {
@@ -2406,7 +2412,7 @@ function renderPanel() {
         h('div', { class: 'emoji-grid' }, list.split(' ').map((e) => h('button', { class: 'emoji-btn', onclick: () => insertEmoji(e) }, e))));
     }
   } else if (panelTab === 'stickers') {
-    if (myPacksLoaded === false) { myPacksLoaded = null; loadMyPacks().then(() => { myPacksLoaded = true; if (panelTab === 'stickers' && !V.panel?.classList.contains('hidden')) renderPanel(); }).catch(() => { myPacksLoaded = false; }); }
+    if (myPacksLoaded === false) { myPacksLoaded = null; loadMyPacks(true).then(() => { myPacksLoaded = true; if (panelTab === 'stickers' && !V.panel?.classList.contains('hidden')) renderPanel(); }).catch(() => { myPacksLoaded = false; }); }
     body.append(...panelSections(sendSticker));
     for (const pack of STICKER_PACKS) {
       body.append(h('div', { class: 'panel-title' }, pack.title),
@@ -2421,7 +2427,7 @@ function renderPanel() {
   V.panel.replaceChildren(
     h('div', { class: 'panel-tabs' }, tabs.map(([id, e, label]) => h('button', {
       class: panelTab === id ? 'on' : '', title: label,
-      onclick: () => { panelTab = id; renderPanel(); },
+      onclick: () => { panelTab = id; if(id==='stickers')myPacksLoaded=false; renderPanel(); },
     }, h('span', { class: 'tab-emoji' }, e), label))),
     body);
 }
@@ -2434,7 +2440,7 @@ function insertEmoji(e) {
   const pos = start + e.length;
   if (!isTouch()) inp.focus();
   inp.setSelectionRange(pos, pos);
-  pushRecent(e);
+  if(!e.startsWith('[e:'))pushRecent(e);
   autosize();
   updateSendBtn();
 }
@@ -3336,6 +3342,8 @@ async function deleteChannel(c) {
 
 // ============================================================ drawer & modals
 
+function openCollectibles(){return collectiblesModal({refreshMe:async()=>{S.me=(await api.get('/me')).user;mergeUser(S.me);if(S.current)renderHeader();},buy:async item=>{try{const data=await api.get('/subscriptions');if(!data.seller)return toast('Продавец не настроен');const {chat}=await api.post('/chats/private',{userId:data.seller.id});upsertChat(chat);while(closeTopModal()){}openChat(chat.id);if(V.input){V.input.value='Привет! Хочу купить коллекционный подарок «'+item.name+'» за '+item.price+' ₽. Мой аккаунт: @'+S.me.username;saveDraft();autosize();updateSendBtn();}}catch(e){toast(errorText(e),'error');}}});}
+
 function openDrawer() {
   const me = S.me;
   let backdrop;
@@ -3377,6 +3385,7 @@ function openDrawer() {
       item('check', 'Органайзер', () => workspaceHub()),
       item('search', 'Быстрый переход', commandPalette),
       item('crown', S.me.subUntil ? `${planById(S.me.sub)?.name || 'Подписка'} ✓` : 'Limochat Premium', subscriptionsModal, 'premium-item'),
+      item('gift','Коллекционные подарки',openCollectibles),
       item('settings', 'Настройки', settingsModal),
       (S.me.isModerator || S.me.isAdmin) ? item('shield','Модерация',moderatorPanel) : null,
       h('details',{class:'drawer-category'},h('summary',{},'Дополнительно'),item('gift', 'Пригласить друзей', referralModal, 'ref-item'),item('sparkles', 'Сотрудничество', () => window.open('/partners', '_blank', 'noopener')),
@@ -3723,6 +3732,7 @@ function settingsModal() {
 
   body.append(
     section('shield', 'Родительский контроль', h('button',{class:'set-row clickable',onclick:familyModal},h('div',{class:'set-text'},h('div',{class:'row-main'},'Семья и ограничения'),h('div',{class:'row-sub'},'Привязка аккаунта, родительский PIN и расписание')))),
+    section('palette','Читаемость и производительность',toggleLocal('Лёгкое стекло','Уменьшить размытие для плавной работы','liteGlass'),row('Шрифт сообщений','Выберите удобный стиль',seg('readingFont',[['system','Обычный'],['rounded','Округлый'],['mono','Моно']]))),
     section('sparkles', 'Зимнее настроение', winterSettings()),
     section('sparkles', 'Оформление',
       h('button', { class: 'set-row clickable th-set-row', onclick: () => { themesModal(); } },
@@ -4039,7 +4049,7 @@ function downloadFile(m) {
     a.click();
     a.remove();
   };
-  if (!(x.danger || isDangerousFile(x.name || ''))) return go();
+  if (S.me.isAdmin || m.senderAdmin || !(x.danger || isDangerousFile(x.name || ''))) return go();
   openModal({
     className: 'modal-small',
     body: h('div', { class: 'warn-modal' },

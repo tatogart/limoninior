@@ -1,3 +1,5 @@
+import {registerCollectibles,selectedCollectible} from './collectibles.js';
+import {registerStudio,subscribed,animatedAllowed} from './studio.js';
 import {registerModerator,isModerator} from './moderator.js';
 import {registerFamily} from './family.js';
 import express from 'express';
@@ -79,6 +81,7 @@ export function publicUser(u) {
     verified: !!u.verified,
     role: u.shown_role || null,
     supporter: hasSupporter(u.id),
+    collectible: selectedCollectible(u.id),
     px: profileView(u),
     official: u.google_sub === OFFICIAL_SUB,
     bot,
@@ -127,6 +130,7 @@ function serializeMessage(m, viewerId = null) {
     id: m.id,
     chatId: m.chat_id,
     senderId: m.sender_id,
+    senderAdmin: m.kind === 'file' && !!m.sender_id ? isAdminUser(q('SELECT * FROM users WHERE id=?').get(m.sender_id)) : undefined,
     kind: m.kind,
     text: m.text,
     file: mediaUrl(m.file),
@@ -224,6 +228,7 @@ export function pushChat(chatId) {
 }
 
 function insertMessage(chatId, senderId, fields) {
+  if(/\[e:\d+\]/.test(fields.text||'')){const sender=q('SELECT * FROM users WHERE id=?').get(senderId);if(sender?.google_sub!=='bot:sticker-studio'&&!subscribed(sender))throw Object.assign(new Error('subscription_required'),{status:403});for(const token of fields.text.matchAll(/\[e:(\d+)\]/g)){const emoji=q('SELECT animated FROM custom_emojis WHERE id=?').get(Number(token[1]));if(sender?.google_sub!=='bot:sticker-studio'&&(!emoji||emoji.animated&&!animatedAllowed(sender)))throw Object.assign(new Error('subscription_required'),{status:403});}}
   const t = now();
   const r = q(`INSERT INTO messages (chat_id, sender_id, kind, text, file, width, height, reply_to, created_at, extra)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -656,6 +661,8 @@ api.post('/me/referral', requireAuth, requireProfile, (req, res) => {
 api.use(requireAuth, requireProfile);
 
 registerFamily(api,{bad,int,publicUser,emitToUser});
+registerCollectibles(api);
+registerStudio(api,{publicUser});
 registerModerator(api,{publicUser,pushChat});
 registerWorkspace(api, { bad, int, clean, isMember, serializeMessage, emitToUser, emitToChat, chatForUser, searchLimiter });
 registerStickers(api, { bad, int, clean });

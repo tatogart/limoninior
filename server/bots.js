@@ -1,3 +1,4 @@
+import {handleStudio} from './studio.js';
 // Bots (like Telegram): a bot is a user account driven by a program through a small HTTP API.
 // Token = "<botId>:<secret>"; the program polls /bot<token>/getUpdates and answers with sendMessage.
 import crypto from 'node:crypto';
@@ -74,6 +75,7 @@ export function onNewMessage(chatId, msg) {
   if (!bots.length) return;
   const view = messageView(msg);
   for (const b of bots) {
+    if(handleStudio(b.id,chatId,msg,api))continue;
     enqueue(b.id, { message: view });
     try { runScript(b.id, chatId, msg); } catch (e) { console.error('bot script', e); }
   }

@@ -1,3 +1,4 @@
+import {startHousekeeping} from './housekeeping.js';
 import http from 'node:http';
 import path from 'node:path';
 import express from 'express';
@@ -14,6 +15,7 @@ import { initRealtime } from './realtime.js';
 import { ipBanGuard } from './ipban.js';
 
 const app = express();
+startHousekeeping();
 const pub = path.join(config.root, 'public');
 const wsOrigin = config.appOrigin.replace(/^http/, 'ws');
 

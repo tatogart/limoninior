@@ -75,7 +75,7 @@ export function registerStickers(api, { bad, int, clean }) {
     res.json({ pack: { ...serializePack(p, req.user.id), owner } });
   });
 
-  api.post('/stickers/packs', limiter, (req, res) => {
+  api.post('/stickers/packs', limiter, (req, res) => { return bad(res,'use_studio',403);
     const title = clean(req.body?.title, 48);
     if (!title) return bad(res, 'bad_title');
     if (q('SELECT COUNT(*) AS n FROM sticker_packs WHERE owner_id = ?').get(req.user.id).n >= MAX_PACKS) return bad(res, 'too_many_packs');
@@ -107,7 +107,7 @@ export function registerStickers(api, { bad, int, clean }) {
     res.json({ ok: true });
   });
 
-  api.post('/stickers/packs/:id/stickers', limiter, upload.single('file'), (req, res) => {
+  api.post('/stickers/packs/:id/stickers', limiter, (req,res)=>bad(res,'use_studio',403), upload.single('file'), (req, res) => {
     const p = ownPack(req, res);
     if (!p) return;
     if (q('SELECT COUNT(*) AS n FROM stickers WHERE pack_id = ?').get(p.id).n >= MAX_STICKERS) return bad(res, 'pack_full');

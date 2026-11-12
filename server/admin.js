@@ -1,3 +1,4 @@
+import {registerCollectiblesAdmin} from './collectibles.js';
 import crypto from 'node:crypto';
 import {registerModeratorAdmin} from './moderator.js';
 import fs from 'node:fs';
@@ -87,7 +88,9 @@ admin.post('/lock', (req, res) => {
 });
 
 admin.use(elevated);
-registerModeratorAdmin(admin);
+admin.get('/maintenance/cleanup',(req,res)=>res.json({last:Number(kvGet('housekeeping:last')||0),result:JSON.parse(kvGet('housekeeping:result')||'null')}));
+registerModeratorAdmin(admin,{pushMe});
+registerCollectiblesAdmin(admin,{broadcastProfile,pushMe});
 
 admin.get('/stats', (req, res) => {
   const day = now() - 864e5;

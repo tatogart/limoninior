@@ -12,6 +12,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm test
       - name: Check JavaScript syntax
         run: find server public/js scripts tests -type f \( -name '*.js' -o -name '*.mjs' \) -exec node --check {} \;
