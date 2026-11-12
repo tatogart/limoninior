@@ -1,3 +1,4 @@
+import {markScam,transferInventory} from './admin-gifts-scam.js';
 import {collectibleSettings,grantCollectible} from './collectible-admin.js';
 // Limochat admin panel: a dashboard app of its own (sidebar sections, live pulse, moderation).
 import { api, errorText } from './api.js';
@@ -443,6 +444,8 @@ async function dossier(id) {
   const actions = h('div', { class: 'dos-actions' },
     protectedUser ? null : btn('Доступ модератора',async()=>{const state=await api.get('/admin/users/'+id+'/moderator');if(await confirmDialog(state.enabled?'Закрыть доступ модератора?':'Выдать доступ к репортам, публичным профилям и заявкам на галочки?',{ok:state.enabled?'Закрыть':'Выдать'}))await post('moderator',{enabled:!state.enabled},'Доступ обновлён');}),
     btn('Коллекционный подарок',()=>grantCollectible(u.id).catch(handle)),
+    btn('Передать подарок',()=>transferInventory(u.id).catch(handle)),
+    btn(u.scam?'Снять SCAM':'Отметить SCAM',()=>markScam('users',u,refresh)),
     btn('✉️ Написать от Limochat', () => dmDialog(u)),
     btn('🍋 Лимоны', () => coinsDialog(u, (body) => post('coins', body, 'Готово'))),
     btn(u.sub ? '👑 Подписка' : '👑 Выдать подписку', () => subDialog(u, (body) => post('subscription', body, 'Готово'))),
@@ -574,6 +577,7 @@ async function channels() {
           h('div', { class: 'user-actions' },
             c.verified ? act('Снять галочку', () => doIt('post', `/admin/channels/${c.id}/verify`, { verified: false }, `Снять галочку с «${c.title}»?`))
               : act('✓ Верифицировать', () => doIt('post', `/admin/channels/${c.id}/verify`, { verified: true }), 'btn-primary'),
+            act(c.scam?'Снять SCAM':'Отметить SCAM',()=>markScam('channels',c,load)),
             c.verifyRequested ? act('Отклонить', () => doIt('post', `/admin/channels/${c.id}/reject`, {})) : null,
             act('Удалить', () => doIt('del', `/admin/channels/${c.id}`, null, `Удалить канал «${c.title}» со всеми постами?`, true), 'btn-danger-ghost')));
       }) : [empty('Каналов нет')]));

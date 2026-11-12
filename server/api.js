@@ -1,3 +1,4 @@
+import './scam.js';
 import {registerPostcards} from './postcards.js';
 import {registerCollectibles,selectedCollectible} from './collectibles.js';
 import {registerStudio,subscribed,animatedAllowed} from './studio.js';
@@ -80,6 +81,7 @@ export function publicUser(u) {
     profileColor: u.profile_color || null,
     createdAt: u.created_at,
     verified: !!u.verified,
+    scam:!!u.scam,scamReason:u.scam_reason||null,
     role: u.shown_role || null,
     supporter: hasSupporter(u.id),
     collectible: selectedCollectible(u.id),
@@ -158,6 +160,7 @@ export function channelPublic(c) {
     username: c.username,
     description: c.description,
     verified: !!c.verified,
+    scam:!!c.scam,scamReason:c.scam_reason||null,
     isPrivate: !c.username,
     membersCount: q('SELECT COUNT(*) AS n FROM chat_members WHERE chat_id = ?').get(c.id).n,
   };
@@ -276,7 +279,7 @@ function streakStep(chatId, msg) {
   return trackStreak(chatId, msg.sender_id);
 }
 
-function broadcastNewMessage(chatId, msg) {
+export function broadcastNewMessage(chatId, msg) {
   let milestone = 0;
   try { milestone = streakStep(chatId, msg); } catch (e) { console.error('streak', e); }
   if (milestone) setTimeout(() => postMessage(chatId, null, { kind: 'system', text: `🔥 ${milestone} ${plural(milestone, 'день', 'дня', 'дней')} подряд! Огонёк горит — не дайте ему погаснуть`, extra: { streak: milestone } }), 0);
@@ -287,12 +290,13 @@ function broadcastNewMessage(chatId, msg) {
     emitToUser(uid, 'message', { message: payload, chat: chatForUser(chatId, uid) });
   }
   // Web push for people who are offline right now (and haven't muted the chat).
-  if (msg.kind !== 'system') {
+  const transferNotice=msg.kind==='system'&&msg.extra?JSON.parse(msg.extra).collectibleTransfer:null;
+  if (msg.kind !== 'system'||transferNotice) {
     const chat = q('SELECT * FROM chats WHERE id = ?').get(chatId);
     const prefKey = chat.type === 'group' ? 'notifyGroups' : chat.type === 'channel' ? 'notifyChannels' : 'notifyPrivate';
     const rows = q(`SELECT cm.user_id, u.prefs FROM chat_members cm JOIN users u ON u.id = cm.user_id
                     WHERE cm.chat_id = ? AND cm.muted = 0`).all(chatId)
-      .filter((r) => r.user_id !== msg.sender_id && getPrefs(r)[prefKey]);
+      .filter((r) => r.user_id !== msg.sender_id && r.user_id !== transferNotice?.actorId && getPrefs(r)[prefKey]);
     if (rows.length) {
       const sender = msg.sender_id ? q('SELECT name FROM users WHERE id = ?').get(msg.sender_id) : null;
       const title = chat.type === 'private' || chat.type === 'saved' ? sender?.name || 'Limochat' : chat.title;
@@ -663,7 +667,7 @@ api.use(requireAuth, requireProfile);
 
 registerFamily(api,{bad,int,publicUser,emitToUser});
 registerPostcards(api,{isMember,postError,postMessage});
-registerCollectibles(api,{pushMe,broadcastProfile});
+registerCollectibles(api,{pushMe,broadcastProfile,notifyReceipt:m=>broadcastNewMessage(m.chat_id,m)});
 registerStudio(api,{publicUser});
 registerModerator(api,{publicUser,pushChat});
 registerWorkspace(api, { bad, int, clean, isMember, serializeMessage, emitToUser, emitToChat, chatForUser, searchLimiter });

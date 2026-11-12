@@ -2852,3 +2852,6 @@ button, input, textarea, select { font-family: inherit; }
 .collectible-traits-table{width:100%;border-collapse:collapse;font-size:13px}.collectible-traits-table th,.collectible-traits-table td{padding:7px;text-align:left;border-bottom:1px solid var(--border)}
 
 .collectible-admin select option{background:#fff;color:#111}.collectible-admin>label{display:grid;gap:6px}.collectible-admin details{padding:10px;border:1px solid var(--border);border-radius:10px}
+
+.scam-badge{display:inline-flex;align-items:center;vertical-align:middle;margin-left:5px;border:1.5px solid #e85b47;color:#e85b47;border-radius:4px;padding:1px 4px;font-size:11px;line-height:1.2;font-weight:800;letter-spacing:.5px;white-space:nowrap}
+.collectible-receipt{width:min(240px,85%);margin:12px auto;padding:12px;display:grid;gap:7px;text-align:center;border:1px solid var(--border);border-radius:18px;background:var(--panel,var(--bg));color:var(--text);font-size:13px}.collectible-receipt .collectible-preview{max-width:160px;margin:auto}.collectible-receipt small{color:var(--text-2)}.collectible-receipt .btn{font-size:12px;padding:7px}

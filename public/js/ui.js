@@ -133,9 +133,10 @@ export function supporterTag(user, cls = '') {
 }
 export function nameWithBadge(name, user) {
   const out = [name];
+  if(user?.scam)out.push(h('span',{class:'scam-badge',title:user.scamReason||'Администрация пометила этот аккаунт как SCAM'},'SCAM'));
   if(user?.collectible)out.push(h('span',{class:'collectible-mark',title:user.collectible.name+' #'+user.collectible.id},user.collectible.emoji));
   if (user?.supporter) out.push(supporterBadge(user));
-  if (user?.verified) out.push(badge());
+  if (user?.verified && !user?.scam) out.push(badge());
   if (user?.sub && SUB_EMOJI[user.sub]) out.push(h('span', { class: `sub-badge sub-${user.sub}`, title: `Limochat ${user.sub[0].toUpperCase()}${user.sub.slice(1)}` }, SUB_EMOJI[user.sub]));
   if (user?.px?.emoji) out.push(h('span', { class: 'emoji-status', title: user.px.mood || 'Эмодзи-статус' }, user.px.emoji));
   const b = user?.px?.bday, d = new Date();

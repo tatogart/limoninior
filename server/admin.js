@@ -1,3 +1,4 @@
+import {registerScamAdmin} from './scam.js';
 import {registerCollectiblesAdmin} from './collectibles.js';
 import crypto from 'node:crypto';
 import {registerModeratorAdmin} from './moderator.js';
@@ -11,7 +12,7 @@ import { requireAuth, isAdminUser } from './auth.js';
 import { verifyTotp } from './totp.js';
 import { isOnline, disconnectUser, disconnectSession, sessionOnline, disconnectIp } from './realtime.js';
 import { banIp, unbanIp, listIpBans, userIps, normIp, validIp } from './ipban.js';
-import { ensurePrivateChat, postMessage, broadcastProfile, pushMe, pushChat, deleteChat, OFFICIAL_SUB, sellerUser, activePlan, officialUser, removeMessage } from './api.js';
+import { ensurePrivateChat, postMessage, broadcastNewMessage, broadcastProfile, pushMe, pushChat, deleteChat, OFFICIAL_SUB, sellerUser, activePlan, officialUser, removeMessage } from './api.js';
 import { registerAdminPro } from './admin-pro.js';
 import { registerRewardsAdmin } from './rewards.js';
 import { planById } from '../public/js/catalog.js';
@@ -90,7 +91,8 @@ admin.post('/lock', (req, res) => {
 admin.use(elevated);
 admin.get('/maintenance/cleanup',(req,res)=>res.json({last:Number(kvGet('housekeeping:last')||0),result:JSON.parse(kvGet('housekeeping:result')||'null')}));
 registerModeratorAdmin(admin,{pushMe});
-registerCollectiblesAdmin(admin,{broadcastProfile,pushMe});
+registerCollectiblesAdmin(admin,{broadcastProfile,pushMe,notifyReceipt:m=>broadcastNewMessage(m.chat_id,m)});
+registerScamAdmin(admin,{broadcastProfile,pushMe,pushChat});
 
 admin.get('/stats', (req, res) => {
   const day = now() - 864e5;
@@ -126,7 +128,7 @@ admin.get('/users', (req, res) => {
       id: u.id, username: u.username, name: u.name, email: u.email, banned: !!u.banned,
       createdAt: u.created_at, lastSeen: u.last_seen, online: isOnline(u.id), messages: u.msg_count,
       avatar: u.avatar ? `/media/${u.avatar}` : null, isAdmin: isAdminUser(u),
-      verified: !!u.verified, coins: u.coins, hasGoogle: !String(u.google_sub).startsWith('local:'),
+      verified: !!u.verified,scam:!!u.scam,scamReason:u.scam_reason||null, coins: u.coins, hasGoogle: !String(u.google_sub).startsWith('local:'),
       sub: activePlan(u)?.id || null, subUntil: activePlan(u) ? u.sub_until : 0,
       official: u.google_sub === OFFICIAL_SUB,
     })),
@@ -317,7 +319,7 @@ admin.get('/channels', (req, res) => {
                   ORDER BY (c.verify_requested > 0 AND c.verified = 0) DESC, c.verify_requested DESC, subs DESC LIMIT 100`).all(search, like, like);
   res.json({
     channels: rows.map((c) => ({
-      id: c.id, title: c.title, username: c.username, description: c.description, verified: !!c.verified,
+      id: c.id, title: c.title, username: c.username, description: c.description, verified: !!c.verified,scam:!!c.scam,scamReason:c.scam_reason||null,
       verifyRequested: c.verify_requested && !c.verified ? c.verify_requested : 0, subscribers: c.subs, posts: c.posts,
       owner: c.owner_username ? `@${c.owner_username}` : c.owner_name || '—', createdAt: c.created_at,
       avatar: c.avatar ? `/media/${c.avatar}` : null,

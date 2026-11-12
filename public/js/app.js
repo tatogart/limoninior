@@ -1,3 +1,4 @@
+import {collectibleReceipt} from './collectible-receipt.js';
 import {postcardModal} from './postcards.js';
 import {giftArt} from './gift-art.js';
 import {collectiblesModal} from './collectibles.js';
@@ -1517,7 +1518,7 @@ function renderMessages({ stick = false, keepOffset = false } = {}) {
     const newDay = !prev || dayKey(prev.createdAt) !== dayKey(m.createdAt);
     if (newDay) { const lbl = dayLabel(m.createdAt); staticNode(`d:${dayKey(m.createdAt)}`, lbl, () => h('div', { class: 'date-sep' }, h('span', {}, lbl))); }
     if (m.kind === 'system') {
-      staticNode(`s:${m.id}`, m.text, () => (m.extra?.reminder ? reminderSystemEl(m) : m.extra?.streak ? streakSystemEl(m) : h('div', { class: 'system-msg' }, h('span', {}, m.text))));
+      staticNode(`s:${m.id}`, m.text, () => (m.extra?.collectibleTransfer ? collectibleReceipt(m,m.extra.collectibleTransfer.regular?myGiftsModal:openCollectibles) : m.extra?.reminder ? reminderSystemEl(m) : m.extra?.streak ? streakSystemEl(m) : h('div', { class: 'system-msg' }, h('span', {}, m.text))));
       return;
     }
     const first = newDay || prev.kind === 'system' || prev.senderId !== m.senderId || m.createdAt - prev.createdAt > GAP;

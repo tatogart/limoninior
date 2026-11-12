@@ -31,7 +31,7 @@ function series(rows, days) {
   return out;
 }
 
-const userBrief = (u) => (u ? { id: u.id, name: u.name, username: u.username, avatar: media(u.avatar), verified: !!u.verified, online: isOnline(u.id) } : null);
+const userBrief = (u) => (u ? { id: u.id, name: u.name, username: u.username, avatar: media(u.avatar), verified: !!u.verified,scam:!!u.scam,scamReason:u.scam_reason||null, online: isOnline(u.id) } : null);
 
 export function registerAdminPro(admin, { targetUser, anyUser, deviceInfo, notifyOwner }) {
   const one = (sql, ...a) => q(sql).get(...a).n;
