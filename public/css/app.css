@@ -2815,3 +2815,5 @@ button, input, textarea, select { font-family: inherit; }
 .gift-art-image{width:160px;height:160px;max-width:100%;object-fit:contain;flex-shrink:0}
 
 .gift-item-art .gift-art-image,.pg-art .gift-art-image{width:64px;height:64px}
+
+.gift-confirm-art .gift-art-image{width:110px;height:110px}
