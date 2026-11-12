@@ -1,3 +1,4 @@
+import {collectibleSettings,grantCollectible} from './collectible-admin.js';
 // Limochat admin panel: a dashboard app of its own (sidebar sections, live pulse, moderation).
 import { api, errorText } from './api.js';
 import { h, icon, avatar, timeHM, dayLabel, lastSeenText, bytes, toast, confirmDialog, openModal, closeTopModal, nameWithBadge, contextMenu, plural } from './ui.js';
@@ -159,6 +160,7 @@ const SECTIONS = [
   ['channels', 'Каналы', 'megaphone'],
   ['communities', 'Сообщества', 'community'],
   ['rewards', 'Роли и значки', 'crown'],
+  ['collectibles', 'Коллекционные подарки', 'gift'],
   ['broadcast', 'Рассылка', 'send'],
   ['platform', 'Платформа', 'settings'],
   ['security', 'Безопасность', 'shield'],
@@ -227,7 +229,7 @@ function route() {
   V.title.textContent = SECTIONS.find((s) => s[0] === sec)[1];
   V.main.replaceChildren(spinner());
   window.scrollTo(0, 0);
-  const render = { overview, live, reports, users, channels, communities, rewards: rewardsPage, broadcast, platform: platformPage, security, server, audit }[sec];
+  const render = { overview, live, reports, users, channels, communities, rewards: rewardsPage, collectibles:async()=>set(await collectibleSettings()), broadcast, platform: platformPage, security, server, audit }[sec];
   Promise.resolve(render(arg)).catch(handle);
 }
 window.addEventListener('hashchange', () => { if (V.main) { closeTopModal(); route(); } });
@@ -440,7 +442,7 @@ async function dossier(id) {
   };
   const actions = h('div', { class: 'dos-actions' },
     protectedUser ? null : btn('Доступ модератора',async()=>{const state=await api.get('/admin/users/'+id+'/moderator');if(await confirmDialog(state.enabled?'Закрыть доступ модератора?':'Выдать доступ к репортам, публичным профилям и заявкам на галочки?',{ok:state.enabled?'Закрыть':'Выдать'}))await post('moderator',{enabled:!state.enabled},'Доступ обновлён');}),
-    btn('Коллекционный подарок',()=>{const box=h('div',{class:'ws-stack'});for(const [collection,label] of [['lemon-crystal','Лимонный кристалл'],['moon-lemon','Лунный лимон'],['golden-orbit','Золотая орбита']])box.append(btn(label,async()=>{if(await confirmDialog('Выдать '+label+' этому пользователю?',{ok:'Выдать'}))await post('collectible',{collection},'Подарок выдан');}));openModal({title:'Выдать коллекционный подарок',body:box});}),
+    btn('Коллекционный подарок',()=>grantCollectible(u.id).catch(handle)),
     btn('✉️ Написать от Limochat', () => dmDialog(u)),
     btn('🍋 Лимоны', () => coinsDialog(u, (body) => post('coins', body, 'Готово'))),
     btn(u.sub ? '👑 Подписка' : '👑 Выдать подписку', () => subDialog(u, (body) => post('subscription', body, 'Готово'))),

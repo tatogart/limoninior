@@ -2834,3 +2834,21 @@ button, input, textarea, select { font-family: inherit; }
 .collectibles-modal{width:min(600px,calc(100vw - 20px))}.collectibles-ui .collectible-card details{width:100%}
 
 .collectibles-ui [hidden]{display:none!important}
+
+.collectible-preview[data-backdrop=void]{background:radial-gradient(at 20% 10%,#663e9c,#141024 65%,#050509)}
+.collectible-picture{z-index:2;filter:hue-rotate(var(--gift-hue,0deg)) drop-shadow(0 9px 10px #17263335)}
+.collectible-rarity{position:absolute;bottom:6px;left:6px;right:6px;text-align:center;z-index:3;border-radius:8px;padding:3px;background:#1119;color:white;font-size:10px;font-weight:700}
+.collectible-preview[data-rarity=rare]{box-shadow:inset 0 0 0 2px #56bafa}
+.collectible-preview[data-rarity=epic]{box-shadow:inset 0 0 0 3px #c481ff}
+.collectible-preview[data-rarity=legendary]{box-shadow:inset 0 0 0 3px #ffd365}
+.collectible-pattern{position:absolute;inset:0;opacity:.2;background-size:36px 36px;background-image:radial-gradient(circle at 50% 50%,white 2px,transparent 3px)}
+.collectible-preview[data-symbol=diamonds] .collectible-pattern{background-image:repeating-conic-gradient(from 45deg at 50% 50%,transparent 0 25%,#fff8 0 50%);background-size:32px 32px}
+.collectible-preview[data-symbol=rings] .collectible-pattern{background-image:radial-gradient(circle at 50% 50%,transparent 8px,white 9px,transparent 11px)}
+.collectible-preview[data-symbol=rays] .collectible-pattern{background:repeating-conic-gradient(#fff8 0 8deg,transparent 8deg 30deg)}
+.collectible-model{position:absolute;inset:16%;z-index:1}
+.collectible-preview[data-model=halo] .collectible-model{border:8px solid #fff8;border-radius:50%;box-shadow:0 0 20px #fff9}
+.collectible-preview[data-model=orbit] .collectible-model{inset:28% 6%;border:7px solid #ffeabbcc;border-radius:50%;transform:rotate(-30deg)}
+.collectible-preview[data-model=faceted] .collectible-model{inset:8%;background:linear-gradient(135deg,#fff8,#fff1);clip-path:polygon(30% 0,70% 0,100% 30%,100% 70%,70% 100%,30% 100%,0 70%,0 30%)}
+.collectible-traits-table{width:100%;border-collapse:collapse;font-size:13px}.collectible-traits-table th,.collectible-traits-table td{padding:7px;text-align:left;border-bottom:1px solid var(--border)}
+
+.collectible-admin select option{background:#fff;color:#111}.collectible-admin>label{display:grid;gap:6px}.collectible-admin details{padding:10px;border:1px solid var(--border);border-radius:10px}
