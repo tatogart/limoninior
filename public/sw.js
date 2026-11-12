@@ -2,7 +2,7 @@
 const VERSION = 'v41';
 const SHELL = `shell-${VERSION}`;
 const ASSETS = [
-  '/', '/css/app.css', '/js/app.js', '/js/workspace.js', '/js/workspace-model.js', '/js/drafts.js', '/js/surprises.js', '/js/surprise-shared.js', '/js/catch.js', '/js/admin-entry.js', '/js/client-build.js', '/js/client-update.js', '/js/ui.js', '/js/api.js', '/js/theme.js', '/js/calls.js', '/js/catalog.js', '/js/emoji.js', '/js/sounds.js', '/js/stories.js', '/js/groupcall.js', '/js/stickerpacks.js', '/js/botsui.js', '/js/communities.js', '/js/extras.js', '/js/games.js', '/js/rewards.js', '/js/themes.js', '/js/theme-effects.js', '/js/profilex.js', '/js/circles.js', '/js/botbuilder.js', '/js/duels.js', '/js/anon.js', '/js/custom.js',
+  '/', '/css/app.css', '/js/app.js', '/js/family.js', '/js/workspace.js', '/js/workspace-model.js', '/js/drafts.js', '/js/surprises.js', '/js/surprise-shared.js', '/js/catch.js', '/js/admin-entry.js', '/js/client-build.js', '/js/client-update.js', '/js/ui.js', '/js/api.js', '/js/theme.js', '/js/calls.js', '/js/catalog.js', '/js/emoji.js', '/js/sounds.js', '/js/stories.js', '/js/groupcall.js', '/js/stickerpacks.js', '/js/botsui.js', '/js/communities.js', '/js/extras.js', '/js/games.js', '/js/rewards.js', '/js/themes.js', '/js/theme-effects.js', '/js/profilex.js', '/js/circles.js', '/js/botbuilder.js', '/js/duels.js', '/js/anon.js', '/js/custom.js',
   '/vendor/socket.io.esm.min.js', '/icons/icon.svg', '/icons/icon-192.png', '/manifest.webmanifest',
 ];
 

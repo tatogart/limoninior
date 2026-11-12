@@ -1,3 +1,4 @@
+import {familyModal} from './family.js';
 import { initWorkspace, refreshWorkspace, workspaceChanged, workspaceFilter, workspaceAll, workspaceUnread, workspaceOpened, workspaceBar, updateWorkspaceBar, workspaceHub, workspaceChatItems, workspaceMessageItems, workspaceSearch, templatePicker, commandPalette, exportChat, openMessageContext } from './workspace.js';
 import { io } from '/vendor/socket.io.esm.min.js';
 import { api, errorText } from './api.js';
@@ -3613,7 +3614,7 @@ const WALLPAPERS = [
 ];
 
 function settingsModal() {
-  const body = h('div', { class: 'settings' });
+  const body = h('div', { class: 'settings' }, h('button',{class:'btn',onclick:familyModal},'Родительский контроль'));
   const section = (ic, title, ...rows) => h('section', { class: 'set-section' },
     h('div', { class: 'set-title' }, h('span', { class: 'set-ic' }, icon(ic)), title),
     h('div', { class: 'set-card' }, rows.flat().filter(Boolean)));

@@ -1,3 +1,4 @@
+import {registerFamily} from './family.js';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import { config } from './config.js';
@@ -652,6 +653,7 @@ api.post('/me/referral', requireAuth, requireProfile, (req, res) => {
 // Everything below needs a completed profile (username chosen).
 api.use(requireAuth, requireProfile);
 
+registerFamily(api,{bad,int,publicUser,emitToUser});
 registerWorkspace(api, { bad, int, clean, isMember, serializeMessage, emitToUser, emitToChat, chatForUser, searchLimiter });
 registerStickers(api, { bad, int, clean });
 api.post('/bots', featureGate('bots'));
