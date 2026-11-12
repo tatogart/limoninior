@@ -1,3 +1,4 @@
+import {registerPostcards} from './postcards.js';
 import {registerCollectibles,selectedCollectible} from './collectibles.js';
 import {registerStudio,subscribed,animatedAllowed} from './studio.js';
 import {registerModerator,isModerator} from './moderator.js';
@@ -291,7 +292,7 @@ function broadcastNewMessage(chatId, msg) {
     const prefKey = chat.type === 'group' ? 'notifyGroups' : chat.type === 'channel' ? 'notifyChannels' : 'notifyPrivate';
     const rows = q(`SELECT cm.user_id, u.prefs FROM chat_members cm JOIN users u ON u.id = cm.user_id
                     WHERE cm.chat_id = ? AND cm.muted = 0`).all(chatId)
-      .filter((r) => r.user_id !== msg.sender_id && !isOnline(r.user_id) && getPrefs(r)[prefKey]);
+      .filter((r) => r.user_id !== msg.sender_id && getPrefs(r)[prefKey]);
     if (rows.length) {
       const sender = msg.sender_id ? q('SELECT name FROM users WHERE id = ?').get(msg.sender_id) : null;
       const title = chat.type === 'private' || chat.type === 'saved' ? sender?.name || 'Limochat' : chat.title;
@@ -661,7 +662,8 @@ api.post('/me/referral', requireAuth, requireProfile, (req, res) => {
 api.use(requireAuth, requireProfile);
 
 registerFamily(api,{bad,int,publicUser,emitToUser});
-registerCollectibles(api);
+registerPostcards(api,{isMember,postError,postMessage});
+registerCollectibles(api,{pushMe,broadcastProfile});
 registerStudio(api,{publicUser});
 registerModerator(api,{publicUser,pushChat});
 registerWorkspace(api, { bad, int, clean, isMember, serializeMessage, emitToUser, emitToChat, chatForUser, searchLimiter });
@@ -952,11 +954,11 @@ api.post('/chats/:id/stickers', sendLimiter, (req, res) => {
 
 api.post('/chats/:id/gift', sendLimiter, (req, res) => {
   const id = int(req.params.id);
-  const chat = id && q("SELECT * FROM chats WHERE id = ? AND type = 'private'").get(id);
+  const chat = id && q("SELECT * FROM chats WHERE id = ? AND type IN ('private','saved')").get(id);
   if (!chat || !isMember(id, req.user.id)) return bad(res, 'not_found', 404);
   const gift = giftById(req.body?.giftId);
   if (!gift) return bad(res, 'bad_gift');
-  const toId = q('SELECT user_id FROM chat_members WHERE chat_id = ? AND user_id != ?').get(id, req.user.id)?.user_id;
+  const toId = chat.type === 'saved' ? req.user.id : q('SELECT user_id FROM chat_members WHERE chat_id = ? AND user_id != ?').get(id, req.user.id)?.user_id;
   if (!toId) return bad(res, 'not_found', 404);
   if (isBotUser(q('SELECT google_sub FROM users WHERE id = ?').get(toId))) return bad(res, 'forbidden', 403);
   { const e = postError(id, req.user.id); if (e) return bad(res, e, 403); }

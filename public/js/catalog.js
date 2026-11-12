@@ -68,7 +68,7 @@ export const GIFTS = [
 ];
 export const giftById = (id) => GIFTS.find((g) => g.id === id) || null;
 
-export const START_COINS = 100;
+export const START_COINS = 0;
 
 export const REACTIONS = ['👍', '❤️', '🔥', '😂', '😮', '😢', '🎉', '🍋', '🤯', '👎'];
 

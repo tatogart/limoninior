@@ -1,3 +1,5 @@
+import {postcardModal} from './postcards.js';
+import {giftArt} from './gift-art.js';
 import {collectiblesModal} from './collectibles.js';
 import {moderatorPanel} from './moderator.js';
 import {familyModal} from './family.js';
@@ -552,7 +554,7 @@ function startApp() {
   maybeOfferPush();
   setInterval(() => { if (S.current) renderHeaderStatus(); }, 30_000);
   setInterval(refreshChannelStats, 20_000);
-  history.replaceState({ root: true }, '', /^\/(@|join\/|call\/|addstickers\/|community\/)/.test(location.pathname) ? location.pathname : '/');
+  history.replaceState({ root: true }, '', /^\/(@|join\/|call\/|addstickers\/|postcard\/|community\/)/.test(location.pathname) ? location.pathname : '/');
 }
 
 function buildLayout() {
@@ -661,6 +663,7 @@ function dropCommunity(id) {
 }
 
 async function handleDeepLink() {
+  const postcard=/^\/postcard\/([a-f0-9]{24})$/.exec(location.pathname);if(postcard)return postcardModal(postcard[1]);
   const inv = location.pathname.match(/^\/join\/([A-Za-z0-9_-]{8,32})$/);
   const callTok = location.pathname.match(/^\/call\/([A-Za-z0-9_-]{10,40})$/);
   const stickerSlug = location.pathname.match(/^\/addstickers\/([A-Za-z0-9_-]{4,20})$/);
@@ -902,6 +905,7 @@ async function notify(chat, m) {
   const body = `${isGroup(chat) ? `${userName(m.senderId)}: ` : ''}${messagePreview(m)}`.slice(0, 140);
   try {
     const reg = await navigator.serviceWorker?.getRegistration();
+    if(reg?.pushManager && await reg.pushManager.getSubscription())return;
     const opts = { body, tag: `chat${chat.id}`, renotify: true, icon: '/icons/icon-192.png', badge: '/icons/badge.png', data: { chatId: chat.id } };
     if (reg) reg.showNotification(title, opts);
     else new Notification(title, opts);
@@ -1328,6 +1332,7 @@ function buildChatView(c) {
     const f = e.dataTransfer?.files?.[0];
     if (f) { e.preventDefault(); pickFile(f); }
   });
+  if(c.type==='saved')V.composerRow.append(h('button',{class:'icon-btn self-gift','aria-label':'Подарить себе',title:'Подарить себе',onclick:()=>{panelTab='gifts';togglePanel(true);}},icon('gift')));
   V.pane.replaceChildren(view);
   ensureEffect();
   applyChatWall(V.pane, c.id);
@@ -1739,7 +1744,7 @@ function messageEl(c, m, first, last, read) {
       onclick: () => openUserProfile(m.extra?.toId, { tab: 'gifts' }),
     },
     h('div', { class: 'gift-shine' }),
-    h('div', { class: 'gift-emoji' }, g.emoji),
+    h('div', { class: 'gift-emoji' },giftArt(g)),
     h('div', { class: 'gift-title' }, mine ? 'Вы отправили подарок' : toMe ? 'Вам подарок!' : 'Подарок'),
     h('div', { class: 'gift-name' }, g.name),
     h('div', { class: 'gift-price' }, `🍋 ${g.price}`),
@@ -1903,13 +1908,22 @@ function startCircle() {
   recordCircle(c.id, reply?.id || null);
 }
 
+function locationModal(c){
+ const body=h('div',{class:'ws-stack'},h('p',{},'Координаты будут отправлены только в этот чат после вашего подтверждения.')),status=h('p',{},''),send=h('button',{class:'btn btn-primary',disabled:true},'Отправить в '+chatTitle(c));let point,modal;
+ const locate=h('button',{class:'btn',onclick:()=>{if(!navigator.geolocation)return toast('Геолокация недоступна');status.textContent='Определяем координаты…';navigator.geolocation.getCurrentPosition(p=>{point={lat:p.coords.latitude.toFixed(5),lon:p.coords.longitude.toFixed(5)};status.textContent='Широта: '+point.lat+' · долгота: '+point.lon+' · точность около '+Math.round(p.coords.accuracy)+' м';send.disabled=false;},()=>{status.textContent='Не удалось получить координаты. Проверьте разрешение браузера.';},{enableHighAccuracy:true,timeout:15000,maximumAge:0});}},'Определить моё местоположение');
+ send.addEventListener('click',async()=>{if(!point)return;send.disabled=true;try{const text='Моё местоположение: '+point.lat+', '+point.lon+'\\nhttps://www.openstreetmap.org/?mlat='+point.lat+'&mlon='+point.lon+'#map=16/'+point.lat+'/'+point.lon;const r=await api.post('/chats/'+c.id+'/messages',{text});addMessage(r.message);if(S.current===c.id)renderMessages({stick:true});modal.close();}catch(e){send.disabled=false;toast(errorText(e),'error');}});
+ body.append(locate,status,send);modal=openModal({title:'Поделиться местоположением',body});
+}
+
 function attachMenu(anchor) {
   const c = curChat();
   if (!c) return;
   const r = anchor.getBoundingClientRect();
   const sent = (m) => { addMessage(m); renderMessages({ stick: true }); };
   const items = [
+    { icon:'gift',label:'Совместная открытка',onClick:async()=>{try{const r=await api.post('/postcards',{chatId:c.id,title:'Наша открытка'});const m=await api.post('/chats/'+c.id+'/messages',{text:'Наша совместная открытка: '+location.origin+'/postcard/'+r.id});addMessage(m.message);if(S.current===c.id)renderMessages({stick:true});postcardModal(r.id);}catch(e){toast(errorText(e),'error');}}},
     { icon: 'attach', label: 'Фото или файл', onClick: () => V.file.click() },
+    { icon:'pin',label:'Местоположение',onClick:()=>locationModal(c)},
     { icon: 'copy', label: 'Шаблоны ответов', onClick: templatePicker },
     circlesSupported() ? { icon: 'video', label: 'Кружок (видеосообщение)', onClick: () => startCircle() } : null,
     (c.type === 'group' || (c.type === 'private' && !peerOf(c)?.bot && !peerOf(c)?.official)) ? { icon: 'coin', label: 'Вызов на лимоны ⚔️', onClick: () => duelModal(c, sent) } : null,
@@ -2376,7 +2390,7 @@ function pushRecent(e) {
 }
 
 function canGift(c) {
-  return c?.type === 'private' && !!peerOf(c) && !peerOf(c).official && !peerOf(c).bot;
+  return c?.type === 'saved' || c?.type === 'private' && !!peerOf(c) && !peerOf(c).official && !peerOf(c).bot;
 }
 
 let panelRelease = null;
@@ -2466,26 +2480,26 @@ function coinsLine() {
 }
 
 function giftShop(c) {
-  const peer = peerOf(c);
+  const peer = c.type==='saved'?S.me:peerOf(c);
   return h('div', { class: 'gift-shop' },
     coinsLine(),
     h('div', { class: 'panel-title' }, `Подарок для ${peer?.name || 'собеседника'}`),
     h('div', { class: 'gift-grid' }, GIFTS.map((g) => h('button', {
       class: 'gift-item', onclick: () => giftConfirm(c, g),
     },
-    h('div', { class: 'gift-item-art', style: { background: `linear-gradient(150deg, ${g.colors[0]}, ${g.colors[1]})` } }, g.emoji),
+    h('div', { class: 'gift-item-art', style: { background: `linear-gradient(150deg, ${g.colors[0]}, ${g.colors[1]})` } }, giftArt(g)),
     h('div', { class: 'gift-item-name' }, g.name),
     h('div', { class: 'gift-item-price' }, `🍋 ${g.price}`)))));
 }
 
 function giftConfirm(c, g) {
-  const peer = peerOf(c);
+  const peer = c.type==='saved'?S.me:peerOf(c);
   const note = h('input', { class: 'input', placeholder: 'Подпись к подарку (необязательно)', maxLength: 140 });
   const enough = (S.me.coins ?? 0) >= g.price;
   openModal({
     className: 'modal-small',
     body: h('div', { class: 'gift-confirm' },
-      h('div', { class: 'gift-confirm-art', style: { background: `linear-gradient(150deg, ${g.colors[0]}, ${g.colors[1]})` } }, g.emoji),
+      h('div', { class: 'gift-confirm-art', style: { background: `linear-gradient(150deg, ${g.colors[0]}, ${g.colors[1]})` } }, giftArt(g)),
       h('div', { class: 'profile-name' }, g.name),
       h('div', { class: 'muted' }, `Подарок для ${peer?.name || ''} — появится в профиле получателя`),
       note,
@@ -2516,7 +2530,7 @@ async function giftsGrid(userId) {
       const g = giftById(x.giftId);
       if (!g) return null;
       return h('div', { class: 'pg-item', title: `${g.name} от ${x.fromName || 'пользователя'}${x.note ? ` — «${x.note}»` : ''}` },
-        h('div', { class: 'pg-art', style: { background: `linear-gradient(150deg, ${g.colors[0]}, ${g.colors[1]})` } }, g.emoji),
+        h('div', { class: 'pg-art', style: { background: `linear-gradient(150deg, ${g.colors[0]}, ${g.colors[1]})` } }, giftArt(g)),
         h('div', { class: 'pg-from' }, x.fromName || '—'));
     }).filter(Boolean) : [h('div', { class: 'list-note' }, 'Подарков пока нет')]));
   } catch { grid.replaceChildren(h('div', { class: 'list-note' }, 'Не удалось загрузить')); }
@@ -3344,6 +3358,8 @@ async function deleteChannel(c) {
 
 function openCollectibles(){return collectiblesModal({refreshMe:async()=>{S.me=(await api.get('/me')).user;mergeUser(S.me);if(S.current)renderHeader();},buy:async item=>{try{const data=await api.get('/subscriptions');if(!data.seller)return toast('Продавец не настроен');const {chat}=await api.post('/chats/private',{userId:data.seller.id});upsertChat(chat);while(closeTopModal()){}openChat(chat.id);if(V.input){V.input.value='Привет! Хочу купить коллекционный подарок «'+item.name+'» за '+item.price+' ₽. Мой аккаунт: @'+S.me.username;saveDraft();autosize();updateSendBtn();}}catch(e){toast(errorText(e),'error');}}});}
 
+function ownProfilePreview(){return openUserProfile(S.me.id,true);}
+
 function openDrawer() {
   const me = S.me;
   let backdrop;
@@ -3368,7 +3384,7 @@ function openDrawer() {
   themeToggle.append(sw);
   const panel = h('nav', { class: 'drawer' },
     h('div', { class: 'drawer-head' },
-      h('button', { class: 'drawer-me', onclick: () => { close(); editProfileModal(); } },
+      h('button', { class: 'drawer-me', onclick: () => { close(); afterHistory(ownProfilePreview); } },
         userAvatar(me, 64),
         h('div', { class: 'drawer-name' }, nameWithBadge(me.name, me)),
         h('div', { class: 'drawer-username' }, `@${me.username}`)),
@@ -3381,6 +3397,8 @@ function openDrawer() {
       featureOn('bots') ? item('bot', 'Мои боты', myBotsModal) : null,
       item('eye', ['Анонимные послания', S.anonUnread ? h('span', { class: 'drawer-badge' }, String(S.anonUnread)) : null], () => anonInbox()),
       item('search', 'Каталог каналов', popularChannelsModal)),
+      item('user','Мой профиль',()=>ownProfilePreview()),
+      item('pencil','Редактировать профиль',editProfileModal),
       item('bookmark', 'Избранное', openSaved),
       item('check', 'Органайзер', () => workspaceHub()),
       item('search', 'Быстрый переход', commandPalette),
@@ -3437,13 +3455,13 @@ function profileHero(u, { avatarNode, status, onClose, extra } = {}) {
     status ? h('div', { class: `pf-status ${u.online ? 'online' : ''}` }, status) : null);
 }
 
-async function openUserProfile(id) {
+async function openUserProfile(id, ownPreview=false) {
   if (!id) return;
-  if (id === S.me.id) return editProfileModal();
+  if (id === S.me.id && !ownPreview) return ownProfilePreview();
   let u = S.users.get(id);
   try { u = (await api.get(`/users/${id}`)).user; mergeUser(u); } catch { /* use cache */ }
   if (!u) return toast('Пользователь не найден');
-  api.post(`/users/${u.id}/view`).catch(() => {});
+  if(!ownPreview)api.post(`/users/${u.id}/view`).catch(() => {});
   const link = `${location.origin}/@${u.username}`;
   const chat = [...S.chats.values()].find((c) => c.type === 'private' && peerOf(c)?.id === u.id);
   const gifts = h('div', { class: 'pf-gifts' }, h('span', { class: 'spinner' }));
@@ -3467,7 +3485,7 @@ async function openUserProfile(id) {
         status: u.official ? 'официальный аккаунт' : lastSeenText(u),
         extra: h('button', { class: 'pf-glass-btn', 'aria-label': 'Поделиться', onclick: () => shareLink(link, u.name) }, icon('share')),
       }),
-      h('div', { class: 'pf-actions' },
+      ownPreview ? h('div',{class:'pf-actions'},action('edit','Редактировать',()=>{closeTopModal();afterHistory(editProfileModal);})):h('div', { class: 'pf-actions' },
         action('chat', 'Написать', () => { closeTopModal(); startPrivate(u.id); }, 'primary'),
         !u.official && !u.bot && chat ? action('phone', 'Звонок', () => { closeTopModal(); startCall(chat, u, false); }) : null,
         !u.official && !u.bot && chat ? action('video', 'Видео', () => { closeTopModal(); startCall(chat, u, true); }) : null,
@@ -4070,6 +4088,7 @@ const TRUST_KEY = 'limoninior.trustedHosts';
 const trustedHosts = () => { try { return new Set(JSON.parse(localStorage.getItem(TRUST_KEY) || '[]')); } catch { return new Set(); } };
 
 function openExternal(href) {
+  try{const u=new URL(href,location.origin);if(u.origin===location.origin&&/^\/postcard\/[a-f0-9]{24}$/.test(u.pathname))return postcardModal(u.pathname.split('/').pop());}catch{}
   let host = '';
   try { host = new URL(href).hostname; } catch { return; }
   const risk = linkRisk(href);

@@ -50,7 +50,7 @@ app.use(helmet({
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }));
 app.use((req, res, next) => {
-  res.set('Permissions-Policy', 'camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=()');
+  res.set('Permissions-Policy', 'camera=(self), microphone=(self), display-capture=(self), geolocation=(self), payment=(), usb=()');
   next();
 });
 

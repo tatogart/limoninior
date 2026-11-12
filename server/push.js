@@ -34,12 +34,12 @@ export function removeSubscription(userId, endpoint) {
 }
 
 /** Fire-and-forget push to every device of the given users. */
-export function sendPush(userIds, payload, { ttl = 3600, urgency = 'normal' } = {}) {
+export function sendPush(userIds, payload, { ttl = 300, urgency = 'high' } = {}) {
   if (!userIds.length) return;
   const body = JSON.stringify(payload);
   for (const uid of new Set(userIds)) {
     for (const s of q('SELECT * FROM push_subs WHERE user_id = ?').all(uid)) {
-      webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, body, { TTL: ttl, urgency })
+      webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, body, { TTL: ttl, urgency, timeout: 10000 })
         .catch((err) => {
           if (err?.statusCode === 404 || err?.statusCode === 410) q('DELETE FROM push_subs WHERE id = ?').run(s.id);
         });
