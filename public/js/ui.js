@@ -475,10 +475,10 @@ export function closeMenu(fromBack = false) {
 }
 
 /** Context menu at (x, y). items: [{ icon, label, danger, onClick }] */
-export function contextMenu(x, y, items) {
+export function contextMenu(x, y, items, { above = false } = {}) {
   closeMenu();
   const all=items.filter(Boolean);
-  if(all.length>7){const primary=all.slice(0,5),rest=all.slice(5);items=[...primary,{icon:'more',label:'Ещё действия…',onClick:()=>afterHistory(()=>contextMenu(x,y,rest))}];}
+  if(all.length>7){const primary=all.slice(0,5),rest=all.slice(5);items=[...primary,{icon:'more',label:'Ещё действия…',onClick:()=>afterHistory(()=>contextMenu(x,y,rest,{above}))}];}
   const menu = h('div', { class: 'ctx-menu', role: 'menu' }, items.filter(Boolean).map((it) => it.node || h('button', {
     class: `ctx-item ${it.danger ? 'danger' : ''}`,
     role: 'menuitem',
@@ -487,7 +487,7 @@ export function contextMenu(x, y, items) {
   document.body.append(menu);
   const r = menu.getBoundingClientRect();
   const left = Math.min(x, window.innerWidth - r.width - 8);
-  const top = y + r.height > window.innerHeight - 8 ? Math.max(8, y - r.height) : y;
+  const top = above ? Math.max(8,y-r.height) : y + r.height > window.innerHeight - 8 ? Math.max(8, y - r.height) : y;
   menu.style.left = `${Math.max(8, left)}px`;
   menu.style.top = `${top}px`;
   requestAnimationFrame(() => menu.classList.add('show'));

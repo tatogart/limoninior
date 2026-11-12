@@ -1921,7 +1921,7 @@ function attachMenu(anchor) {
       try { sent((await api.post(`/chats/${c.id}/dice`, { emoji })).message); } catch (e) { toast(errorText(e), 'error'); }
     }))) },
   ].filter(Boolean);
-  contextMenu(r.left, Math.max(8, r.top - 8 - items.length * 44), items);
+  contextMenu(r.left, r.top - 8, items, {above:true});
 }
 
 async function jumpTo(id) {
