@@ -547,8 +547,8 @@ function startApp() {
   loadReminders();
   setTimeout(claimReferral, 1200);
   buildLayout();
-  connectSocket();
   loadChats().then(() => refreshWorkspace().catch(() => {})).then(handleDeepLink);
+  try { connectSocket(); } catch (e) { console.error('Realtime initialization failed:',e.message); toast('Переписка загружена. Не удалось включить обновления в реальном времени.', 'error'); }
   maybeOfferPush();
   setInterval(() => { if (S.current) renderHeaderStatus(); }, 30_000);
   setInterval(refreshChannelStats, 20_000);
@@ -631,6 +631,7 @@ async function loadChats() {
     renderChatList();
     updateBadge();
   } catch (e) {
+    console.error('Chat loading failed:',e.message);
     if (e.status === 401 || e.status === 403) return location.reload();
     toast(errorText(e), 'error');
   }
