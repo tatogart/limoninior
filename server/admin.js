@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+import {registerModeratorAdmin} from './moderator.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import express from 'express';
@@ -24,6 +26,9 @@ import { planById } from '../public/js/catalog.js';
  * If ADMIN_TOTP_SECRET or ADMIN_EMAILS is missing the panel is fully disabled.
  */
 export const admin = express.Router();
+const entryTokens=new Map();
+export function consumeAdminEntry(token,sessionId){const v=entryTokens.get(token);entryTokens.delete(token);return !!v&&v.sessionId===sessionId&&v.until>Date.now();}
+
 
 const enabled = () => config.adminEmails.length > 0 && config.adminTotpSecret.length >= 16;
 const notFound = (res) => res.status(404).json({ error: 'not_found' });
@@ -55,6 +60,7 @@ const totpLimiter = rateLimit({
 
 admin.use(requireAuth, gate);
 
+admin.get('/entry',(req,res)=>{for(const [key,value] of entryTokens)if(value.until<Date.now())entryTokens.delete(key);const token=crypto.randomBytes(24).toString('hex');entryTokens.set(token,{sessionId:req.session.id,until:Date.now()+60000});res.json({url:'/control/'+token});});
 admin.get('/status', (req, res) => {
   res.json({ elevated: req.session.admin_until > now(), until: req.session.admin_until });
 });
@@ -81,6 +87,7 @@ admin.post('/lock', (req, res) => {
 });
 
 admin.use(elevated);
+registerModeratorAdmin(admin);
 
 admin.get('/stats', (req, res) => {
   const day = now() - 864e5;

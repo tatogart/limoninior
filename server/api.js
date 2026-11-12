@@ -1,3 +1,4 @@
+import {registerModerator,isModerator} from './moderator.js';
 import {registerFamily} from './family.js';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
@@ -100,6 +101,7 @@ export function meUser(u) {
     prefs: getPrefs(u),
     email: u.email,
     isAdmin: isAdminUser(u),
+    isModerator: isModerator(u.id),
     needsProfile: !u.username,
     coins: u.coins,
     hasPassword: !!u.password_hash,
@@ -654,6 +656,7 @@ api.post('/me/referral', requireAuth, requireProfile, (req, res) => {
 api.use(requireAuth, requireProfile);
 
 registerFamily(api,{bad,int,publicUser,emitToUser});
+registerModerator(api,{publicUser,pushChat});
 registerWorkspace(api, { bad, int, clean, isMember, serializeMessage, emitToUser, emitToChat, chatForUser, searchLimiter });
 registerStickers(api, { bad, int, clean });
 api.post('/bots', featureGate('bots'));

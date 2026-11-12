@@ -8,7 +8,7 @@ import { q, now } from './db.js';
 import { checkOrigin, requireAuth, sessionFromCookie, isAdminUser } from './auth.js';
 import { api } from './api.js';
 import { botApi } from './bots.js';
-import { admin } from './admin.js';
+import { admin,consumeAdminEntry } from './admin.js';
 import { serveMedia } from './media.js';
 import { initRealtime } from './realtime.js';
 import { ipBanGuard } from './ipban.js';
@@ -75,13 +75,8 @@ app.get('/vendor/socket.io.esm.min.js', (req, res) => {
 });
 
 // The admin page is only served to the admin; everyone else gets the normal app.
-app.get('/admin', (req, res) => {
-  const r = sessionFromCookie(req.headers.cookie);
-  res.set('Cache-Control', 'no-store');
-  if (r && isAdminUser(r.user) && config.adminTotpSecret) return res.sendFile(path.join(pub, 'admin.html'));
-  res.sendFile(path.join(pub, 'index.html'));
-});
-app.get('/admin.html', (req, res) => res.redirect('/admin'));
+app.get('/control/:token',(req,res)=>{const r=sessionFromCookie(req.headers.cookie);res.set('Cache-Control','no-store');if(!r||!isAdminUser(r.user)||!config.adminTotpSecret||!consumeAdminEntry(req.params.token,r.session.id))return res.status(404).end();res.sendFile(path.join(pub,'admin.html'));});
+app.get(['/admin','/admin.html'],(req,res)=>res.status(404).end());
 app.get('/privacy', (req, res) => res.sendFile(path.join(pub, 'privacy.html')));
 app.get('/help', (req, res) => res.sendFile(path.join(pub, 'help.html')));
 app.get('/partners', (req, res) => res.sendFile(path.join(pub, 'partners.html')));

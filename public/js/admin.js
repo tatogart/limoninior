@@ -439,6 +439,7 @@ async function dossier(id) {
     if (r) { toast(`Удалено сообщений: ${r.removed}`); refresh(); }
   };
   const actions = h('div', { class: 'dos-actions' },
+    protectedUser ? null : btn('Доступ модератора',async()=>{const state=await api.get('/admin/users/'+id+'/moderator');if(await confirmDialog(state.enabled?'Закрыть доступ модератора?':'Выдать доступ к репортам, публичным профилям и заявкам на галочки?',{ok:state.enabled?'Закрыть':'Выдать'}))await post('moderator',{enabled:!state.enabled},'Доступ обновлён');}),
     btn('✉️ Написать от Limochat', () => dmDialog(u)),
     btn('🍋 Лимоны', () => coinsDialog(u, (body) => post('coins', body, 'Готово'))),
     btn(u.sub ? '👑 Подписка' : '👑 Выдать подписку', () => subDialog(u, (body) => post('subscription', body, 'Готово'))),

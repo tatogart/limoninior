@@ -1,3 +1,4 @@
+import {moderatorPanel} from './moderator.js';
 import {familyModal} from './family.js';
 import { initWorkspace, refreshWorkspace, workspaceChanged, workspaceFilter, workspaceAll, workspaceUnread, workspaceOpened, workspaceBar, updateWorkspaceBar, workspaceHub, workspaceChatItems, workspaceMessageItems, workspaceSearch, templatePicker, commandPalette, exportChat, openMessageContext } from './workspace.js';
 import { io } from '/vendor/socket.io.esm.min.js';
@@ -3377,6 +3378,7 @@ function openDrawer() {
       item('search', 'Быстрый переход', commandPalette),
       item('crown', S.me.subUntil ? `${planById(S.me.sub)?.name || 'Подписка'} ✓` : 'Limochat Premium', subscriptionsModal, 'premium-item'),
       item('settings', 'Настройки', settingsModal),
+      (S.me.isModerator || S.me.isAdmin) ? item('shield','Модерация',moderatorPanel) : null,
       h('details',{class:'drawer-category'},h('summary',{},'Дополнительно'),item('gift', 'Пригласить друзей', referralModal, 'ref-item'),item('sparkles', 'Сотрудничество', () => window.open('/partners', '_blank', 'noopener')),
       item('info', 'Справка', () => window.open('/help', '_blank', 'noopener')),
       themeToggle,
@@ -3385,7 +3387,7 @@ function openDrawer() {
       item('logout', 'Выйти', async () => { if (await confirmDialog('Выйти из аккаунта на этом устройстве?', { ok: 'Выйти', danger: true })) logout(); }, 'danger')),
     h('div', { class: 'drawer-foot' }, h('img', { src: '/icons/icon.svg', alt: '' }), h('b', {}, 'Limochat'), h(me.isAdmin ? 'button' : 'span', me.isAdmin ? {
       type: 'button', class: 'drawer-version', 'aria-label': `Версия ${clientVersion()}`,
-      onclick: createAdminTapHandler({ isAdmin: () => !!S.me?.isAdmin, open: () => { close(); navigate('/admin'); } }),
+      onclick: createAdminTapHandler({ isAdmin: () => !!S.me?.isAdmin, open: () => { close(); api.get('/admin/entry').then(r=>navigate(r.url)).catch(e=>toast(errorText(e),'error')); } }),
     } : {}, clientVersion())));
   backdrop = h('div', { class: 'drawer-backdrop', onclick: (e) => { if (e.target === backdrop) close(); } }, panel);
   document.body.append(backdrop);
