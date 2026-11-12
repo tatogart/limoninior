@@ -8,7 +8,7 @@ db.exec("CREATE TABLE IF NOT EXISTS studio_sessions(user_id INTEGER PRIMARY KEY 
 export const subscribed=u=>!!u?.sub_tier&&u.sub_until>now();
 export const animatedAllowed=u=>subscribed(u)&&['premium','max'].includes(u.sub_tier);
 export function studioBot(){
- let u=q("SELECT * FROM users WHERE google_sub='bot:sticker-studio'").get();if(u)return u;
+ let u=q("SELECT * FROM users WHERE google_sub='bot:sticker-studio'").get();if(u){if(!u.verified){q('UPDATE users SET verified=1 WHERE id=?').run(u.id);u={...u,verified:1};}return u;}
  return tx(()=>{const username=q("SELECT 1 FROM users WHERE username='LimoStickerBot'").get()||q("SELECT 1 FROM chats WHERE username='LimoStickerBot'").get()?null:'LimoStickerBot';const r=q("INSERT INTO users(google_sub,email,username,name,bio,verified,coins,created_at,last_seen) VALUES('bot:sticker-studio','',?,'Студия стикеров и эмодзи','Официальная студия Limochat',1,0,?,?)").run(username,now(),now());const id=Number(r.lastInsertRowid);q("INSERT INTO bots(user_id,owner_id,token_hash,commands,created_at) VALUES(?,?,?,?,?)").run(id,id,crypto.randomBytes(32).toString('hex'),JSON.stringify([{command:'new',description:'Набор стикеров: /new Название'},{command:'emoji',description:'Создать эмодзи'},{command:'packs',description:'Мои наборы'}]),now());return q('SELECT * FROM users WHERE id=?').get(id);});
 }
 export function handleStudio(botId,chatId,msg,helpers){
@@ -38,6 +38,7 @@ export function handleStudio(botId,chatId,msg,helpers){
  return true;
 }
 export function registerStudio(api,{publicUser}){
+ studioBot();
  api.post('/studio/bot',(req,res)=>res.json({user:publicUser(studioBot())}));
  api.get('/studio/emojis',(req,res)=>res.json({emojis:q('SELECT id,animated FROM custom_emojis WHERE owner_id=? ORDER BY id DESC LIMIT 120').all(req.user.id)}));
  api.get('/studio/emojis/:id',(req,res)=>{const row=q('SELECT file FROM custom_emojis WHERE id=?').get(Number(req.params.id)||0);if(!row)return res.status(404).end();res.redirect('/media/'+row.file);});

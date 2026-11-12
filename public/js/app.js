@@ -611,7 +611,6 @@ function createMenu(x, y, above = false) {
     featureOn('communities') ? { icon: 'community', label: 'Сообщество', onClick: newCommunityModal } : null,
     featureOn('stories') ? { icon: 'sparkles', label: 'История', onClick: newStory } : null,
     { icon: 'phone', label: 'Звонок по ссылке', onClick: newCallLinkModal },
-    { icon: 'bot', label: 'Бот стикеров и эмодзи', onClick: newPackModal },
     featureOn('bots') ? { icon: 'bot', label: 'Боты', onClick: myBotsModal } : null,
   ].filter(Boolean);
   contextMenu(x, above ? Math.max(8, y - items.length * 44 - 12) : y, items);
