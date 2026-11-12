@@ -2832,3 +2832,5 @@ button, input, textarea, select { font-family: inherit; }
 .collectibles-ui p{margin:0}
 
 .collectibles-modal{width:min(600px,calc(100vw - 20px))}.collectibles-ui .collectible-card details{width:100%}
+
+.collectibles-ui [hidden]{display:none!important}
