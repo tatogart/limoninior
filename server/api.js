@@ -20,6 +20,7 @@ import { registerStickers, customSticker, stickerExtra } from './stickers.js';
 import { registerBots, onNewMessage, isBotUser } from './bots.js';
 import { registerCommunities, communityRole } from './communities.js';
 import { registerFeatures } from './features.js';
+import { registerWorkspace } from './workspace.js';
 import { registerSurprises } from './surprises.js';
 import { registerGames } from './games.js';
 import { registerSocial } from './social.js';
@@ -651,6 +652,7 @@ api.post('/me/referral', requireAuth, requireProfile, (req, res) => {
 // Everything below needs a completed profile (username chosen).
 api.use(requireAuth, requireProfile);
 
+registerWorkspace(api, { bad, int, clean, isMember, serializeMessage, emitToUser, emitToChat, chatForUser, searchLimiter });
 registerStickers(api, { bad, int, clean });
 api.post('/bots', featureGate('bots'));
 registerBots(api, {

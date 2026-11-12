@@ -1,3 +1,4 @@
+import { initWorkspace, refreshWorkspace, workspaceChanged, workspaceFilter, workspaceAll, workspaceUnread, workspaceOpened, workspaceBar, updateWorkspaceBar, workspaceHub, workspaceChatItems, workspaceMessageItems, workspaceSearch, templatePicker, commandPalette, exportChat, openMessageContext } from './workspace.js';
 import { io } from '/vendor/socket.io.esm.min.js';
 import { api, errorText } from './api.js';
 import { loadDrafts, persistDrafts } from './drafts.js';
@@ -511,6 +512,16 @@ async function logout() {
 
 function startApp() {
   S.drafts = loadDrafts(S.me.id);
+  initWorkspace({ S, chatTitle, userName, messagePreview, renderChatList, openChat, jumpToMessage,
+    clearSearch, closeCommunity, openViewer, downloadFile, focusComposer: () => V.input?.focus(),
+    insertTemplate: (text) => {
+      const c = curChat();
+      if (!c || !V.input || c.canPost === false || c.blocked || S.editing) { toast('Откройте чат, в который можно написать, и завершите редактирование'); return false; }
+      const next = V.input.value + (V.input.value ? '\n' : '') + text;
+      if (next.length > 4096) { toast('С шаблоном сообщение превысит 4096 символов'); return false; }
+      V.input.value = next; onComposerInput(); return true;
+    },
+  });
   mergeUser(S.me);
   initStickerPacks({ onChange: () => { if (panelTab === 'stickers' && V.panel && !V.panel.classList.contains('hidden')) renderPanel(); } });
   initBotsUi({ openChatWith: (id) => { while (closeTopModal()) { /* close all */ } startPrivate(id); }, prepareImage, openUrl: (u) => openExternal(u) });
@@ -532,7 +543,7 @@ function startApp() {
   setTimeout(claimReferral, 1200);
   buildLayout();
   connectSocket();
-  loadChats().then(handleDeepLink);
+  loadChats().then(() => refreshWorkspace().catch(() => {})).then(handleDeepLink);
   maybeOfferPush();
   setInterval(() => { if (S.current) renderHeaderStatus(); }, 30_000);
   setInterval(refreshChannelStats, 20_000);
@@ -551,6 +562,7 @@ function buildLayout() {
       h('div', { class: 'search-wrap' }, icon('search', 'search-ic'), V.search,
         h('button', { class: 'search-clear', 'aria-label': 'Очистить', onclick: clearSearch }, icon('close')))),
     V.conn,
+    workspaceBar(),
     V.banner = h('div', { class: 'banner-slot' }),
     initStories({ me: () => S.me, prepareImage }),
     V.list,
@@ -668,6 +680,7 @@ async function handleDeepLink() {
 function connectSocket() {
   const s = io({ transports: ['websocket', 'polling'], withCredentials: true });
   S.socket = s;
+  s.on('workspace:changed', workspaceChanged);
   let wasConnected = false;
   s.on('connect', () => {
     S.connected = true;
@@ -858,6 +871,7 @@ function clearTyping(chatId, userId) {
 
 async function resync() {
   await loadChats();
+  await refreshWorkspace().catch(() => {});
   for (const [id, st] of S.msgs) if (id !== S.current) st.loaded = false;
   const st = S.msgs.get(S.current);
   if (!st) return;
@@ -893,6 +907,7 @@ async function notify(chat, m) {
 
 function renderChatList() {
   if (!V.list) return;
+  updateWorkspaceBar();
   if (S.searchQuery) return renderSearch();
   if (openCommunityId()) {
     setStripVisible(false);
@@ -901,9 +916,13 @@ function renderChatList() {
   }
   setStripVisible(true);
   // Channels of a community live inside it: the list shows one entry per community.
-  const chats = [...S.chats.values()].filter((c) => !c.preview && !c.communityId).map((c) => ({ c, pin: c.pinnedAt || 0, key: c.lastMessage?.id || 0 }))
-    .concat([...communities.values()].map((cm) => ({ cm, pin: 0, key: communityActivity(cm) })))
+  const chats = [...S.chats.values()].filter((c) => !c.preview && (!c.communityId || !workspaceAll()) && workspaceFilter(c)).map((c) => ({ c, pin: c.pinnedAt || 0, key: c.lastMessage?.id || 0 }))
+    .concat((workspaceAll() ? [...communities.values()] : []).map((cm) => ({ cm, pin: 0, key: communityActivity(cm) })))
     .sort((a, b) => b.pin - a.pin || b.key - a.key || (b.c?.id || 0) - (a.c?.id || 0));
+  if (!chats.length && !workspaceAll()) {
+    V.list.replaceChildren(h('div', { class: 'list-empty' }, h('b', {}, 'В этом разделе пока пусто'), h('p', {}, 'Добавляйте чаты в папки и архив через меню чата.')));
+    return;
+  }
   if (!chats.length) {
     V.list.replaceChildren(h('div', { class: 'list-empty' },
       h('div', { class: 'list-empty-emoji' }, '👋'),
@@ -941,6 +960,7 @@ function chatItem(c) {
       e.preventDefault();
       contextMenu(e.clientX, e.clientY, [
         { icon: 'info', label: 'Информация', onClick: () => openInfo(c) },
+        ...workspaceChatItems(c),
         { icon: c.pinnedAt ? 'unpin' : 'pin', label: c.pinnedAt ? 'Открепить' : 'Закрепить', onClick: () => togglePinChat(c) },
         c.type !== 'saved' ? { icon: 'bell', label: c.muted ? 'Включить уведомления' : 'Выключить уведомления', onClick: () => toggleMute(c) } : null,
         isGroup(c) ? { icon: 'leave', label: 'Покинуть группу', danger: true, onClick: () => leaveGroup(c) } : null,
@@ -957,7 +977,7 @@ function chatItem(c) {
     h('div', { class: 'chat-item-bottom' },
       h('span', { class: 'chat-item-preview' }, preview),
       c.unread ? h('span', { class: `badge ${c.muted ? 'muted-badge' : ''}` }, c.unread > 999 ? '999+' : c.unread)
-        : c.pinnedAt ? icon('pin', 'pin-ic') : null)));
+        : workspaceUnread(c) ? h('span', { class: 'ws-unread-dot', 'aria-label': 'Отмечен непрочитанным' }) : c.pinnedAt ? icon('pin', 'pin-ic') : null)));
 }
 
 async function togglePinChat(c) {
@@ -1114,6 +1134,7 @@ function openChat(id, { fromHistory = false } = {}) {
   closeChatSearch();
   if (V.panel && panelRelease) togglePanel(false);
   const wasOpen = !!S.current;
+  workspaceOpened(id);
   S.current = id;
   S.reply = null;
   S.editing = null;
@@ -1884,6 +1905,7 @@ function attachMenu(anchor) {
   const sent = (m) => { addMessage(m); renderMessages({ stick: true }); };
   const items = [
     { icon: 'attach', label: 'Фото или файл', onClick: () => V.file.click() },
+    { icon: 'copy', label: 'Шаблоны ответов', onClick: templatePicker },
     circlesSupported() ? { icon: 'video', label: 'Кружок (видеосообщение)', onClick: () => startCircle() } : null,
     (c.type === 'group' || (c.type === 'private' && !peerOf(c)?.bot && !peerOf(c)?.official)) ? { icon: 'coin', label: 'Вызов на лимоны ⚔️', onClick: () => duelModal(c, sent) } : null,
     featureOn('extras') ? { icon: 'gamepad', label: 'Поймай лимон 🍋', onClick: () => surpriseModal(c, sent, { mode: 'catch' }) } : null,
@@ -1909,7 +1931,7 @@ async function jumpTo(id) {
       st.hasMore = r.hasMore;
       renderMessages();
       el = V.msgInner.querySelector(`[data-id="${CSS.escape(String(id))}"]`);
-    } catch (e) { return toast(errorText(e), 'error'); }
+    } catch (e) { if (e.code === 'too_far') return openMessageContext(id); return toast(errorText(e), 'error'); }
   }
   if (!el) return toast('Сообщение не найдено');
   el.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -2036,6 +2058,7 @@ function showMessageMenu(m, x, y) {
       ? { icon: 'unpin', label: 'Открепить', onClick: () => pinMessage(c, null) }
       : { icon: 'pin', label: 'Закрепить', onClick: () => pinMessage(c, m) }) : null,
     isChannel(c) && channelLink(c) ? { icon: 'share', label: 'Ссылка на канал', onClick: () => copyText(channelLink(c)) } : null,
+    ...(c.preview ? [] : workspaceMessageItems(m)),
     ...(c.preview ? [] : reminderItems(m)),
     m.text && m.kind !== 'sticker' ? { icon: 'copy', label: 'Копировать', onClick: () => copyText(m.text) } : null,
     m.kind === 'image' ? { icon: 'download', label: 'Открыть фото', onClick: () => openViewer(m) } : null,
@@ -2713,6 +2736,9 @@ function chatMoreMenu(anchor) {
   contextMenu(r.right - 8, r.bottom + 4, [
     { icon: 'info', label: communityOf(c) ? 'О сообществе' : 'Информация', onClick: () => openInfo(c) },
     { icon: 'search', label: 'Поиск по чату', onClick: openChatSearch },
+    ...workspaceChatItems(c),
+    !c.preview ? { icon: 'attach', label: 'Вложения и ссылки', onClick: () => workspaceSearch(c, true) } : null,
+    !c.preview ? { icon: 'download', label: 'Экспорт переписки', onClick: () => exportChat(c) } : null,
     !c.preview ? { icon: 'image', label: 'Обои чата', onClick: () => chatWallModal(c, chatTitle(c), V.pane) } : null,
     !c.preview ? { icon: c.pinnedAt ? 'unpin' : 'pin', label: c.pinnedAt ? 'Открепить чат' : 'Закрепить чат', onClick: () => togglePinChat(c) } : null,
     c.type !== 'saved' && !c.preview ? { icon: c.muted ? 'bell' : 'mute', label: c.muted ? 'Включить уведомления' : 'Выключить уведомления', onClick: () => toggleMute(c) } : null,
@@ -2830,33 +2856,9 @@ async function blockedModal() {
 let chatSearchTimer = null;
 function openChatSearch() {
   const c = curChat();
-  if (!c || !V.searchBar) return;
+  if (!c) return;
   if (c.preview) return toast('Подпишитесь на канал, чтобы искать по нему');
-  const input = h('input', { class: 'input chat-search-input', type: 'search', placeholder: 'Поиск по сообщениям', enterkeyhint: 'search' });
-  const results = h('div', { class: 'chat-search-results hidden' });
-  V.searchBar.replaceChildren(h('div', { class: 'chat-search-row' }, icon('search', 'cs-ic'), input,
-    h('button', { class: 'icon-btn', 'aria-label': 'Закрыть поиск', onclick: closeChatSearch }, icon('close'))), results);
-  V.searchBar.classList.remove('hidden');
-  if (!searchRelease) searchRelease = registerOverlay(() => closeChatSearch(true));
-  V.view?.classList.add('searching');
-  input.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeChatSearch(); } });
-  input.addEventListener('input', () => {
-    clearTimeout(chatSearchTimer);
-    const qv = input.value.trim();
-    if (qv.length < 2) { results.classList.add('hidden'); return; }
-    chatSearchTimer = setTimeout(async () => {
-      try {
-        const { messages } = await api.get(`/chats/${c.id}/search?q=${encodeURIComponent(qv)}`);
-        if (S.current !== c.id) return;
-        results.classList.remove('hidden');
-        results.replaceChildren(...(messages.length ? messages.map((m) => h('button', { class: 'cs-item', onclick: () => { closeChatSearch(); jumpTo(m.id); } },
-          h('div', { class: 'cs-top' }, h('b', {}, isChannel(c) ? c.title : userName(m.senderId)), h('span', { class: 'muted' }, `${dayLabel(m.createdAt)} ${timeHM(m.createdAt)}`)),
-          h('div', { class: 'cs-text ellipsis' }, highlight(messagePreview(m), qv))))
-          : [h('div', { class: 'list-note' }, 'Ничего не найдено')]));
-      } catch (e) { toast(errorText(e), 'error'); }
-    }, 250);
-  });
-  setTimeout(() => input.focus(), 30);
+  workspaceSearch(c);
 }
 
 let searchRelease = null;
@@ -3370,6 +3372,8 @@ function openDrawer() {
       item('eye', ['Анонимные послания', S.anonUnread ? h('span', { class: 'drawer-badge' }, String(S.anonUnread)) : null], () => anonInbox()),
       item('search', 'Каталог каналов', popularChannelsModal),
       item('bookmark', 'Избранное', openSaved),
+      item('check', 'Органайзер', () => workspaceHub()),
+      item('search', 'Быстрый переход', commandPalette),
       item('gift', 'Пригласить друзей', referralModal, 'ref-item'),
       item('crown', S.me.subUntil ? `${planById(S.me.sub)?.name || 'Подписка'} ✓` : 'Limochat Premium', subscriptionsModal, 'premium-item'),
       item('settings', 'Настройки', settingsModal),
@@ -4282,6 +4286,7 @@ function maybeOfferPush() {
 // ============================================================ keyboard
 
 document.addEventListener('keydown', (e) => {
+  if (S.me && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); if (!e.repeat) commandPalette(); return; }
   if (e.key !== 'Escape') return;
   if (document.querySelector('.ctx-menu')) return closeMenu();
   if (V.panel && !V.panel.classList.contains('hidden')) return togglePanel(false);
