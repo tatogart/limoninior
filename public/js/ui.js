@@ -132,9 +132,11 @@ export function supporterBadge(user) {
 export function supporterTag(user, cls = '') {
   return user?.supporter ? h('span', { class: `role-tag supporter-tag ${cls}`, style: { '--rc': '#d99a24' }, title: 'Спасибо за поддержку развития Limochat' }, 'Поддержал проект') : null;
 }
+export const scamBadge=user=>user?.scam?h('span',{class:'scam-badge',title:user.scamReason||'Администрация пометила этот аккаунт как SCAM'},'SCAM'):null;
+export const trustBadge=user=>scamBadge(user)||(user?.verified?badge():null);
 export function nameWithBadge(name, user) {
   const out = [name];
-  if(user?.scam)out.push(h('span',{class:'scam-badge',title:user.scamReason||'Администрация пометила этот аккаунт как SCAM'},'SCAM'));
+  if(user?.scam)out.push(scamBadge(user));
   if(user?.collectible){const c=user.collectible,art=c.art||({'lemon-crystal':'diamond','moon-lemon':'moon','golden-orbit':'planet'}[c.collection]||'gift'),hue=COLLECTIBLE_TRAITS.color.find(x=>x.id===c.traits?.color?.id)?.hue||0;out.push(h('span',{class:'collectible-mark',title:c.name+' #'+c.id,dataset:{backdrop:c.traits?.backdrop?.id||c.backdrop||'aurora'}},h('img',{class:'collectible-mark-picture',src:'/gifts/'+art+'.svg',alt:c.name,width:24,height:24,style:{filter:'hue-rotate('+hue+'deg)'}})));}
   if (user?.supporter) out.push(supporterBadge(user));
   if (user?.verified && !user?.scam) out.push(badge());
