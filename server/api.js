@@ -1,3 +1,4 @@
+import {MEME_ID,limitedStock,nextMemeEdition,recordMemeEdition,giftEdition} from './limited-gifts.js';
 import './scam.js';
 import {registerPostcards} from './postcards.js';
 import {registerCollectibles,selectedCollectible} from './collectibles.js';
@@ -956,6 +957,7 @@ api.post('/chats/:id/stickers', sendLimiter, (req, res) => {
 
 // ---------- gifts ----------
 
+api.get('/gifts/limited',(req,res)=>res.json({stock:limitedStock()}));
 api.post('/chats/:id/gift', sendLimiter, (req, res) => {
   const id = int(req.params.id);
   const chat = id && q("SELECT * FROM chats WHERE id = ? AND type IN ('private','saved')").get(id);
@@ -967,15 +969,19 @@ api.post('/chats/:id/gift', sendLimiter, (req, res) => {
   if (isBotUser(q('SELECT google_sub FROM users WHERE id = ?').get(toId))) return bad(res, 'forbidden', 403);
   { const e = postError(id, req.user.id); if (e) return bad(res, e, 403); }
   const note = clean(req.body?.note, 140);
+  let edition=null;
   const ok = tx(() => {
+    if(gift.id===MEME_ID){edition=nextMemeEdition();if(!edition)return 'sold_out';}
     const r = q('UPDATE users SET coins = coins - ? WHERE id = ? AND coins >= ?').run(gift.price, req.user.id, gift.price);
     if (!r.changes) return false;
-    q('INSERT INTO user_gifts (gift_id, from_id, to_id, note, price, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    const issued=q('INSERT INTO user_gifts (id,gift_id, from_id, to_id, note, price, created_at) VALUES ((SELECT MAX(v)+1 FROM (SELECT COALESCE(MAX(id),0) AS v FROM user_gifts UNION ALL SELECT COALESCE(MAX(gift_id),0) AS v FROM limited_gift_issues)),?, ?, ?, ?, ?, ?)')
       .run(gift.id, req.user.id, toId, note, gift.price, now());
+    if(edition)recordMemeEdition(edition,Number(issued.lastInsertRowid));
     return true;
   });
+  if(ok==='sold_out')return bad(res,'limited_sold_out',409);
   if (!ok) return bad(res, 'not_enough_coins');
-  const message = postMessage(id, req.user.id, { kind: 'gift', text: note, extra: { giftId: gift.id, toId, price: gift.price } });
+  const message = postMessage(id, req.user.id, { kind: 'gift', text: note, extra: { giftId: gift.id, toId, price: gift.price,edition } });
   pushMe(req.user.id);
   audit(req.user.id, req.ip, 'gift', { giftId: gift.id, toId });
   res.json({ message, user: meUser(q('SELECT * FROM users WHERE id = ?').get(req.user.id)) });
@@ -986,7 +992,7 @@ api.get('/users/:id/gifts', (req, res) => {
   if (!id) return bad(res, 'not_found', 404);
   const rows = q(`SELECT g.*, u.name AS from_name FROM user_gifts g LEFT JOIN users u ON u.id = g.from_id
                   WHERE g.to_id = ? ORDER BY g.id DESC LIMIT 200`).all(id);
-  res.json({ gifts: rows.map((g) => ({ id: g.id, giftId: g.gift_id, fromId: g.from_id, fromName: g.from_name, note: g.note, price: g.price, createdAt: g.created_at })) });
+  res.json({ gifts: rows.map((g) => ({ id: g.id, edition:giftEdition(g.id),giftId: g.gift_id, fromId: g.from_id, fromName: g.from_name, note: g.note, price: g.price, createdAt: g.created_at })) });
 });
 
 api.patch('/messages/:id', sendLimiter, (req, res) => {

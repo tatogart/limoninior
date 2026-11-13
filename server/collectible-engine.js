@@ -1,3 +1,4 @@
+import {collectibleEdition} from './limited-gifts.js';
 import {randomInt,createHash} from 'node:crypto';
 import {db,q} from './db.js';
 import {TRAITS,DEFAULT_POLICY,validatePolicy} from '../public/js/collectible-traits.js';
@@ -13,6 +14,6 @@ export function rollTraits(policy=getPolicy(),preset={}){
  result[key]={id:selected.id,name:selected.name,chance:policy.weights[key][selected.id]/total*100};
  }return result;
 }
-export function serializeTraits(row){let traits;try{traits=JSON.parse(row.traits||'{}');}catch{traits={};}return {...row,traits:Object.keys(traits).length?traits:null};}
+export function serializeTraits(row){let traits;try{traits=JSON.parse(row.traits||'{}');}catch{traits={};}return {...row,edition:collectibleEdition(row.serial||row.id),traits:Object.keys(traits).length?traits:null};}
 
 export const policyToken=policy=>createHash('sha256').update(JSON.stringify(policy)).digest('hex').slice(0,20);

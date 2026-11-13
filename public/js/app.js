@@ -1747,7 +1747,7 @@ function messageEl(c, m, first, last, read) {
     h('div', { class: 'gift-shine' }),
     h('div', { class: 'gift-emoji' },giftArt(g)),
     h('div', { class: 'gift-title' }, mine ? 'Вы отправили подарок' : toMe ? 'Вам подарок!' : 'Подарок'),
-    h('div', { class: 'gift-name' }, g.name),
+    h('div', { class: 'gift-name' }, g.name+(m.extra?.edition?' · '+m.extra.edition+'/5':'')),
     h('div', { class: 'gift-price' }, `🍋 ${g.price}`),
     m.text ? h('div', { class: 'gift-note' }, `«${m.text}»`) : null), meta);
     return finishRow(c, m, bubble, { mine, group, first, last });
@@ -2482,15 +2482,17 @@ function coinsLine() {
 
 function giftShop(c) {
   const peer = c.type==='saved'?S.me:peerOf(c);
-  return h('div', { class: 'gift-shop' },
+  const shop=h('div', { class: 'gift-shop' },
     coinsLine(),
     h('div', { class: 'panel-title' }, `Подарок для ${peer?.name || 'собеседника'}`),
     h('div', { class: 'gift-grid' }, GIFTS.map((g) => h('button', {
-      class: 'gift-item', onclick: () => giftConfirm(c, g),
+      class: 'gift-item', dataset:{giftId:g.id},onclick: () => giftConfirm(c, g),
     },
     h('div', { class: 'gift-item-art', style: { background: `linear-gradient(150deg, ${g.colors[0]}, ${g.colors[1]})` } }, giftArt(g)),
     h('div', { class: 'gift-item-name' }, g.name),
-    h('div', { class: 'gift-item-price' }, `🍋 ${g.price}`)))));
+    h('div', { class: 'gift-item-price' }, `🍋 ${g.price}${g.limited?' · Тираж 5':''}`)))));
+  api.get('/gifts/limited').then(({stock})=>{for(const [id,v] of Object.entries(stock)){const item=shop.querySelector('[data-gift-id="'+id+'"]');if(item){item.disabled=v.remaining===0;item.querySelector('.gift-item-price').textContent='🍋 '+giftById(id).price+' · Осталось '+v.remaining+'/'+v.total;}}}).catch(()=>{});
+  return shop;
 }
 
 function giftConfirm(c, g) {
@@ -2502,6 +2504,7 @@ function giftConfirm(c, g) {
     body: h('div', { class: 'gift-confirm' },
       h('div', { class: 'gift-confirm-art', style: { background: `linear-gradient(150deg, ${g.colors[0]}, ${g.colors[1]})` } }, giftArt(g)),
       h('div', { class: 'profile-name' }, g.name),
+      g.limited?h('div',{class:'limited-gift-label'},'Лимитка · всего 5 экземпляров. NFT через улучшение.'):null,
       h('div', { class: 'muted' }, `Подарок для ${peer?.name || ''} — появится в профиле получателя`),
       note,
       h('div', { class: `gift-balance ${enough ? '' : 'bad'}` }, `Ваш баланс: 🍋 ${S.me.coins ?? 0}`)),
@@ -2532,7 +2535,7 @@ async function giftsGrid(userId) {
       if (!g) return null;
       return h('div', { class: 'pg-item', title: `${g.name} от ${x.fromName || 'пользователя'}${x.note ? ` — «${x.note}»` : ''}` },
         h('div', { class: 'pg-art', style: { background: `linear-gradient(150deg, ${g.colors[0]}, ${g.colors[1]})` } }, giftArt(g)),
-        h('div', { class: 'pg-from' }, x.fromName || '—'));
+        h('div', { class: 'pg-from' }, x.fromName || '—'),x.edition?h('small',{class:'limited-gift-label'},x.edition+'/5'):null);
     }).filter(Boolean) : [h('div', { class: 'list-note' }, 'Подарков пока нет')]));
   } catch { grid.replaceChildren(h('div', { class: 'list-note' }, 'Не удалось загрузить')); }
   return grid;
