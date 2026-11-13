@@ -6,13 +6,12 @@
  <linearGradient id="wing" x2="1" y2="1"><stop stop-color="#fffdef"/><stop offset="1" stop-color="#dcc18b"/></linearGradient>
  <linearGradient id="feet" x2="0" y2="1"><stop stop-color="#f7c36e"/><stop offset="1" stop-color="#c98440"/></linearGradient>
  <linearGradient id="hair" x2=".5" y2="1"><stop stop-color="#fffcea"/><stop offset="1" stop-color="#e5cc9d"/></linearGradient>
- <filter id="shadow" x="-30%" y="-20%" width="160%" height="160%"><feDropShadow dx="0" dy="6" stdDeviation="5" flood-color="#6b4925" flood-opacity=".22"/></filter>
 </defs>
 <ellipse cx="161" cy="339" rx="97" ry="12" fill="#795327" opacity=".16"/>
 <g stroke="#b88f56" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
  <path d="m125 286-7 37-26 16 20-3-5 11 14-12 16 8-7-13 5-39M194 285l7 39 25 16-21-4 6 11-14-12-17 8 8-13-4-38" fill="url(#feet)"/>
 </g>
-<g filter="url(#shadow)">
+<g>
  <path d="M86 113c-23 17-39 54-38 96 0 40 28 81 66 93 32 13 78 12 107-7 37-24 57-62 52-107-4-39-23-69-49-79Z" fill="url(#feathers)" stroke="#dec89b" stroke-width="2"/>
  <path d="M79 146c-29 5-47 36-50 75-2 26-13 48-16 54 17 2 39-6 51-20-2 13-12 22-12 22 26-3 49-36 50-70" fill="url(#wing)" stroke="#dcc495" stroke-width="2"/>
  <path d="M239 146c28 7 45 36 46 73 1 25 12 46 19 55-18 1-34-6-47-20 2 13 8 20 8 20-24-4-43-35-44-68" fill="url(#wing)" stroke="#dcc495" stroke-width="2"/>
