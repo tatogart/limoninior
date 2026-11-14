@@ -1,3 +1,4 @@
+import {planLimits} from '../public/js/subscription-limits.js';
 // Private, account-synchronised organisation. Never changes another member's view.
 import { db, q, tx, now } from './db.js';
 
@@ -30,7 +31,7 @@ db.exec(`
 `);
 db.function('workspace_fold', { deterministic: true }, (v) => String(v ?? '').normalize('NFKC').toLowerCase());
 
-export function registerWorkspace(api, { bad, int, clean, isMember, serializeMessage, emitToUser, emitToChat, chatForUser, searchLimiter }) {
+export function registerWorkspace(api, { bad, int, clean, isMember, serializeMessage, emitToUser, emitToChat, chatForUser, searchLimiter,activePlan=()=>null }) {
  const changed = (uid) => emitToUser(uid, 'workspace:changed', {});
  const member = (req, res) => {
   const id = int(req.params.id);
@@ -48,7 +49,7 @@ export function registerWorkspace(api, { bad, int, clean, isMember, serializeMes
   const folders = q('SELECT id,name FROM workspace_folders WHERE user_id=? ORDER BY id').all(uid).map((f) => ({ ...f,
    chatIds: q(`SELECT fc.chat_id FROM workspace_folder_chats fc JOIN chat_members cm ON cm.chat_id=fc.chat_id
     WHERE fc.folder_id=? AND cm.user_id=?`).all(f.id, uid).map((r) => r.chat_id) }));
-  res.json({ folders,
+  res.json({ folders,limits:planLimits(activePlan(req.user)?.id),
    chats: q(`SELECT w.chat_id AS chatId,w.archived,w.unread,w.note FROM workspace_chats w JOIN chat_members cm
     ON cm.chat_id=w.chat_id AND cm.user_id=w.user_id WHERE w.user_id=?`).all(uid),
    bookmarks: q(`SELECT b.message_id AS messageId,b.tag FROM workspace_bookmarks b JOIN messages m ON m.id=b.message_id
@@ -74,7 +75,7 @@ export function registerWorkspace(api, { bad, int, clean, isMember, serializeMes
  });
  api.post('/workspace/folders', (req, res) => {
   const name = clean(req.body?.name,32); if (!name) return bad(res,'bad_title');
-  if (limit('workspace_folders',req.user.id,20)) return failLimit(res);
+  if (limit('workspace_folders',req.user.id,planLimits(activePlan(req.user)?.id).folders)) return bad(res,'subscription_limit');
   const ids=req.body?.chatIds??[];
   if(!Array.isArray(ids)||ids.length>500||ids.some(id=>!int(id)||!isMember(Number(id),req.user.id)))return bad(res,'bad_workspace');
   const id=tx(()=>{
@@ -141,7 +142,7 @@ export function registerWorkspace(api, { bad, int, clean, isMember, serializeMes
   const title=clean(req.body?.title,60), text=clean(req.body?.text,4096);
   if(!title||!text||String(req.body?.text).length>4096) return bad(res,'bad_workspace');
   if(existing) q('UPDATE workspace_templates SET title=?,text=? WHERE id=?').run(title,text,existing.id);
-  else { if(limit('workspace_templates',req.user.id,50)) return failLimit(res);
+  else { if(limit('workspace_templates',req.user.id,planLimits(activePlan(req.user)?.id).templates)) return bad(res,'subscription_limit');
    q('INSERT INTO workspace_templates(user_id,title,text) VALUES(?,?,?)').run(req.user.id,title,text); }
   changed(req.user.id); res.json({ok:true});
  };

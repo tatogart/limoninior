@@ -96,7 +96,7 @@ export function workspaceHub(initial='bookmarks'){
  });
 }
 function foldersView(root){
- root.append(btn('Новая папка',()=>folderEditor()),small('До 20 папок. Один чат можно добавить в несколько папок. Архив хранится отдельно.'));
+ root.append(btn('Новая папка',()=>folderEditor()),small(`Папки: ${W.folders.length}/${W.limits?.folders??5}. Больше папок доступно с подпиской. Архив хранится отдельно.`));
  for(const f of W.folders)root.append(h('div',{class:'ws-card'},h('div',{class:'ws-card-body'},h('b',{},f.name),small(`${f.chatIds.length} чатов`)),btn('Открыть',()=>closeAnd(()=>setScope('folder:'+f.id))),btn('Изменить',()=>folderEditor(f))));
  if(!W.folders.length)root.append(small('Создайте папки «Учёба», «Друзья» или «Работа» и выберите чаты.'));
 }
@@ -158,7 +158,7 @@ function templateEditor(t){
 }
 export function templatePicker(){return workspaceHub('templates');}
 function templatesView(root){
- root.append(btn('Создать шаблон',()=>templateEditor()),small('Шаблоны вставляются в текущий чат, без автоматической отправки.'));
+ root.append(btn('Создать шаблон',()=>templateEditor()),small(`Шаблоны: ${W.templates.length}/${W.limits?.templates??5}. Вставляются в чат без автоматической отправки.`));
  for(const t of W.templates)root.append(h('div',{class:'ws-card'},h('div',{class:'ws-card-body'},h('b',{},t.title),h('p',{class:'ws-pre'},t.text)),h('div',{class:'ws-actions'},btn('Вставить',()=>{if(C.insertTemplate(t.text))closeAnd(()=>C.focusComposer());}),btn('Изменить',()=>templateEditor(t)))));
  if(!W.templates.length)root.append(small('Сохраните ответы, адреса или инструкции, которые часто отправляете.'));
 }

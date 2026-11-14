@@ -1,0 +1,11 @@
+/* Compact messenger layout: keep the user's theme and reduce visual noise. */
+.chat-list { padding:4px 6px 88px; }
+.chat-item { border-radius:10px; padding:9px 10px; gap:11px; min-height:68px; }
+.chat-item-body { gap:4px; }
+.chat-header { border-radius:0; box-shadow:none; background:var(--bg); -webkit-backdrop-filter:none; backdrop-filter:none; }
+.header-title { font-weight:650; font-size:16px; }.header-status { font-size:12px; }
+.bubble { box-shadow:0 1px 1px #00000014; border-radius:16px; line-height:1.42; }
+.reactions { gap:5px; }.reaction { border-radius:14px; min-height:28px; padding:3px 8px; font-size:13px; }
+.paid-reaction { background:#f4cf4724; border:1px solid #d5a51d80; color:var(--text); font-weight:700; }
+.paid-lemon-dialog { display:grid; gap:14px; }.paid-lemon-dialog p { line-height:1.5; margin:0; }.paid-lemon-presets { display:flex; flex-wrap:wrap; gap:6px; }.paid-lemon-presets .btn { min-height:42px; }
+@media (max-width:650px) { .chat-item { border-radius:0; padding:10px 8px; }.chat-header { min-height:56px; }.chat-list { padding-left:0; padding-right:0; }.header-info { gap:10px; } }

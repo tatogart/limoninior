@@ -1,3 +1,5 @@
+import {planLimits} from '../public/js/subscription-limits.js';
+import {registerPaidReactions,paidSummary} from './paid-reactions.js';
 import {MEME_ID,limitedStock,nextMemeEdition,recordMemeEdition,giftEdition} from './limited-gifts.js';
 import './scam.js';
 import {registerPostcards} from './postcards.js';
@@ -146,6 +148,7 @@ function serializeMessage(m, viewerId = null) {
     extra: m.extra ? JSON.parse(m.extra) : null,
     views: m.views,
     reactions: reactionSummary(m.id),
+    paidLemons: paidSummary(m.id),
     myReaction: viewerId ? q('SELECT emoji FROM reactions WHERE message_id = ? AND user_id = ?').get(m.id, viewerId)?.emoji || null : null,
     comments: q('SELECT COUNT(*) AS n FROM post_comments WHERE post_id = ?').get(m.id).n,
   };
@@ -671,7 +674,7 @@ registerPostcards(api,{isMember,postError,postMessage});
 registerCollectibles(api,{pushMe,broadcastProfile,notifyReceipt:m=>broadcastNewMessage(m.chat_id,m)});
 registerStudio(api,{publicUser});
 registerModerator(api,{publicUser,pushChat,disconnectUser,notify:(id,text)=>{const off=officialUser();postMessage(ensurePrivateChat(off.id,id),off.id,{kind:'text',text});}});
-registerWorkspace(api, { bad, int, clean, isMember, serializeMessage, emitToUser, emitToChat, chatForUser, searchLimiter });
+registerWorkspace(api, { bad, int, clean, isMember, serializeMessage, emitToUser, emitToChat, chatForUser, searchLimiter,activePlan });
 registerStickers(api, { bad, int, clean });
 api.post('/bots', featureGate('bots'));
 registerBots(api, {
@@ -1152,7 +1155,7 @@ api.post('/chats/:id/pin-chat', (req, res) => {
   const id = int(req.params.id);
   if (!id || !isMember(id, req.user.id)) return bad(res, 'not_found', 404);
   const pin = !!req.body?.pinned;
-  if (pin && q('SELECT COUNT(*) AS n FROM chat_members WHERE user_id = ? AND pinned_at > 0').get(req.user.id).n >= 5) return bad(res, 'too_many_pins');
+  if (pin && !q('SELECT 1 FROM chat_members WHERE chat_id=? AND user_id=? AND pinned_at>0').get(id,req.user.id) && q('SELECT COUNT(*) AS n FROM chat_members WHERE user_id = ? AND pinned_at > 0').get(req.user.id).n >= planLimits(activePlan(req.user)?.id).pins) return bad(res, 'too_many_pins');
   q('UPDATE chat_members SET pinned_at = ? WHERE chat_id = ? AND user_id = ?').run(pin ? now() : 0, id, req.user.id);
   const chat = chatForUser(id, req.user.id);
   emitToUser(req.user.id, 'chat', chat);
@@ -1317,6 +1320,8 @@ setCallHooks({
 // ---------- reactions & mute ----------
 
 export const REACTIONS = ['👍', '❤️', '🔥', '😂', '😮', '😢', '🎉', '🍋', '🤯', '👎'];
+
+registerPaidReactions(api,{isMember,postError:(_id,uid)=>moderationError(uid),pushMe,emitToChat,limiter:sendLimiter});
 
 api.post('/messages/:id/react', sendLimiter, (req, res) => {
   const id = int(req.params.id);

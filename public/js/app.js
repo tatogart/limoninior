@@ -1,3 +1,4 @@
+import {paidLemonDialog} from './paid-reactions.js';
 import {collectibleReceipt} from './collectible-receipt.js';
 import {postcardModal} from './postcards.js';
 import {giftArt} from './gift-art.js';
@@ -762,6 +763,7 @@ function connectSocket() {
   s.on('community', (cm) => { upsertCommunity(cm); renderChatList(); if (communityOf(curChat())?.id === cm.id) renderHeader(); });
   s.on('community:removed', ({ communityId }) => dropCommunity(communityId));
   s.on('message:reactions', applyReactions);
+  s.on('message:paid', applyPaidLemons);
   s.on('reminder', (r) => { onReminder(r); Sounds.playMessageSound?.(); });
   s.on('platform', (p) => { S.config.platform = p; renderBanner(); });
   s.on('capsule:open', ({ chatId }) => {
@@ -1528,7 +1530,7 @@ function renderMessages({ stick = false, keepOffset = false } = {}) {
     used.add(key);
     const sender = S.users.get(m.senderId);
     const read = m.senderId === S.me.id && typeof m.id === 'number' && m.id <= c.peerReadId;
-    const sig = [m.editedAt, m.text, first, last, read, m.pending, m.views, m.comments, m.myReaction, JSON.stringify(m.reactions || []), sender?.name, sender?.avatar, sender?.role, sender?.verified, sender?.scam, sender?.scamReason, sender?.px?.emoji, sender?.px?.nameColor, sender?.px?.frame, nickname(m.senderId),
+    const sig = [m.editedAt, m.text, first, last, read, m.pending, m.views, m.comments, m.paidLemons, m.myReaction, JSON.stringify(m.reactions || []), sender?.name, sender?.avatar, sender?.role, sender?.verified, sender?.scam, sender?.scamReason, sender?.px?.emoji, sender?.px?.nameColor, sender?.px?.frame, nickname(m.senderId),
       m.replyTo?.id, m.replyTo && userName(m.replyTo.senderId),
       m.kind === 'gcall' ? `${m.extra?.status}:${m.extra?.duration}:${c.groupCall?.roomId === m.extra?.roomId}` : '',
       ['wheel', 'capsule', 'streak_offer', 'dice', 'theme', 'duel'].includes(m.kind) ? JSON.stringify(m.extra) : ''].join('|');
@@ -1781,9 +1783,14 @@ function stickerNode(id, cls = '') {
   return h('div', { class: `${cls} anim-emoji anim-${info.anim}` }, info.emoji);
 }
 
+function applyPaidLemons(payload){
+ const m=S.msgs.get(payload.chatId)?.items.find(x=>x.id===payload.messageId);if(m)m.paidLemons=payload.paidLemons;
+ if(S.current===payload.chatId)renderMessages();
+}
+function supportMessage(m){paidLemonDialog(m,S.me,applyPaidLemons);}
 function reactionsEl(c, m) {
-  if (!m.reactions?.length) return null;
-  return h('div', { class: 'reactions' }, m.reactions.map((r) => h('button', {
+  if (!m.reactions?.length&&!m.paidLemons) return null;
+  return h('div', { class: 'reactions' }, m.paidLemons?h('button',{class:'reaction paid-reaction',title:'Платная поддержка автора',onclick:e=>{e.stopPropagation();supportMessage(m);}},'🍋 '+fmtCount(m.paidLemons)):null,(m.reactions||[]).map((r) => h('button', {
     class: `reaction ${m.myReaction === r.emoji ? 'mine' : ''}`,
     onclick: (e) => { e.stopPropagation(); react(m, m.myReaction === r.emoji ? null : r.emoji); },
   }, h('span', { class: 'r-emoji' }, r.emoji), h('span', { class: 'r-count' }, fmtCount(r.count)))));
@@ -2067,11 +2074,13 @@ function showMessageMenu(m, x, y) {
   const reactRow = c.preview ? null : {
     node: h('div', { class: 'ctx-reactions' }, quickReactions(REACTIONS).map((e) => h('button', {
       class: `ctx-react ${m.myReaction === e ? 'on' : ''}`,
-      onclick: () => { closeMenu(); react(m, m.myReaction === e ? null : e); },
-    }, e))),
+      title:e==='🍋'?'Платная поддержка автора':'Реакция',
+      onclick: () => { closeMenu(); e==='🍋'?supportMessage(m):react(m, m.myReaction === e ? null : e); },
+    }, e==='🍋'?'🍋+':e))),
   };
   contextMenu(x, y, [
     reactRow,
+    !mine&&!c.preview&&typeof m.id==='number'&&!['system','call','gcall'].includes(m.kind)&&!peerOf(c)?.official&&!peerOf(c)?.bot?{icon:'gift',label:'Поддержать лимонами 🍋',onClick:()=>supportMessage(m)}:null,
     c.canPost !== false && !c.blocked ? { icon: 'reply', label: 'Ответить', onClick: () => startReply(m) } : null,
     FORWARDABLE.has(m.kind) && !c.preview ? { icon: 'forward', label: 'Переслать', onClick: () => forwardModal(m) } : null,
     canPinIn(c) && !['system', 'call'].includes(m.kind) ? (c.pinnedMessage?.id === m.id

@@ -15,3 +15,14 @@
 .mg-mine { min-width:0; padding:0; border:1px solid var(--border,#435362); border-radius:5px; background:var(--bg-secondary,#27394c); color:var(--text); font:700 17px system-ui; cursor:pointer; user-select:none; -webkit-touch-callout:none; }
 .mg-mine.open { background:#8294a414; border-color:#8294a422; }.mg-mine.open[data-count="1"] { color:#468fe4; }.mg-mine.open[data-count="2"] { color:#389f66; }.mg-mine.open[data-count="3"] { color:#ec6969; }
 @media (max-height:600px) { .mg-wrap { gap:8px; padding:8px; }.mg-snake,.mg-merge,.mg-mines { width:min(300px,calc(100vh - 230px)); }.mg-help { font-size:12px; } }
+/* Fixed tracks keep empty cells visible in mobile WebViews; controls never shrink. */
+.mg-wrap { flex-shrink:0; width:100%; max-width:420px; }
+.mg-snake { grid-template-rows:repeat(16,minmax(0,1fr)); flex-shrink:0; height:min(360px,calc(100vw - 32px)); }
+.mg-merge { grid-template-rows:repeat(4,minmax(0,1fr)); flex-shrink:0; height:min(360px,calc(100vw - 32px)); }
+.mg-mines { grid-template-rows:repeat(9,minmax(0,1fr)); flex-shrink:0; height:min(360px,calc(100vw - 32px)); }
+.mg-tile,.mg-mine { min-height:0; }
+.mg-arrows { display:grid; grid-template-columns:repeat(3,54px); grid-template-areas:'. up .' 'left down right'; gap:6px; flex-shrink:0; }
+.mg-arrows .dir-U { grid-area:up; }.mg-arrows .dir-L { grid-area:left; }.mg-arrows .dir-D { grid-area:down; }.mg-arrows .dir-R { grid-area:right; }
+.mg-arrows .btn { width:54px; height:48px; padding:0; -webkit-tap-highlight-color:transparent; }
+.gm-stage:has(.mg-wrap) { display:block; overflow-y:auto; overscroll-behavior:contain; }
+@media (max-height:650px) { .mg-snake,.mg-merge,.mg-mines { width:min(300px,calc(100vh - 280px)); height:min(300px,calc(100vh - 280px)); }.mg-wrap { gap:8px; } }

@@ -73,8 +73,8 @@ test('templates validate, preserve line breaks, remain isolated and enforce thei
  const t=call('get','/workspace').body.templates[0];assert.equal(t.text,'Первая\nВторая');
  assert.equal(call('put','/workspace/templates/:id',{id:t.id,user:2,body:{title:'bad',text:'bad'}}).statusCode,404);
  assert.equal(call('post','/workspace/templates',{body:{title:'x',text:'a'.repeat(4097)}}).statusCode,400);
- for(let i=1;i<50;i++)call('post','/workspace/templates',{body:{title:'x',text:'a'}});
- assert.equal(call('post','/workspace/templates',{body:{title:'x',text:'a'}}).body.error,'workspace_limit');
+ for(let i=1;i<5;i++)call('post','/workspace/templates',{body:{title:'x',text:'a'}});
+ assert.equal(call('post','/workspace/templates',{body:{title:'x',text:'a'}}).body.error,'subscription_limit');
 });
 test('tasks keep done, due date and source; updates and deletion require ownership',()=>{
  const mid=message(1,'Задание');call('post','/workspace/tasks',{body:{text:'Сделать',due:5000,messageId:mid}});
