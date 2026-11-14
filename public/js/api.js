@@ -1,0 +1,135 @@
+export class ApiError extends Error {
+  constructor(status, code, data = null) {
+    super(code);
+    this.status = status;
+    this.code = code;
+    this.data = data;
+  }
+}
+
+async function request(method, url, body) {
+  const opts = { method, credentials: 'same-origin', headers: {} };
+  if (body instanceof FormData) {
+    opts.body = body;
+  } else if (body !== undefined) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  let res;
+  try {
+    res = await fetch(url, opts);
+  } catch {
+    throw new ApiError(0, 'network');
+  }
+  let data = null;
+  try { data = await res.json(); } catch { /* empty body */ }
+  if (!res.ok) throw new ApiError(res.status, data?.error || 'error', data);
+  return data;
+}
+
+export const api = {
+  get: (url) => request('GET', `/api${url}`),
+  post: (url, body = {}) => request('POST', `/api${url}`, body),
+  patch: (url, body = {}) => request('PATCH', `/api${url}`, body),
+  put: (url, body = {}) => request('PUT', `/api${url}`, body),
+  del: (url) => request('DELETE', `/api${url}`),
+};
+
+export const ERRORS = {
+ subscription_limit:'Достигнут лимит тарифа. Plus: 10 папок и 20 шаблонов, Premium: 20 и 50, Max: 30 и 100. Существующие записи доступны.',
+ cannot_tip:'Нельзя поддержать себя, бота или недоступного пользователя.',
+ request_conflict:'Запрос уже использован для другого перевода. Откройте окно заново.',
+ bad_amount:'Укажите целое число от 1 до 1000 лимонов.',
+ limited_sold_out:'Все 5 экземпляров уже выпущены. Ищите подарок на площадке пользователей.',
+ bad_scam_reason:'Укажите причину отметки SCAM: от 3 до 300 символов.',
+ bad_settings:'Некорректные настройки: проверьте числа и положительные суммы весов.',
+ bad_traits:'Неизвестный атрибут подарка.',
+ upgrade_changed:'Цена или шансы изменились. Заново откройте коллекции.',
+ cancel_listing_first:'Сначала снимите подарок с продажи.',
+ upgrades_disabled:'Улучшения временно отключены.',
+ transfers_disabled:'Передачи временно отключены.',
+ use_studio: 'Создание перенесено в бота студии стикеров и эмодзи.',
+ subscription_required: 'Для этого нужна активная подписка. Анимация доступна с Premium и Max.',
+ family_pin_required: 'Сначала сохраните родительский PIN.',
+ bad_family_pin: 'Неверный родительский PIN. После 5 ошибок — пауза 15 минут.',
+  bad_family: 'Приглашение истекло или привязка невозможна.',
+  family_paused: 'Доступ ограничен родительским контролем. Настройки → Родительский контроль.',
+  family_restricted: 'Это действие ограничено родителем.',
+  workspace_limit: 'Достигнут лимит записей. Удалите ненужные и попробуйте снова.',
+  bad_workspace: 'Проверьте заполненные поля и выбранные чаты.',
+  network: 'Нет соединения с сервером',
+  bad_username: 'Юзернейм: 5–32 символа, латиница, цифры и _, начинается с буквы',
+  username_taken: 'Этот юзернейм уже занят',
+  bad_name: 'Укажите имя',
+  file_too_large: 'Файл слишком большой (максимум 10 МБ)',
+  unsupported_image: 'Поддерживаются только JPG, PNG, WebP и GIF',
+  too_long: 'Сообщение слишком длинное',
+  banned: 'Аккаунт заблокирован',
+  bad_credential: 'Не удалось войти через Google',
+  forbidden: 'Недостаточно прав',
+  not_found: 'Не найдено',
+  bad_title: 'Укажите название',
+  too_many_attempts: 'Слишком много попыток, подождите',
+  bad_code: 'Неверный код',
+  bad_login: 'Неверный юзернейм или пароль',
+  weak_password: 'Пароль должен быть не короче 8 символов',
+  bad_password: 'Слишком длинный пароль',
+  bad_current_password: 'Текущий пароль неверный',
+  not_enough_coins: 'Не хватает лимонов 🍋',
+  no_restores_left: 'Огонёк можно вернуть только 2 раза в месяц',
+  duel_over: 'Эта игра уже закончилась',
+  own_duel: 'Нельзя принять свой же вызов',
+  not_for_you: 'Этот вызов не вам',
+  not_your_turn: 'Сейчас ход соперника',
+  bad_move: 'Сюда ходить нельзя',
+  duel_not_here: 'Вызов можно бросить в личке или группе',
+  bad_stake: 'Такой ставки нет',
+  bad_choice: 'Сделайте выбор',
+  bad_game: 'Неизвестная игра',
+  bad_theme: 'Тема повреждена',
+  bad_script: 'Не получилось сохранить бота',
+  unsupported_video: 'Неподдерживаемый формат видео',
+  unsupported_audio: 'Нужен аудиофайл (mp3, m4a, ogg, wav)',
+  anon_off: 'Человек не принимает анонимные послания',
+  anon_limit: 'Слишком много посланий — попробуйте позже',
+  bonus_not_ready: 'Бонус уже получен, приходите завтра',
+  bad_sticker: 'Неизвестный стикер',
+  bad_gift: 'Неизвестный подарок',
+  bad_amount: 'Неверное количество',
+  empty: 'Пустое сообщение',
+  owner_cannot_leave: 'Владелец не может отписаться — канал можно только удалить',
+  already_verified: 'Канал уже верифицирован',
+  invite_invalid: 'Ссылка-приглашение недействительна',
+  ip_banned: 'Доступ с вашего IP-адреса заблокирован',
+  bad_ip: 'Некорректный IP-адрес',
+  own_ip: 'Это ваш собственный IP — его банить нельзя',
+  blocked: 'Пользователь ограничил вам отправку сообщений',
+  you_blocked: 'Вы заблокировали этого пользователя',
+  too_many_pins: 'Можно закрепить не больше 5 чатов',
+  unsupported_audio: 'Формат записи не поддерживается',
+  too_far: 'Сообщение слишком далеко в истории',
+  bad_upload: 'Не удалось загрузить файл',
+  ref_used: 'Приглашение уже использовано',
+  ref_too_late: 'Приглашение можно активировать только в первую неделю после регистрации',
+  ref_invalid: 'Неверная ссылка-приглашение',
+  ref_same_network: 'Приглашение с той же сети, что и у пригласившего, не засчитывается',
+  bad_reaction: 'Такая реакция недоступна',
+  community_chat: 'Этим каналом управляют в настройках сообщества',
+  too_many_communities: 'Можно создать не больше 10 сообществ',
+  banned_here: 'Вас исключили из этого сообщества',
+  community_full: 'В сообществе уже максимум участников',
+  too_many_channels: 'В сообществе уже 50 каналов — больше нельзя',
+  last_channel: 'Нельзя удалить последний канал',
+  muted: 'Администрация временно ограничила вам отправку сообщений',
+  maintenance: 'Идут технические работы — отправка сообщений временно недоступна',
+  feature_off: 'Эта функция временно отключена администрацией',
+  registration_closed: 'Регистрация новых аккаунтов временно закрыта',
+  bad_surprise_skin: 'Выберите обложку сюрприза',
+  bad_surprise_mode: 'Выберите тип интерактива',
+  few_options: 'Нужно хотя бы 2 разных варианта',
+  already_spun: 'Колесо уже прокрутили',
+};
+
+export const errorText = (e) => (e?.code === 'banned' && e.data?.reason
+  ? `Аккаунт заблокирован${e.data.until ? ` до ${new Date(e.data.until).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}` : ''}. Причина: ${e.data.reason}`
+  : null) || ERRORS[e?.code] || (e?.status === 429 ? 'Слишком часто, подождите немного' : 'Что-то пошло не так');

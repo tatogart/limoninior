@@ -1,0 +1,52 @@
+import test,{after} from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';import os from 'node:os';import path from 'node:path';
+process.env.DATA_DIR=fs.mkdtempSync(path.join(os.tmpdir(),'limo-games-'));
+const {db,q}=await import('../server/db.js');
+const {registerGames}=await import('../server/games.js');
+const {recoverGameOverpayments}=await import('../server/game-recovery.js');
+after(()=>{db.close();fs.rmSync(process.env.DATA_DIR,{recursive:true,force:true});});
+for(let id=1;id<=3;id++)q('INSERT INTO users(id,google_sub,email,name,avatar,coins,created_at,last_seen) VALUES(?,?,?,?,?,1000,0,0)').run(id,'test:'+id,'','Player '+id,'avatar'+id+'.png');
+const routes=new Map(),router=Object.fromEntries(['get','post'].map(method=>[method,(url,...handlers)=>routes.set(method+' '+url,handlers.at(-1))]));
+registerGames(router,{bad:(r,error,code=400)=>r.status(code).json({error}),pushMe(){},activePlan:()=>null});
+const call=(method,url,{user=1,game='reaction',body={}}={})=>{const res={code:200,status(n){this.code=n;return this;},json(body){this.body=body;return this;}};routes.get(method+' '+url)({user:{id:user},params:{game},body},res);return res;};
+const finish=(user,avg)=>{const token=call('post','/games/:game/start',{user}).body.token;q('UPDATE game_sessions SET started_at=? WHERE token=?').run(Date.now()-20000,token);return call('post','/games/finish',{user,body:{token,avg}});};
+test('reaction leaderboard ranks actual milliseconds ascending and supplies avatars; replay cannot reward',()=>{
+ finish(1,300);finish(2,250);finish(3,210);finish(3,500);
+ const top=call('get','/games/:game/top').body.top;
+ assert.deepEqual(top.map(u=>u.best),[210,250,300]);assert.equal(top[0].avatar,'/media/avatar3.png');
+ assert.equal(call('get','/games').body.games.reaction.best,300);
+ const first=call('post','/games/:game/start').body.token;
+ const second=call('post','/games/:game/start').body.token;
+ assert.notEqual(first,second);assert.equal(call('post','/games/finish',{body:{token:first,avg:200}}).code,400);
+ q('UPDATE game_sessions SET started_at=? WHERE token=?').run(Date.now()-20000,second);
+ assert.equal(call('post','/games/finish',{body:{token:second,avg:200}}).code,200);
+ assert.equal(call('post','/games/finish',{body:{token:second,avg:200}}).code,400);
+ assert.equal(finish(2,'NaN').code,400);assert.equal(finish(2,90).code,400);
+});
+test('reward recovery only removes proven excess, respects maximum historical plan and is idempotent',()=>{
+ q('DELETE FROM game_results').run();
+ const add=q("INSERT INTO game_results(user_id,game,score,reward,created_at) VALUES(?,'reaction',800,?,0)");
+ add.run(1,50);add.run(2,999);for(let i=0;i<7;i++)add.run(3,50);
+ const before=q('SELECT id,coins FROM users ORDER BY id').all();
+ const params={dailyCap:60,games:{reaction:{reward:()=>10}}};
+ const corrections=recoverGameOverpayments(params);
+ assert.deepEqual(corrections.map(r=>r.excess),[949,50]);
+ assert.equal(q('SELECT coins FROM users WHERE id=1').get().coins,before[0].coins);
+ assert.equal(q('SELECT coins FROM users WHERE id=2').get().coins,before[1].coins-949);
+ assert.deepEqual(recoverGameOverpayments(params),[]);
+});
+test('all six games are available; server replays new games instead of trusting a submitted score and shares the daily cap',async()=>{
+ const {new2048,move2048}=await import('../public/js/minigame-engine.js');
+ assert.deepEqual(Object.keys(call('get','/games').body.games).sort(),['catch','memory','merge','mines','reaction','snake']);
+ const session=call('post','/games/:game/start',{game:'merge'}).body;const s=new2048(session.seed),actions=[];
+ for(let i=0;i<40&&!s.over;i++)for(const dir of ['L','D','R','U'])if(move2048(s,dir)){actions.push(dir);break;}
+ q('UPDATE game_sessions SET started_at=? WHERE token=?').run(Date.now()-30000,session.token);
+ const r=call('post','/games/finish',{body:{token:session.token,actions,score:99999999}});
+ assert.equal(r.code,200);assert.equal(r.body.score,s.score);assert.ok(r.body.reward<=15);assert.ok(r.body.earnedToday<=r.body.cap);
+ const forged=call('post','/games/:game/start',{game:'snake'}).body;
+ assert.equal(call('post','/games/finish',{body:{token:forged.token,score:99999999,actions:['INVALID']}}).code,400);
+ const mines=call('post','/games/:game/start',{game:'mines'}).body;
+ const loss=call('post','/games/finish',{body:{token:mines.token,actions:[]}});assert.equal(loss.body.reward,0);
+ assert.ok(!call('get','/games/:game/top',{game:'mines'}).body.top.length);
+});
