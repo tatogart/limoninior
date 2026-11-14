@@ -1,4 +1,5 @@
 // Mini-games: play to earn lemons (instead of a daily bonus) + chat games rolled by the server.
+import {EXTRA_GAMES} from './games-extra.js';
 import { api, errorText } from './api.js';
 import { h, icon, avatar, toast, openModal, registerOverlay, closeMenu } from './ui.js';
 
@@ -8,6 +9,9 @@ export function initGames(deps) { d = deps; }
 const GAMES = [
   { id: 'catch', emoji: '🧺', title: 'Ловец лимонов', desc: '30 секунд: ловите лимоны корзинкой, звёзды дают +5, от бомб уворачивайтесь.', unit: 'очков' },
   { id: 'memory', emoji: '🧠', title: 'Лимонные пары', desc: 'Найдите все пары фруктов за как можно меньше ходов и быстрее.', unit: 'очков' },
+  { id:'snake',emoji:'🐍',title:'Змейка',desc:'Собирайте лимоны, растите и обходите свой хвост. Свайпы или стрелки.',unit:'очков' },
+  { id:'merge',emoji:'🔢',title:'2048',desc:'Соединяйте одинаковые плитки. Сможете собрать 2048?',unit:'очков' },
+  { id:'mines',emoji:'💣',title:'Сапёр',desc:'Поле 9 × 9, 10 мин и безопасный первый ход. Очки за победу и скорость.',unit:'очков' },
   { id: 'reaction', emoji: '⚡', title: 'Реакция', desc: 'Жмите, как только экран станет зелёным. 5 попыток — чем быстрее, тем больше лимонов.', unit: 'мс' },
 ];
 export const CHAT_GAMES = [['🎲', 'Кубик'], ['🎯', 'Дартс'], ['🏀', 'Баскетбол'], ['⚽', 'Футбол'], ['🎳', 'Боулинг']];
@@ -31,7 +35,7 @@ export async function gamesHub() {
         h('div', { class: 'game-emoji' }, g.emoji),
         h('div', { class: 'grow' },
           h('b', {}, g.title), h('span', {}, g.desc),
-          h('span', { class: 'game-best' }, info.games[g.id]?.best ? `рекорд: ${info.games[g.id].best} ${g.unit} · сыграно ${info.games[g.id].plays}` : 'ещё не играли')),
+          h('span', { class: 'game-best' }, info.games[g.id]?.plays ? `рекорд: ${info.games[g.id].best} ${g.unit} · сыграно ${info.games[g.id].plays}` : 'ещё не играли')),
         h('div', { class: 'game-acts' },
           h('button', { class: 'btn btn-primary btn-sm', onclick: () => { m.close(); play(g); } }, 'Играть'),
           h('button', { class: 'btn btn-ghost btn-sm', onclick: () => topModal(g) }, '🏆')))),
@@ -56,11 +60,13 @@ async function topModal(g) {
 
 function play(g) {
   let release = null;
+  let closed=false, generation=0;
   let cleanup = () => {};
   const scoreEl = h('b', { class: 'gm-score' }, '0');
   const sub = h('span', { class: 'gm-sub' });
   const stage = h('div', { class: 'gm-stage' });
   const close = (fromBack = false) => {
+    closed=true; generation++;
     cleanup();
     ov.classList.remove('show');
     setTimeout(() => ov.remove(), 200);
@@ -77,19 +83,24 @@ function play(g) {
   release = registerOverlay(() => close(true));
 
   const start = async () => {
-    let token = null;
-    try { token = (await api.post(`/games/${g.id}/start`)).token; } catch { /* offline: play without reward */ }
+    if(closed)return;
+    cleanup();
+    const current=++generation;let finished=false;
+    let token = null, seed=Date.now()>>>0;
+    try { const session=await api.post(`/games/${g.id}/start`); token=session.token;seed=session.seed??seed; } catch { /* offline: play without reward */ }
+    if(closed||current!==generation)return;
     // 3-2-1
     for (const n of ['3', '2', '1']) {
       stage.replaceChildren(h('div', { class: 'gm-count' }, n));
       await new Promise((r) => setTimeout(r, 650));
-      if (!ov.isConnected) return;
+      if (closed||current!==generation||!ov.isConnected) return;
     }
     const finish = async (result, shown) => {
+      if(closed||current!==generation||finished)return;finished=true;
       cleanup();
       let r = null;
       if (token) { try { r = await api.post('/games/finish', { token, ...result }); d.onCoins?.(); } catch (e) { toast(errorText(e), 'error'); } }
-      if (!ov.isConnected) return;
+      if (closed||current!==generation||!ov.isConnected) return;
       stage.replaceChildren(h('div', { class: 'gm-result' },
         h('div', { class: 'gm-result-emoji' }, r?.record ? '🏆' : g.emoji),
         h('div', { class: 'gm-result-title' }, r?.record ? 'Новый рекорд!' : 'Игра окончена'),
@@ -100,7 +111,7 @@ function play(g) {
           h('button', { class: 'btn btn-primary', onclick: start }, 'Ещё раз'),
           h('button', { class: 'btn btn-ghost', onclick: () => { close(); gamesHub(); } }, 'К играм'))));
     };
-    cleanup = { catch: catchGame, memory: memoryGame, reaction: reactionGame }[g.id](stage, scoreEl, sub, finish) || (() => {});
+    cleanup = { catch: catchGame, memory: memoryGame, reaction: reactionGame,...EXTRA_GAMES }[g.id](stage, scoreEl, sub, finish,{seed}) || (() => {});
   };
   start();
 }

@@ -36,3 +36,17 @@ test('reward recovery only removes proven excess, respects maximum historical pl
  assert.equal(q('SELECT coins FROM users WHERE id=2').get().coins,before[1].coins-949);
  assert.deepEqual(recoverGameOverpayments(params),[]);
 });
+test('all six games are available; server replays new games instead of trusting a submitted score and shares the daily cap',async()=>{
+ const {new2048,move2048}=await import('../public/js/minigame-engine.js');
+ assert.deepEqual(Object.keys(call('get','/games').body.games).sort(),['catch','memory','merge','mines','reaction','snake']);
+ const session=call('post','/games/:game/start',{game:'merge'}).body;const s=new2048(session.seed),actions=[];
+ for(let i=0;i<40&&!s.over;i++)for(const dir of ['L','D','R','U'])if(move2048(s,dir)){actions.push(dir);break;}
+ q('UPDATE game_sessions SET started_at=? WHERE token=?').run(Date.now()-30000,session.token);
+ const r=call('post','/games/finish',{body:{token:session.token,actions,score:99999999}});
+ assert.equal(r.code,200);assert.equal(r.body.score,s.score);assert.ok(r.body.reward<=15);assert.ok(r.body.earnedToday<=r.body.cap);
+ const forged=call('post','/games/:game/start',{game:'snake'}).body;
+ assert.equal(call('post','/games/finish',{body:{token:forged.token,score:99999999,actions:['INVALID']}}).code,400);
+ const mines=call('post','/games/:game/start',{game:'mines'}).body;
+ const loss=call('post','/games/finish',{body:{token:mines.token,actions:[]}});assert.equal(loss.body.reward,0);
+ assert.ok(!call('get','/games/:game/top',{game:'mines'}).body.top.length);
+});
