@@ -21,7 +21,7 @@ import { sendPush, saveSubscription, removeSubscription, vapidPublicKey } from '
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { getPrefs, cleanPrefs, PROFILE_COLORS } from './prefs.js';
-import { isOnline, emitToUser, emitToUsers, emitToChat, memberIds, disconnectSession, setCallHooks } from './realtime.js';
+import { isOnline, emitToUser, emitToUsers, emitToChat, memberIds, disconnectUser, disconnectSession, setCallHooks } from './realtime.js';
 import { setGroupCallHooks, activeRoomForChat, kickFromChatCall } from './groupcalls.js';
 import { registerStickers, customSticker, stickerExtra } from './stickers.js';
 import { registerBots, onNewMessage, isBotUser } from './bots.js';
@@ -670,7 +670,7 @@ registerFamily(api,{bad,int,publicUser,emitToUser});
 registerPostcards(api,{isMember,postError,postMessage});
 registerCollectibles(api,{pushMe,broadcastProfile,notifyReceipt:m=>broadcastNewMessage(m.chat_id,m)});
 registerStudio(api,{publicUser});
-registerModerator(api,{publicUser,pushChat});
+registerModerator(api,{publicUser,pushChat,disconnectUser,notify:(id,text)=>{const off=officialUser();postMessage(ensurePrivateChat(off.id,id),off.id,{kind:'text',text});}});
 registerWorkspace(api, { bad, int, clean, isMember, serializeMessage, emitToUser, emitToChat, chatForUser, searchLimiter });
 registerStickers(api, { bad, int, clean });
 api.post('/bots', featureGate('bots'));

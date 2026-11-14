@@ -8,7 +8,7 @@ export function initGames(deps) { d = deps; }
 const GAMES = [
   { id: 'catch', emoji: '🧺', title: 'Ловец лимонов', desc: '30 секунд: ловите лимоны корзинкой, звёзды дают +5, от бомб уворачивайтесь.', unit: 'очков' },
   { id: 'memory', emoji: '🧠', title: 'Лимонные пары', desc: 'Найдите все пары фруктов за как можно меньше ходов и быстрее.', unit: 'очков' },
-  { id: 'reaction', emoji: '⚡', title: 'Реакция', desc: 'Жмите, как только экран станет зелёным. 5 попыток — чем быстрее, тем больше лимонов.', unit: 'очков' },
+  { id: 'reaction', emoji: '⚡', title: 'Реакция', desc: 'Жмите, как только экран станет зелёным. 5 попыток — чем быстрее, тем больше лимонов.', unit: 'мс' },
 ];
 export const CHAT_GAMES = [['🎲', 'Кубик'], ['🎯', 'Дартс'], ['🏀', 'Баскетбол'], ['⚽', 'Футбол'], ['🎳', 'Боулинг']];
 
@@ -31,7 +31,7 @@ export async function gamesHub() {
         h('div', { class: 'game-emoji' }, g.emoji),
         h('div', { class: 'grow' },
           h('b', {}, g.title), h('span', {}, g.desc),
-          h('span', { class: 'game-best' }, info.games[g.id]?.best ? `рекорд: ${info.games[g.id].best} · сыграно ${info.games[g.id].plays}` : 'ещё не играли')),
+          h('span', { class: 'game-best' }, info.games[g.id]?.best ? `рекорд: ${info.games[g.id].best} ${g.unit} · сыграно ${info.games[g.id].plays}` : 'ещё не играли')),
         h('div', { class: 'game-acts' },
           h('button', { class: 'btn btn-primary btn-sm', onclick: () => { m.close(); play(g); } }, 'Играть'),
           h('button', { class: 'btn btn-ghost btn-sm', onclick: () => topModal(g) }, '🏆')))),
@@ -46,9 +46,9 @@ async function topModal(g) {
   try {
     const { top } = await api.get(`/games/${g.id}/top`);
     list.replaceChildren(...(top.length ? top.map((u, i) => h('div', { class: `fwd-item static top-row ${u.id === d.me().id ? 'me' : ''}` },
-      h('span', { class: 'top-place' }, ['🥇', '🥈', '🥉'][i] || `${i + 1}`), avatar(u, 36),
+      h('span', { class: 'top-place' }, ['🥇', '🥈', '🥉'][i] || `${i + 1}`), avatar({ ...u, src: u.avatar }, 36),
       h('div', { class: 'grow' }, h('div', { class: 'row-main' }, u.name), u.username ? h('div', { class: 'row-sub' }, `@${u.username}`) : null),
-      h('b', {}, u.best))) : [h('div', { class: 'list-note' }, 'Пока никто не играл — будьте первым!')]));
+      h('b', {}, `${u.best} ${g.unit}`))) : [h('div', { class: 'list-note' }, 'Пока никто не играл — будьте первым!')]));
   } catch (e) { list.replaceChildren(h('div', { class: 'list-note' }, errorText(e))); }
 }
 
@@ -95,7 +95,7 @@ function play(g) {
         h('div', { class: 'gm-result-title' }, r?.record ? 'Новый рекорд!' : 'Игра окончена'),
         h('div', { class: 'gm-result-score' }, shown ?? `${r?.score ?? result.score ?? 0}`),
         r ? h('div', { class: `gm-reward ${r.reward ? '' : 'none'}` }, r.reward ? `+${r.reward} 🍋` : r.earnedToday >= r.cap ? 'Лимоны на сегодня собраны' : 'Без лимонов в этот раз') : null,
-        r ? h('div', { class: 'muted small' }, `рекорд: ${r.best} · сегодня ${r.earnedToday}/${r.cap} 🍋`) : null,
+        r ? h('div', { class: 'muted small' }, `рекорд: ${r.best} ${g.unit} · сегодня ${r.earnedToday}/${r.cap} 🍋`) : null,
         h('div', { class: 'gm-result-acts' },
           h('button', { class: 'btn btn-primary', onclick: start }, 'Ещё раз'),
           h('button', { class: 'btn btn-ghost', onclick: () => { close(); gamesHub(); } }, 'К играм'))));

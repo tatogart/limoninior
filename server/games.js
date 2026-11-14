@@ -1,5 +1,6 @@
 // Mini-games instead of a daily bonus: play to earn lemons (with a daily cap), top-10 boards,
 // and chat games (🎲 🎯 🏀 🎳) whose result is rolled by the server.
+import {recoverGameOverpayments} from './game-recovery.js';
 import crypto from 'node:crypto';
 import rateLimit from 'express-rate-limit';
 import { db, q, now } from './db.js';
@@ -23,6 +24,9 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS game_results_game ON game_results(game, score);
 `);
 
+if (!q("SELECT 1 FROM pragma_table_info('game_results') WHERE name='reaction_ms'").get()) db.exec('ALTER TABLE game_results ADD COLUMN reaction_ms INTEGER');
+// Historical results stored speed points, not milliseconds. Zero points lost the exact time.
+q("UPDATE game_results SET reaction_ms=1000-score WHERE game='reaction' AND reaction_ms IS NULL AND score>0").run();
 export const DAILY_CAP = 60; // lemons per day from games (subscriptions multiply it)
 const MSK = 3 * 3600_000;
 const dayStart = () => { const t = now() + MSK; return t - (t % 864e5) - MSK; };
@@ -51,12 +55,14 @@ const GAMES = {
     // Average reaction in ms over 5 rounds → lower is better; the score is "how fast".
     score: (b) => {
       const avg = Math.trunc(Number(b.avg) || 0);
-      if (avg < 110) return -1; // faster than a human: rejected
+      if (!Number.isFinite(Number(b.avg)) || avg < 110 || avg > 60000) return -1; // faster than a human: rejected
       return Math.max(0, Math.min(1000, 1000 - avg));
     },
     reward: (s) => (s >= 750 ? 10 : s >= 650 ? 7 : s >= 500 ? 4 : 2),
   },
 };
+
+recoverGameOverpayments({dailyCap:DAILY_CAP,games:GAMES});
 
 export const CHAT_GAMES = {
   '🎲': { max: 6, label: (v) => `выпало ${v}` },
@@ -77,22 +83,24 @@ export function registerGames(api, { bad, isMember, postError, postMessage, push
       earnedToday: earnedToday(uid),
       cap: capFor(req.user),
       games: Object.fromEntries(Object.entries(GAMES).map(([k, g]) => {
-        const r = q('SELECT MAX(score) AS best, COUNT(*) AS plays FROM game_results WHERE user_id = ? AND game = ?').get(uid, k);
-        return [k, { title: g.title, best: r.best || 0, plays: r.plays }];
+        const r = q('SELECT MAX(score) AS best, MIN(reaction_ms) AS reactionBest, COUNT(*) AS plays FROM game_results WHERE user_id = ? AND game = ?').get(uid, k);
+        return [k, { title: g.title, best: k === 'reaction' ? r.reactionBest || 0 : r.best || 0, plays: r.plays }];
       })),
     });
   });
 
   api.get('/games/:game/top', (req, res) => {
     if (!GAMES[req.params.game]) return bad(res, 'not_found', 404);
-    const rows = q(`SELECT u.id, u.name, u.username, u.avatar, MAX(r.score) AS best FROM game_results r JOIN users u ON u.id = r.user_id
-                    WHERE r.game = ? AND u.banned = 0 GROUP BY u.id ORDER BY best DESC LIMIT 10`).all(req.params.game);
+    const reaction=req.params.game==='reaction';
+    const metric=reaction?'MIN(r.reaction_ms)':'MAX(r.score)';
+    const rows = q(`SELECT u.id, u.name, u.username, u.avatar, ${metric} AS best FROM game_results r JOIN users u ON u.id = r.user_id
+                    WHERE r.game = ? AND u.banned = 0 AND (${reaction?'r.reaction_ms IS NOT NULL':'1=1'}) GROUP BY u.id ORDER BY best ${reaction?'ASC':'DESC'}, u.id ASC LIMIT 10`).all(req.params.game);
     res.json({ top: rows.map((r) => ({ id: r.id, name: r.name, username: r.username, avatar: r.avatar ? `/media/${r.avatar}` : null, best: r.best })) });
   });
 
   api.post('/games/:game/start', limiter, (req, res) => {
     if (!GAMES[req.params.game]) return bad(res, 'not_found', 404);
-    q('DELETE FROM game_sessions WHERE user_id = ? AND started_at < ?').run(req.user.id, now() - 3600_000);
+    q('DELETE FROM game_sessions WHERE user_id = ?').run(req.user.id);
     const token = crypto.randomBytes(16).toString('base64url');
     q('INSERT INTO game_sessions (token, user_id, game, started_at) VALUES (?, ?, ?, ?)').run(token, req.user.id, req.params.game, now());
     res.json({ token });
@@ -107,13 +115,14 @@ export function registerGames(api, { bad, isMember, postError, postMessage, push
     if (ms < g.minMs || ms > g.maxMs) return bad(res, 'bad_session');
     const score = g.score(req.body || {}, ms);
     if (score < 0) return bad(res, 'bad_session');
-    const prevBest = q('SELECT MAX(score) AS b FROM game_results WHERE user_id = ? AND game = ?').get(req.user.id, s.game).b || 0;
+    const previous=q('SELECT MAX(score) AS b, MIN(reaction_ms) AS ms FROM game_results WHERE user_id=? AND game=?').get(req.user.id,s.game);
+    const prevBest=previous.b||0;
     const cap = capFor(req.user);
     const left = Math.max(0, cap - earnedToday(req.user.id));
     const reward = Math.min(left, g.reward(score) * (activePlan(req.user)?.bonusMult || 1));
-    q('INSERT INTO game_results (user_id, game, score, reward, created_at) VALUES (?, ?, ?, ?, ?)').run(req.user.id, s.game, score, reward, now());
+    q('INSERT INTO game_results (user_id, game, score, reward, created_at, reaction_ms) VALUES (?, ?, ?, ?, ?, ?)').run(req.user.id, s.game, score, reward, now(), s.game==='reaction'?Math.trunc(Number(req.body.avg)):null);
     if (reward) { q('UPDATE users SET coins = coins + ? WHERE id = ?').run(reward, req.user.id); pushMe(req.user.id); }
-    res.json({ score, reward, best: Math.max(prevBest, score), record: score > prevBest && prevBest > 0, earnedToday: earnedToday(req.user.id), cap });
+    res.json({ score, reward, best: s.game === 'reaction' ? Math.min(previous.ms??Infinity,Math.trunc(Number(req.body.avg))) : Math.max(prevBest, score), record: s.game==='reaction' ? previous.ms!==null && Number(req.body.avg)<previous.ms : score > prevBest && prevBest > 0, earnedToday: earnedToday(req.user.id), cap });
   });
 
   // Chat games: the server rolls, everyone sees the same result.
