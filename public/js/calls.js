@@ -1,6 +1,6 @@
 // 1:1 voice / video calls over WebRTC. Signaling goes through the Socket.IO connection.
 import { api, errorText } from './api.js';
-import { h, icon, avatar, toast, contextMenu } from './ui.js';
+import { h, icon, avatar, toast, contextMenu, registerOverlay } from './ui.js';
 import { startRingtone, startRingback, stopRing } from './sounds.js';
 
 let ctx = null; // { socket, me, userById }
@@ -367,6 +367,7 @@ function finish(text) {
 }
 
 function cleanup() {
+  call?.release?.();
   if (call) {
     call.local?.getTracks().forEach((t) => t.stop());
     call.screen?.stop();
@@ -379,6 +380,21 @@ function cleanup() {
   const o = overlay;
   overlay = null;
   setTimeout(() => o?.remove(), 250);
+}
+
+function minimize() {
+  if (!call) return;
+  call.mini = true;
+  call.release?.();
+  call.release = null;
+  overlay?.classList.add('call-minimized');
+  overlay?.querySelector('.call-mini-open')?.focus();
+}
+function expand() {
+  if (!call) return;
+  call.mini = false;
+  render();
+  overlay?.querySelector('.call-minimize')?.focus();
 }
 
 // ---------------------------------------------------------------- UI
@@ -400,7 +416,9 @@ function render() {
     document.body.append(overlay);
     requestAnimationFrame(() => overlay?.classList.add('show'));
   }
-  if (!render.timer) render.timer = setInterval(() => { const el = overlay?.querySelector('.call-status'); if (el) el.textContent = statusText(); }, 1000);
+  overlay.classList.toggle('call-minimized', !!call.mini);
+  if (!call.mini && !call.release) call.release = registerOverlay(() => { if (call) call.release = null; minimize(); });
+  if (!render.timer) render.timer = setInterval(() => { overlay?.querySelectorAll('.call-status').forEach(el => { el.textContent = statusText(); }); }, 1000);
 
   const remoteVideo = call.remote && call.remote.getVideoTracks().some((t) => !t.muted) && (call.peerCam || call.peerScreen);
   const peer = call.peer;
@@ -460,7 +478,17 @@ function render() {
       canPickOutput() && !/Android|iPhone|iPad/i.test(navigator.userAgent) ? btn('glass', 'devices', 'Вывод', pickOutput) : null,
       btn('red', 'phoneDown', 'Завершить', hangup));
 
+  const mini = h('div', { class: 'call-mini-bar' },
+    h('button', { class: 'call-mini-open', 'aria-label': 'Развернуть звонок', onclick: expand },
+      avatar({ id: peer.id, name: peer.name, src: peer.avatar }, 36),
+      h('span', { class: 'call-mini-info' }, h('b', {}, peer.name), h('span', { class: 'call-status' }, statusText())), icon('up')),
+    call.status === 'incoming'
+      ? h('button', { class: 'call-mini-action accept', 'aria-label': 'Ответить', onclick: accept }, icon('phone'))
+      : h('button', { class: 'call-mini-action', 'aria-label': call.mic ? 'Выключить микрофон' : 'Включить микрофон', onclick: toggleMic }, icon(call.mic ? 'mic' : 'micOff')),
+    h('button', { class: 'call-mini-action end', 'aria-label': call.status === 'incoming' ? 'Отклонить' : 'Завершить звонок', onclick: call.status === 'incoming' ? reject : hangup }, icon('phoneDown')));
   overlay.replaceChildren(
+    h('button', { class: 'call-minimize', 'aria-label': 'Свернуть звонок', onclick: minimize }, icon('down'), h('span', {}, 'Свернуть')),
+    mini,
     h('div', { class: 'call-bg', style: peer.avatar ? { backgroundImage: `url("${peer.avatar}")` } : null }),
     stage,
     h('div', { class: 'call-secure' }, '🔒 Звонок шифруется'),
