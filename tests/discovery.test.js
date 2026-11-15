@@ -8,8 +8,8 @@ q("INSERT INTO messages(id,chat_id,sender_id,kind,text,created_at) VALUES(1,1,2,
 const routes=new Map(),router=Object.fromEntries(['get','post','put','delete'].map(method=>[method,(url,...handlers)=>routes.set(method+' '+url,handlers.at(-1))]));registerDiscovery(router,{serializeMessage:m=>({id:m.id,text:m.text,chatId:m.chat_id}),moderationError:()=>null});
 function call(method,url,{user=1,id,body={},query={}}={}){const res={code:200,status(n){this.code=n;return this;},json(body){this.body=body;return this;}};routes.get(method+' '+url)({user:{id:user},params:{id},body,query},res);return res;}
 test('layout settings reject invalid positions and stay account isolated',()=>{
- assert.equal(cleanDiscovery({...DEFAULT_DISCOVERY,width:999}),null);const settings={...DEFAULT_DISCOVERY,side:'right',labs:{focus:true,still:false,denseFeed:false}};
- assert.equal(call('put','/discovery/settings',{body:settings}).code,200);assert.equal(call('get','/discovery/settings').body.settings.side,'right');assert.equal(call('get','/discovery/settings',{user:2}).body.settings.side,'left');
+ assert.equal(cleanDiscovery({...DEFAULT_DISCOVERY,width:999}),null);assert.equal(DEFAULT_DISCOVERY.showShortcuts,false);assert.equal(cleanDiscovery({...DEFAULT_DISCOVERY,showShortcuts:'yes'}),null);const settings={...DEFAULT_DISCOVERY,side:'right',labs:{focus:true,still:false,denseFeed:false}};
+ assert.equal(call('put','/discovery/settings',{body:settings}).code,200);assert.equal(call('get','/discovery/settings').body.settings.side,'right');assert.equal(call('get','/discovery/settings',{user:2}).body.settings.side,'left');call('put','/discovery/settings',{body:{...settings,showShortcuts:true}});assert.equal(call('get','/discovery/settings').body.settings.showShortcuts,true);
 });
 test('feed includes only own/contact posts and subscribed channels, never private messages or blocked authors',()=>{
  call('post','/discovery/feed',{user:2,body:{text:'Запись друга'}});call('post','/discovery/feed',{user:3,body:{text:'Чужая запись'}});

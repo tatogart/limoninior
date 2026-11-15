@@ -7,10 +7,10 @@ CREATE TABLE IF NOT EXISTS feed_posts(id INTEGER PRIMARY KEY,user_id INTEGER NOT
 CREATE INDEX IF NOT EXISTS feed_posts_user ON feed_posts(user_id,created_at);
 CREATE TABLE IF NOT EXISTS club_rooms(id TEXT PRIMARY KEY,owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,title TEXT NOT NULL,game TEXT NOT NULL,state TEXT NOT NULL,updated_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS club_players(room_id TEXT NOT NULL REFERENCES club_rooms(id) ON DELETE CASCADE,user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,seat INTEGER NOT NULL,PRIMARY KEY(room_id,user_id),UNIQUE(room_id,seat));`);
-export const DEFAULT_DISCOVERY={side:'left',width:340,density:'normal',sendSide:'right',shortcuts:['feed','club','search'],labs:{focus:false,still:false,denseFeed:false}};
+export const DEFAULT_DISCOVERY={side:'left',width:340,density:'normal',sendSide:'right',shortcuts:['feed','club','search'],showShortcuts:false,labs:{focus:false,still:false,denseFeed:false}};
 export function cleanDiscovery(b){
- if(!b||!['left','right'].includes(b.side)||!['normal','compact'].includes(b.density)||!['left','right'].includes(b.sendSide)||!Number.isInteger(b.width)||b.width<280||b.width>420||!Array.isArray(b.shortcuts)||b.shortcuts.length>3||new Set(b.shortcuts).size!==b.shortcuts.length||b.shortcuts.some(x=>!['feed','club','search'].includes(x))||!b.labs||['focus','still','denseFeed'].some(k=>typeof b.labs[k]!=='boolean'))return null;
- return {side:b.side,width:b.width,density:b.density,sendSide:b.sendSide,shortcuts:b.shortcuts,labs:{focus:b.labs.focus,still:b.labs.still,denseFeed:b.labs.denseFeed}};
+ if(!b||(b.showShortcuts!==undefined&&typeof b.showShortcuts!=='boolean')||!['left','right'].includes(b.side)||!['normal','compact'].includes(b.density)||!['left','right'].includes(b.sendSide)||!Number.isInteger(b.width)||b.width<280||b.width>420||!Array.isArray(b.shortcuts)||b.shortcuts.length>3||new Set(b.shortcuts).size!==b.shortcuts.length||b.shortcuts.some(x=>!['feed','club','search'].includes(x))||!b.labs||['focus','still','denseFeed'].some(k=>typeof b.labs[k]!=='boolean'))return null;
+ return {side:b.side,width:b.width,density:b.density,sendSide:b.sendSide,shortcuts:b.shortcuts,showShortcuts:b.showShortcuts===true,labs:{focus:b.labs.focus,still:b.labs.still,denseFeed:b.labs.denseFeed}};
 }
 export function registerDiscovery(api,{serializeMessage,searchLimiter,moderationError}){
  const fail=(res,error='not_found',status=404)=>res.status(status).json({error});
