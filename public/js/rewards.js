@@ -37,13 +37,13 @@ export async function rolePicker() {
   const roles = list.map((x) => rewardInfo(x.id)).filter((r) => r?.kind === 'role');
   const badges = list.map((x) => rewardInfo(x.id)).filter((r) => r?.kind === 'badge');
   const wrap = h('div', { class: 'rw-pick' });
-  const render = () => wrap.replaceChildren(
+  const render = () => wrap.replaceChildren(...[
     h('div', { class: 'field-label' }, 'Роль рядом с именем'),
     roles.length ? h('div', { class: 'rw-roles' },
       h('button', { type: 'button', class: `rw-chip ${d.me().role ? '' : 'on'}`, onclick: () => choose(null) }, 'Не показывать'),
       ...roles.map((r) => h('button', { type: 'button', class: `rw-chip ${d.me().role === r.id ? 'on' : ''}`, style: { '--rc': r.color }, onclick: () => choose(r.id) }, `${r.emoji} ${r.name}`)))
       : h('div', { class: 'muted small' }, 'Ролей пока нет — их выдаёт администрация за достижения в играх.'),
-    badges.length ? h('div', { class: 'rw-badges' }, h('span', { class: 'field-label' }, 'Значки:'), ...badges.map((b) => h('span', { class: 'rw-badge', title: `${b.name}${b.desc ? ` — ${b.desc}` : ''}` }, `${b.emoji} ${b.name}`))) : null);
+    badges.length ? h('div', { class: 'rw-badges' }, h('span', { class: 'field-label' }, 'Значки:'), ...badges.map((b) => h('span', { class: 'rw-badge', title: `${b.name}${b.desc ? ` — ${b.desc}` : ''}` }, `${b.emoji} ${b.name}`))) : null].filter(Boolean));
   const choose = async (id) => {
     try { await api.post('/me/role', { role: id }); d.setMe({ role: id }); render(); toast(id ? 'Роль показывается рядом с именем' : 'Роль скрыта'); } catch (e) { toast(errorText(e), 'error'); }
   };
