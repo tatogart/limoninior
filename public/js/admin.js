@@ -655,10 +655,10 @@ async function rewardsPage() {
       tile('Ролей и значков', r.rewards.length, { sub: `${r.rewards.filter((x) => x.custom).length} добавлено вами`, ic: 'crown', tone: 'gold' }),
       tile('Выдано наград', r.rewards.reduce((n, x) => n + x.owners, 0), { sub: 'всего у пользователей', ic: 'sparkles' })),
     card('Выдать роль или значок', h('div', { class: 'stack' },
-      h('p', { class: 'muted small' }, 'Найдите человека и отметьте, что он заработал в лаунчере. Ему придёт сообщение, роль появится рядом с именем, значок — в профиле.'),
+      h('p', { class: 'muted small' }, 'Найдите пользователя и выдайте или снимите бейдж одним переключателем. Блогер, разработчик, дизайнер, партнёр и другие бейджи отображаются в профиле.'),
       who, found)),
     card('Каталог', h('div', { class: 'rw-admin' }, r.rewards.map((x) => h('div', { class: 'rw-admin-row clickable', style: { '--rc': x.color }, title: 'У кого есть', onclick: () => ownersDialog(x) },
-      h('span', { class: 'rw-admin-emoji' }, x.emoji),
+      h('span', { class: 'rw-admin-emoji' }, x.icon?icon(x.icon):x.emoji),
       h('div', { class: 'grow' }, h('b', {}, x.name, ' ', h('span', { class: 'pill' }, x.kind === 'role' ? 'роль' : 'значок'), x.custom ? h('span', { class: 'pill gold' }, 'своя') : null),
         h('div', { class: 'row-sub' }, `${x.desc ? `${x.desc} · ` : ''}есть у ${fmt(x.owners)}`)),
       x.custom ? h('button', { class: 'btn btn-sm btn-danger-ghost', onclick: async (e) => {
@@ -695,7 +695,7 @@ async function rewardsDialog(u, onDone) {
   const have = new Set(mine.rewards.map((x) => x.id));
   const list = h('div', { class: 'rw-admin' });
   const draw = () => list.replaceChildren(...cat.rewards.map((x) => h('label', { class: 'rw-admin-row', style: { '--rc': x.color } },
-    h('span', { class: 'rw-admin-emoji' }, x.emoji),
+    h('span', { class: 'rw-admin-emoji' }, x.icon?icon(x.icon):x.emoji),
     h('div', { class: 'grow' }, h('b', {}, x.name), h('div', { class: 'row-sub' }, `${x.kind === 'role' ? 'роль' : 'значок'}${x.desc ? ` · ${x.desc}` : ''}`)),
     h('input', { type: 'checkbox', class: 'tg', checked: have.has(x.id), onchange: async (e) => {
       const grant = e.target.checked;

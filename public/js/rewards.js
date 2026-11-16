@@ -1,6 +1,6 @@
 // Roles and badges for playing in the owner's game launcher ("Лимон чат" rewards). The admin grants them.
 import { api, errorText } from './api.js';
-import { h, toast } from './ui.js';
+import { h, icon, toast } from './ui.js';
 
 let catalog = new Map();
 let d = null; // { me(), setMe(patch) }
@@ -25,8 +25,8 @@ export async function rewardsBlock(userId) {
   if (!items.length) return null;
   return h('div', { class: 'rw-block' },
     h('div', { class: 'pf-section-title' }, `Роли и значки · ${items.length}`),
-    h('div', { class: 'rw-grid' }, items.map((r) => h('div', { class: `rw-item rw-${r.kind}`, style: { '--rc': r.color || '#22c55e' }, title: r.desc || '' },
-      h('div', { class: 'rw-emoji' }, r.emoji),
+    h('div', { class: 'rw-grid' }, items.map((r) => h('div', { class: `rw-item rw-${r.kind}${r.icon?' rw-profile-badge':''}`, style: { '--rc': r.color || '#22c55e' }, title: r.desc || '' },
+      h('div', { class: 'rw-emoji' }, r.icon?icon(r.icon):r.emoji),
       h('div', { class: 'grow' }, h('b', {}, r.name), h('span', {}, `${r.kind === 'role' ? 'Роль' : 'Значок'}${r.desc ? ` · ${r.desc}` : ''}`))))));
 }
 
@@ -42,8 +42,8 @@ export async function rolePicker() {
     roles.length ? h('div', { class: 'rw-roles' },
       h('button', { type: 'button', class: `rw-chip ${d.me().role ? '' : 'on'}`, onclick: () => choose(null) }, 'Не показывать'),
       ...roles.map((r) => h('button', { type: 'button', class: `rw-chip ${d.me().role === r.id ? 'on' : ''}`, style: { '--rc': r.color }, onclick: () => choose(r.id) }, `${r.emoji} ${r.name}`)))
-      : h('div', { class: 'muted small' }, 'Ролей пока нет — их выдаёт администрация за достижения в играх.'),
-    badges.length ? h('div', { class: 'rw-badges' }, h('span', { class: 'field-label' }, 'Значки:'), ...badges.map((b) => h('span', { class: 'rw-badge', title: `${b.name}${b.desc ? ` — ${b.desc}` : ''}` }, `${b.emoji} ${b.name}`))) : null].filter(Boolean));
+      : h('div', { class: 'muted small' }, 'Роли и бейджи выдаёт администрация. Полученные бейджи появятся в профиле.'),
+    badges.length ? h('div', { class: 'rw-badges' }, h('span', { class: 'field-label' }, 'Значки:'), ...badges.map((b) => h('span', { class: 'rw-badge', title: `${b.name}${b.desc ? ` — ${b.desc}` : ''}` }, b.icon?icon(b.icon):b.emoji, ' ', b.name))) : null].filter(Boolean));
   const choose = async (id) => {
     try { await api.post('/me/role', { role: id }); d.setMe({ role: id }); render(); toast(id ? 'Роль показывается рядом с именем' : 'Роль скрыта'); } catch (e) { toast(errorText(e), 'error'); }
   };

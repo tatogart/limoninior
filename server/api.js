@@ -1,4 +1,3 @@
-import {registerDiscovery} from './discovery.js';
 import {planLimits} from '../public/js/subscription-limits.js';
 import {registerPaidReactions,paidSummary} from './paid-reactions.js';
 import {MEME_ID,limitedStock,nextMemeEdition,recordMemeEdition,giftEdition} from './limited-gifts.js';
@@ -670,7 +669,6 @@ api.post('/me/referral', requireAuth, requireProfile, (req, res) => {
 // Everything below needs a completed profile (username chosen).
 api.use(requireAuth, requireProfile);
 
-registerDiscovery(api,{serializeMessage,searchLimiter,moderationError});
 registerFamily(api,{bad,int,publicUser,emitToUser});
 registerPostcards(api,{isMember,postError,postMessage});
 registerCollectibles(api,{pushMe,broadcastProfile,notifyReceipt:m=>broadcastNewMessage(m.chat_id,m)});

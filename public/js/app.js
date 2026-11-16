@@ -1,4 +1,3 @@
-import {initDiscovery,discoveryHub} from './discovery.js';
 import {paidLemonDialog} from './paid-reactions.js';
 import {collectibleReceipt} from './collectible-receipt.js';
 import {postcardModal} from './postcards.js';
@@ -522,7 +521,6 @@ async function logout() {
 
 function startApp() {
   S.drafts = loadDrafts(S.me.id);
-  initDiscovery({me:()=>S.me,jumpToMessage,openExactSearch:()=>workspaceSearch()});
   initWorkspace({ S, chatTitle, userName, messagePreview, renderChatList, openChat, jumpToMessage,
     clearSearch, closeCommunity, openViewer, downloadFile, focusComposer: () => V.input?.focus(),
     insertTemplate: (text) => {
@@ -3416,7 +3414,6 @@ function openDrawer() {
       item('pencil','Редактировать профиль',editProfileModal),
       item('bookmark', 'Избранное', openSaved),
       item('check', 'Органайзер', () => workspaceHub()),
-      item('sparkles','Новые возможности',()=>discoveryHub()),
       item('search', 'Быстрый переход', commandPalette),
       item('crown', S.me.subUntil ? `${planById(S.me.sub)?.name || 'Подписка'} ✓` : 'Limochat Premium', subscriptionsModal, 'premium-item'),
       item('gift','Коллекционные подарки',openCollectibles),

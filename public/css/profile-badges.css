@@ -1,0 +1,7 @@
+.rw-profile-badge { background:var(--bg); border-color:color-mix(in srgb,var(--rc) 25%,var(--border)); border-radius:13px; }
+.rw-profile-badge .rw-emoji { display:grid; place-items:center; width:38px; height:38px; flex-shrink:0; border-radius:12px; background:color-mix(in srgb,var(--rc) 13%,transparent); color:var(--rc); }
+.rw-profile-badge .rw-emoji .ic { width:22px; height:22px; }
+.rw-profile-badge .grow { gap:4px; }.rw-profile-badge .grow > span { font-size:11px; line-height:1.4; }
+.rw-badge { display:inline-flex; align-items:center; gap:5px; }.rw-badge .ic { width:15px; height:15px; }
+.rw-admin-emoji .ic { width:24px; height:24px; color:var(--rc); }
+@media(max-width:420px) { .rw-grid { grid-template-columns:1fr; }.rw-profile-badge { padding:9px 12px; } }

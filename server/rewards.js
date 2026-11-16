@@ -17,6 +17,11 @@ if (!q("SELECT 1 FROM pragma_table_info('users') WHERE name = 'shown_role'").get
 
 /** Built-in rewards (from the launcher's "Лимон чат" list). Admins can add more in the panel. */
 export const BUILTIN_REWARDS = [
+  {id:'profile_blogger',kind:'badge',category:'profile',name:'Блогер',emoji:'🎬',icon:'video',color:'#ea638c',desc:'Автор контента и публикаций в Limochat'},
+  {id:'profile_developer',kind:'badge',category:'profile',name:'Разработчик',emoji:'💻',icon:'terminal',color:'#528bea',desc:'Создаёт приложения, ботов и инструменты'},
+  {id:'profile_designer',kind:'badge',category:'profile',name:'Дизайнер',emoji:'🎨',icon:'palette',color:'#a56ce3',desc:'Создаёт оформление, иллюстрации и интерфейсы'},
+  {id:'profile_partner',kind:'badge',category:'profile',name:'Партнёр',emoji:'🤝',icon:'partner',color:'#20a58a',desc:'Партнёр проекта Limochat'},
+  {id:'profile_early',kind:'badge',category:'profile',name:'Ранний участник',emoji:'✨',icon:'sparkles',color:'#d89e35',desc:'Участник раннего сообщества Limochat'},
   { id: SUPPORTER_OFFER.id, kind: 'badge', name: SUPPORTER_OFFER.name, emoji: SUPPORTER_OFFER.emoji, color: '#d99a24', desc: 'Поддержка развития Limochat · значок и тег навсегда' },
   { id: 'tireless', kind: 'role', name: 'Неутомимый', emoji: '⏱️', color: '#f59e0b', desc: '40 часов в играх' },
   { id: 'collector', kind: 'badge', name: 'Коллекционер', emoji: '🏅', color: '#eab308', desc: '10 достижений' },
