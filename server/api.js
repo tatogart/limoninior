@@ -1,3 +1,4 @@
+import {loginRequests} from './desktop-login.js';
 import {planLimits} from '../public/js/subscription-limits.js';
 import {registerPaidReactions,paidSummary} from './paid-reactions.js';
 import {MEME_ID,limitedStock,nextMemeEdition,recordMemeEdition,giftEdition} from './limited-gifts.js';
@@ -422,6 +423,27 @@ api.post('/auth/login', authLimiter, async (req, res) => {
   createSession(res, req, user.id);
   audit(user.id, req.ip, 'login', 'password');
   res.json({ user: meUser(user) });
+});
+
+const desktopLogins=loginRequests();
+api.post('/auth/desktop/start',authLimiter,(req,res)=>{
+  if(!config.googleClientId)return bad(res,'unavailable',503);
+  try{res.set('Cache-Control','no-store').json(desktopLogins.create());}catch{return bad(res,'busy',503);}
+});
+api.post('/auth/desktop/approve',requireAuth,authLimiter,(req,res)=>{
+  if(!desktopLogins.approve(req.body?.id,req.body?.approve,req.user.id))return bad(res,'expired',410);
+  res.set('Cache-Control','no-store').json({ok:true});
+});
+const desktopPollLimiter=rateLimit({windowMs:60000,limit:100,standardHeaders:'draft-7',legacyHeaders:false});
+api.post('/auth/desktop/poll',desktopPollLimiter,(req,res)=>{
+  res.set('Cache-Control','no-store');
+  const result=desktopLogins.consume(req.body?.id,req.body?.poll);
+  if(result.invalid)return bad(res,'expired',410);
+  if(result.pending)return res.json({pending:true});
+  const user=q('SELECT * FROM users WHERE id = ?').get(result.userId);
+  if(!user||user.banned)return bad(res,'unavailable',403);
+  createSession(res,req,user.id);audit(user.id,req.ip,'login','desktop browser confirmation');
+  res.json({user:meUser(user)});
 });
 
 api.post('/auth/google', authLimiter, async (req, res) => {

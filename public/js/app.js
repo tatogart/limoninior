@@ -430,6 +430,24 @@ function renderLogin() {
   app.replaceChildren(h('div', { class: 'login' }, h('div', { class: 'blob b1' }), h('div', { class: 'blob b2' }), h('div', { class: 'blob b3' }), card));
 
   if (!S.config.googleClientId) return;
+  if(window.limoNative?.desktop){
+    const button=h('button',{class:'btn btn-primary btn-block',onclick:async()=>{
+      button.disabled=true;
+      try{
+        const request=await api.post('/auth/desktop/start');
+        window.open('/desktop-login.html#'+new URLSearchParams({id:request.id,approve:request.approve}),'_blank','noopener');
+        gbtn.append(h('p',{class:'hint-box'},'Подтвердите вход в браузере. Ожидаем до 5 минут…'));
+        const deadline=Date.now()+300000;
+        while(Date.now()<deadline&&button.isConnected&&!S.me){
+          await new Promise(resolve=>setTimeout(resolve,3000));
+          const result=await api.post('/auth/desktop/poll',{id:request.id,poll:request.poll});
+          if(result.user){S.me=result.user;S.me.needsProfile?renderOnboarding():startApp();return;}
+        }
+        if(button.isConnected)toast('Время входа истекло. Попробуйте снова.','error');
+      }catch(e){toast(errorText(e),'error');}finally{button.disabled=false;}
+    }},'Войти через Google в браузере');
+    gbtn.replaceChildren(button);return;
+  }
   const mountButton = () => {
     window.google.accounts.id.initialize({
       client_id: S.config.googleClientId,
