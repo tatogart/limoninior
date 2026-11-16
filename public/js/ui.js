@@ -261,7 +261,7 @@ export function bytes(n) {
 
 const TLDS = 'com|ru|net|org|io|xyz|top|info|biz|me|app|dev|su|рф|online|site|store|shop|club|pro|gg|tv|co|uk|de|ua|by|kz|click|link|live|zip|mov|icu|tk|ml|ga|cf|gq|ly|cc|ws|in|fun|space|website|tech|cam|rest|work|loan';
 const URL_RE = new RegExp(
-  `(?:\\bhttps?:\\/\\/[^\\s<>"']+[^\\s<>"'.,;:!?)\\]}»])|(?<![@\\w.\\-/а-яё])(?:[a-z0-9а-яё-]+\\.)+(?:${TLDS})(?![\\w-])(?:\\/[^\\s<>"']*[^\\s<>"'.,;:!?)\\]}»])?`,
+  `(?:\\bhttps?:\\/\\/[^\\s<>"']+[^\\s<>"'.,;:!?)\\]}»])|(?:[a-z0-9а-яё-]+\\.)+(?:${TLDS})(?![\\w-])(?:\\/[^\\s<>"']*[^\\s<>"'.,;:!?)\\]}»])?`,
   'giu');
 
 const SHORTENERS = ['bit.ly', 'tinyurl.com', 'cutt.ly', 'clck.ru', 'goo.su', 'is.gd', 't.ly', 'rebrand.ly', 'shorturl.at', 'vk.cc', 'ow.ly', 'u.to', 'qps.ru'];
@@ -316,6 +316,7 @@ export function richText(text) {
   const out = [];
   let last = 0;
   for (const m of text.matchAll(URL_RE)) {
+    if(!/^https?:\/\//i.test(m[0])&&m.index>0&&/[@\w.\-/а-яё]/i.test(text[m.index-1]))continue;
     if (m.index > last) out.push(text.slice(last, m.index));
     let href = null;
     try {

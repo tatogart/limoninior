@@ -82,6 +82,7 @@ app.get(['/admin','/admin.html'],(req,res)=>res.status(404).end());
 app.get('/privacy', (req, res) => res.sendFile(path.join(pub, 'privacy.html')));
 app.get('/help', (req, res) => res.sendFile(path.join(pub, 'help.html')));
 app.get('/partners', (req, res) => res.sendFile(path.join(pub, 'partners.html')));
+app.get('/download',(_req,res)=>res.sendFile(path.join(pub,'download.html')));
 app.get('/about', (req, res) => res.sendFile(path.join(pub, 'about.html')));
 
 app.get('/.well-known/assetlinks.json',(_req,res)=>{res.set('Cache-Control','public, max-age=300');res.type('application/json').sendFile(path.join(pub,'.well-known','assetlinks.json'),{dotfiles:'allow'});});

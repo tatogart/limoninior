@@ -1,0 +1,52 @@
+name: Publish native downloads
+on:
+  push:
+    paths: ['public/download.html', '.github/workflows/publish-installers.yml']
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful Build APK and EXE run ID
+        required: true
+        default: '43908180775'
+permissions:
+  contents: write
+  actions: read
+jobs:
+
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Limochat-Android-APK
+          run-id: ${{ inputs.run_id || '43908180775' }}
+          github-token: ${{ github.token }}
+          path: release-android
+      - uses: actions/download-artifact@v4
+        with:
+          name: Limochat-Windows-EXE
+          run-id: ${{ inputs.run_id || '43908180775' }}
+          github-token: ${{ github.token }}
+          path: release-windows
+      - name: Publish downloadable installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NATIVE_VERSION=$(node -p "require('./native/desktop/package.json').version")
+          NATIVE_TAG="native-v$NATIVE_VERSION"
+          if ! gh release view "$NATIVE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$NATIVE_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Limochat $NATIVE_VERSION" --notes-file native/release-notes.md --prerelease
+          fi
+          gh release upload "$NATIVE_TAG" release-android/Limochat-Android-test.apk release-windows/*.exe --repo "$GITHUB_REPOSITORY" --clobber
+      - name: Associate the published Android certificate with the website
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if cmp -s public/.well-known/assetlinks.json release-android/assetlinks.generated.json; then exit 0; fi
+          ASSOCIATION_SHA=$(gh api "repos/$GITHUB_REPOSITORY/contents/public/.well-known/assetlinks.json?ref=$GITHUB_REF_NAME" --jq .sha)
+          ASSOCIATION_DATA=$(base64 -w0 release-android/assetlinks.generated.json)
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/public/.well-known/assetlinks.json" -f message='Associate published Android build certificate' -f branch="$GITHUB_REF_NAME" -f sha="$ASSOCIATION_SHA" -f content="$ASSOCIATION_DATA"

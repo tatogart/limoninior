@@ -283,7 +283,7 @@ async function boot() {
     S.me = (await api.get('/me')).user;
   } catch (e) {
     if (e.status === 401) return renderLogin();
-    return toast(errorText(e), 'error');
+    app.replaceChildren(h('div',{class:'fatal'},h('p',{},errorText(e)),h('button',{class:'btn btn-primary',onclick:()=>location.reload()},'Повторить')));return;
   }
   if (S.me.needsProfile) renderOnboarding();
   else startApp();
@@ -3420,6 +3420,7 @@ function openDrawer() {
       item('search', 'Быстрый переход', commandPalette),
       item('crown', S.me.subUntil ? `${planById(S.me.sub)?.name || 'Подписка'} ✓` : 'Limochat Premium', subscriptionsModal, 'premium-item'),
       item('gift','Коллекционные подарки',openCollectibles),
+      item('download','Скачать APK / EXE',()=>window.open('/download','_blank','noopener')),
       item('settings', 'Настройки', settingsModal),
       (S.me.isModerator || S.me.isAdmin) ? item('shield','Модерация',moderatorPanel) : null,
       h('details',{class:'drawer-category'},h('summary',{},'Дополнительно'),item('gift', 'Пригласить друзей', referralModal, 'ref-item'),item('sparkles', 'Сотрудничество', () => window.open('/partners', '_blank', 'noopener')),
