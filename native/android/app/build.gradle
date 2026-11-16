@@ -1,0 +1,14 @@
+plugins { id 'com.android.application' }
+android {
+ namespace 'io.limochat.app'
+ compileSdk 35
+ defaultConfig { applicationId 'io.limochat.app'; minSdk 29; targetSdk 35; versionCode 1; versionName '1.0.0-test' }
+ buildTypes { debug { applicationIdSuffix '.preview'; versionNameSuffix '-preview' } }
+ compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}
+tasks.register('copyBrand', Copy) {
+ from rootProject.file('../../public/icons/icon-192.png')
+ into 'src/main/res/drawable'
+ rename { 'app_icon.png' }
+}
+tasks.named('preBuild').configure { dependsOn tasks.named('copyBrand') }
