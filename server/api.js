@@ -36,7 +36,7 @@ import { registerSocial } from './social.js';
 import { registerProfiles, profileView } from './profiles.js';
 import { registerDuels, refundDuel } from './duels.js';
 import { registerAnon } from './anon.js';
-import { registerRewards, hasSupporter } from './rewards.js';
+import { registerRewards, hasSupporter, selectedProfileBadge } from './rewards.js';
 import { trackStreak, streakFor, restoreStreak, offerStreak, setOfferMessage, answerStreak, stopStreak } from './streaks.js';
 import { publicPlatform, platform, featureGate, filterText, moderationError, registerReports } from './moderation.js';
 
@@ -86,6 +86,7 @@ export function publicUser(u) {
     verified: !!u.verified,
     scam:!!u.scam,scamReason:u.scam_reason||null,
     role: u.shown_role || null,
+    profileBadge:selectedProfileBadge(u.id),
     supporter: hasSupporter(u.id),
     collectible: selectedCollectible(u.id),
     px: profileView(u),
@@ -686,7 +687,7 @@ api.post('/chats/:id/capsule', featureGate('extras'));
 api.post('/chats/:id/wheel', featureGate('extras'));
 registerCommunities(api, { bad, int, clean, chatForUser, pushChat, systemMessage, deleteChat, publicUser });
 registerReports(api, { bad, int, clean, isMember });
-registerRewards(api, { bad, pushMe });
+registerRewards(api, { bad, pushMe,broadcastUser:broadcastProfile });
 registerGames(api, { bad, int, isMember, postError, validReply, activePlan, pushMe, postMessage: (...a) => postMessage(...a) });
 registerSocial(api, { bad, int, isMember, postError, postMessage: (...a) => postMessage(...a) });
 registerProfiles(api, { bad, int, pushMe, broadcastProfile: (u) => broadcastProfile(u) });

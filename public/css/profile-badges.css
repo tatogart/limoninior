@@ -5,3 +5,7 @@
 .rw-badge { display:inline-flex; align-items:center; gap:5px; }.rw-badge .ic { width:15px; height:15px; }
 .rw-admin-emoji .ic { width:24px; height:24px; color:var(--rc); }
 @media(max-width:420px) { .rw-grid { grid-template-columns:1fr; }.rw-profile-badge { padding:9px 12px; } }
+.name-profile-badge { display:inline-flex; align-items:center; justify-content:center; vertical-align:middle; width:20px; height:20px; min-width:20px; border-radius:6px; color:var(--badge-color); background:color-mix(in srgb,var(--badge-color) 12%,transparent); margin-left:4px; font-size:14px; line-height:1; }
+.name-profile-badge .ic { width:15px; height:15px; }
+.rw-badge-picker .rw-chip { display:inline-flex; gap:6px; align-items:center; min-height:38px; font-size:12px; }
+.rw-badge-picker .rw-chip .ic { width:17px; height:17px; }

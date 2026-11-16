@@ -43,7 +43,9 @@ export async function rolePicker() {
       h('button', { type: 'button', class: `rw-chip ${d.me().role ? '' : 'on'}`, onclick: () => choose(null) }, 'Не показывать'),
       ...roles.map((r) => h('button', { type: 'button', class: `rw-chip ${d.me().role === r.id ? 'on' : ''}`, style: { '--rc': r.color }, onclick: () => choose(r.id) }, `${r.emoji} ${r.name}`)))
       : h('div', { class: 'muted small' }, 'Роли и бейджи выдаёт администрация. Полученные бейджи появятся в профиле.'),
-    badges.length ? h('div', { class: 'rw-badges' }, h('span', { class: 'field-label' }, 'Значки:'), ...badges.map((b) => h('span', { class: 'rw-badge', title: `${b.name}${b.desc ? ` — ${b.desc}` : ''}` }, b.icon?icon(b.icon):b.emoji, ' ', b.name))) : null].filter(Boolean));
+    h('div',{class:'field-label'},'Бейдж рядом с ником'),badges.length?h('div',{class:'rw-badges rw-badge-picker'},h('button',{type:'button',class:'rw-chip '+(!d.me().profileBadge?'on':''),'aria-pressed':String(!d.me().profileBadge),onclick:()=>chooseBadge(null)},'Не показывать'),...badges.map(b=>h('button',{type:'button',class:'rw-chip '+(d.me().profileBadge?.id===b.id?'on':''),style:{'--rc':b.color},'aria-pressed':String(d.me().profileBadge?.id===b.id),title:b.desc||b.name,onclick:()=>chooseBadge(b.id)},b.icon?icon(b.icon):b.emoji,b.name))):h('div',{class:'muted small'},'Пока нет выданных бейджей.')].filter(Boolean));
+  let selecting=false;
+  const chooseBadge=async id=>{if(selecting)return;selecting=true;try{const r=await api.post('/me/badge',{badge:id});d.setMe({profileBadge:r.profileBadge});render();toast(id?'Бейдж выбран':'Бейдж рядом с ником скрыт');}catch(e){toast(errorText(e),'error');}finally{selecting=false;}};
   const choose = async (id) => {
     try { await api.post('/me/role', { role: id }); d.setMe({ role: id }); render(); toast(id ? 'Роль показывается рядом с именем' : 'Роль скрыта'); } catch (e) { toast(errorText(e), 'error'); }
   };

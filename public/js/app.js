@@ -16,7 +16,7 @@ import { CLIENT_BUILD, CLIENT_VERSION } from './client-build.js';
 import { clientNeedsUpdate, allowAutomaticReload } from './client-update.js';
 import {
   h, icon, avatar, timeHM, listTime, dayLabel, lastSeenText, plural, richText, emojiCount,
-  toast, openModal, closeTopModal, confirmDialog, contextMenu, closeMenu, registerOverlay, handleBack, goBack, navigate, afterHistory, isTouch, badge, trustBadge, nameWithBadge, supporterBadge, supporterTag, linkRisk, bytes,
+  toast, openModal, closeTopModal, confirmDialog, contextMenu, closeMenu, registerOverlay, handleBack, goBack, navigate, afterHistory, isTouch, badge, trustBadge, profileBadge, nameWithBadge, supporterBadge, supporterTag, linkRisk, bytes,
 } from './ui.js';
 import { STICKER_PACKS, stickerInfo, GIFTS, giftById, REACTIONS, PLANS, planById, isDangerousFile, fileExt } from './catalog.js';
 import { initCalls, startCall, inCall } from './calls.js';
@@ -984,7 +984,7 @@ function chatItem(c) {
   h('div', { class: 'chat-item-body' },
     h('div', { class: 'chat-item-top' },
       h('span', { class: 'chat-item-title' }, isGroup(c) ? icon('group', 'title-ic') : isChannel(c) ? icon('megaphone', 'title-ic') : peerOf(c)?.bot ? icon('bot', 'title-ic') : null,
-        h('span', { class: 'ellipsis' }, chatTitle(c)), chatTrustBadge(c), peerEmoji(c), streakBadge(c), c.muted ? icon('mute', 'mute-ic') : null),
+        h('span', { class: 'ellipsis' }, chatTitle(c)), chatTrustBadge(c), profileBadge(c.type==='private'?peerOf(c):null), peerEmoji(c), streakBadge(c), c.muted ? icon('mute', 'mute-ic') : null),
       h('span', { class: 'chat-item-time' }, mine ? icon(read ? 'checks' : 'check', 'tick') : null, lm ? listTime(lm.createdAt) : '')),
     h('div', { class: 'chat-item-bottom' },
       h('span', { class: 'chat-item-preview' }, preview),
@@ -1052,7 +1052,7 @@ function renderSearch() {
     nodes.push(h('button', { class: 'chat-item', onclick: () => { clearSearch(); startPrivate(u.id); } },
       userAvatar(u, 54, true),
       h('div', { class: 'chat-item-body' },
-        h('div', { class: 'chat-item-top' }, h('span', { class: 'chat-item-title' }, h('span', { class: 'ellipsis' }, u.name), trustBadge(u))),
+        h('div', { class: 'chat-item-top' }, h('span', { class: 'chat-item-title' }, h('span', { class: 'ellipsis' }, u.name), trustBadge(u),profileBadge(u))),
         h('div', { class: 'chat-item-bottom' }, h('span', { class: 'chat-item-preview accent' }, `@${u.username}`)))));
   }
   V.list.replaceChildren(...nodes);
@@ -1354,7 +1354,7 @@ function renderHeader() {
   const cm = communityOf(c);
   V.headerAvatar.replaceChildren(chatAvatar(c, 42));
   V.headerTitle.replaceChildren(...[cm ? icon(c.ckind === 'voice' ? 'headphones' : c.ckind === 'news' ? 'megaphone' : 'hash', 'title-ic') : null,
-    h('span', { class: 'ellipsis' }, chatTitle(c)), chatTrustBadge(c), peerEmoji(c)].filter(Boolean));
+    h('span', { class: 'ellipsis' }, chatTitle(c)), chatTrustBadge(c), profileBadge(c.type==='private'?peerOf(c):null), peerEmoji(c)].filter(Boolean));
   renderHeaderStatus();
 }
 
@@ -1530,7 +1530,7 @@ function renderMessages({ stick = false, keepOffset = false } = {}) {
     used.add(key);
     const sender = S.users.get(m.senderId);
     const read = m.senderId === S.me.id && typeof m.id === 'number' && m.id <= c.peerReadId;
-    const sig = [m.editedAt, m.text, first, last, read, m.pending, m.views, m.comments, m.paidLemons, m.myReaction, JSON.stringify(m.reactions || []), sender?.name, sender?.avatar, sender?.role, sender?.verified, sender?.scam, sender?.scamReason, sender?.px?.emoji, sender?.px?.nameColor, sender?.px?.frame, nickname(m.senderId),
+    const sig = [m.editedAt, m.text, first, last, read, m.pending, m.views, m.comments, m.paidLemons, m.myReaction, JSON.stringify(m.reactions || []), sender?.name, sender?.avatar, sender?.role, sender?.profileBadge?.id, sender?.verified, sender?.scam, sender?.scamReason, sender?.px?.emoji, sender?.px?.nameColor, sender?.px?.frame, nickname(m.senderId),
       m.replyTo?.id, m.replyTo && userName(m.replyTo.senderId),
       m.kind === 'gcall' ? `${m.extra?.status}:${m.extra?.duration}:${c.groupCall?.roomId === m.extra?.roomId}` : '',
       ['wheel', 'capsule', 'streak_offer', 'dice', 'theme', 'duel'].includes(m.kind) ? JSON.stringify(m.extra) : ''].join('|');
@@ -1635,7 +1635,7 @@ function messageEl(c, m, first, last, read) {
   const special = m.kind === 'sticker' ? 'sticker' : m.kind === 'gift' ? 'gift-bubble' : '';
   const bubble = h('div', { class: `bubble ${bigEmoji ? 'big-emoji' : ''} ${imageOnly ? 'image-only' : ''} ${m.kind === 'image' ? 'has-image' : ''} ${special}` });
   if (group && !mine && first && !bigEmoji && m.kind !== 'sticker') {
-    bubble.append(h('div', { class: 'sender-name' }, h('span', nameStyleProps(S.users.get(m.senderId), nameColor(m.senderId)), userName(m.senderId)), trustBadge(S.users.get(m.senderId)), S.users.get(m.senderId)?.px?.emoji ? h('span', { class: 'emoji-status' }, S.users.get(m.senderId).px.emoji) : null, roleTag(S.users.get(m.senderId)?.role, 'small'), supporterBadge(S.users.get(m.senderId)), supporterTag(S.users.get(m.senderId), 'small')));
+    bubble.append(h('div', { class: 'sender-name' }, h('span', nameStyleProps(S.users.get(m.senderId), nameColor(m.senderId)), userName(m.senderId)), trustBadge(S.users.get(m.senderId)), profileBadge(S.users.get(m.senderId)), S.users.get(m.senderId)?.px?.emoji ? h('span', { class: 'emoji-status' }, S.users.get(m.senderId).px.emoji) : null, roleTag(S.users.get(m.senderId)?.role, 'small'), supporterBadge(S.users.get(m.senderId)), supporterTag(S.users.get(m.senderId), 'small')));
     ensureUser(m.senderId);
   }
   if (m.extra?.fwd) {
@@ -2829,7 +2829,7 @@ function forwardModal(m) {
         toast(`Переслано: ${chatTitle(c)}`);
         if (c.id !== S.current) openChat(c.id);
       } catch (e) { toast(errorText(e), 'error'); }
-    } }, chatAvatar(c, 42), h('div', { class: 'fwd-name' }, h('span', { class: 'ellipsis' }, chatTitle(c)), chatTrustBadge(c)))) : [h('div', { class: 'list-note' }, 'Ничего не найдено')]));
+    } }, chatAvatar(c, 42), h('div', { class: 'fwd-name' }, h('span', { class: 'ellipsis' }, chatTitle(c)), chatTrustBadge(c),profileBadge(c.type==='private'?peerOf(c):null)))) : [h('div', { class: 'list-note' }, 'Ничего не найдено')]));
   };
   input.addEventListener('input', render);
   render();
@@ -2851,7 +2851,7 @@ function pickChatModal(title) {
       const qv = input.value.trim().toLowerCase();
       const items = targets().filter((c) => !qv || chatTitle(c).toLowerCase().includes(qv) || peerOf(c)?.username?.toLowerCase().includes(qv));
       list.replaceChildren(...(items.length ? items.map((c) => h('button', { class: 'fwd-item', onclick: () => { done = true; resolve(c.id); modal.close(); } },
-        chatAvatar(c, 42), h('div', { class: 'fwd-name' }, h('span', { class: 'ellipsis' }, chatTitle(c)), chatTrustBadge(c)))) : [h('div', { class: 'list-note' }, 'Ничего не найдено')]));
+        chatAvatar(c, 42), h('div', { class: 'fwd-name' }, h('span', { class: 'ellipsis' }, chatTitle(c)), chatTrustBadge(c),profileBadge(c.type==='private'?peerOf(c):null)))) : [h('div', { class: 'list-note' }, 'Ничего не найдено')]));
     };
     input.addEventListener('input', render);
     render();

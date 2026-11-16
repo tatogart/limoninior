@@ -130,15 +130,20 @@ export function badge() {
 /** Name followed by the verified badge when applicable. */
 const SUB_EMOJI = { plus: '⭐', premium: '💎', max: '👑' };
 export function supporterBadge(user) {
-  return user?.supporter ? h('span', { class: 'supporter-badge', role: 'img', 'aria-label': 'Поддержал проект', title: 'Поддержал проект 💛' }, '💛') : null;
+  return user?.supporter && user?.profileBadge?.id!=='supporter' ? h('span', { class: 'supporter-badge', role: 'img', 'aria-label': 'Поддержал проект', title: 'Поддержал проект 💛' }, '💛') : null;
 }
 export function supporterTag(user, cls = '') {
   return user?.supporter ? h('span', { class: `role-tag supporter-tag ${cls}`, style: { '--rc': '#d99a24' }, title: 'Спасибо за поддержку развития Limochat' }, 'Поддержал проект') : null;
 }
 export const scamBadge=user=>user?.scam?h('span',{class:'scam-badge',title:user.scamReason||'Администрация пометила этот аккаунт как SCAM'},'SCAM'):null;
 export const trustBadge=user=>scamBadge(user)||(user?.verified?badge():null);
+export function profileBadge(user){
+ const r=user?.profileBadge;if(!r)return null;
+ return h('span',{class:'name-profile-badge',role:'img','aria-label':'Бейдж: '+r.name,title:r.name,style:{'--badge-color':r.color||'var(--accent)'}},r.icon?icon(r.icon):r.emoji);
+}
 export function nameWithBadge(name, user) {
   const out = [name];
+  if(user?.profileBadge)out.push(profileBadge(user));
   if(user?.scam)out.push(scamBadge(user));
   if(user?.collectible){const c=user.collectible,art=c.art||({'lemon-crystal':'diamond','moon-lemon':'moon','golden-orbit':'planet'}[c.collection]||'gift'),hue=COLLECTIBLE_TRAITS.color.find(x=>x.id===c.traits?.color?.id)?.hue||0;out.push(h('span',{class:'collectible-mark',title:c.name+' #'+c.id,dataset:{backdrop:c.traits?.backdrop?.id||c.backdrop||'aurora'}},h('img',{class:'collectible-mark-picture',src:(art==='mell-chick'?'/gifts/mell-chick.svg':c.image)||'/gifts/'+art+'.svg',alt:c.name,width:24,height:24,style:{filter:'hue-rotate('+hue+'deg)'}})));}
   if (user?.supporter) out.push(supporterBadge(user));

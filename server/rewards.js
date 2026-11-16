@@ -15,6 +15,8 @@ db.exec(`
 `);
 if (!q("SELECT 1 FROM pragma_table_info('users') WHERE name = 'shown_role'").get()) db.exec('ALTER TABLE users ADD COLUMN shown_role TEXT');
 
+if (!q("SELECT 1 FROM pragma_table_info('users') WHERE name = 'shown_badge'").get()) db.exec('ALTER TABLE users ADD COLUMN shown_badge TEXT');
+
 /** Built-in rewards (from the launcher's "Лимон чат" list). Admins can add more in the panel. */
 export const BUILTIN_REWARDS = [
   {id:'profile_blogger',kind:'badge',category:'profile',name:'Блогер',emoji:'🎬',icon:'video',color:'#ea638c',desc:'Автор контента и публикаций в Limochat'},
@@ -38,6 +40,11 @@ export function rewardCatalog() {
   return [...BUILTIN_REWARDS, ...custom.map((r) => ({ ...r, custom: true }))];
 }
 const rewardById = (id) => rewardCatalog().find((r) => r.id === id) || null;
+export function selectedProfileBadge(userId){
+ const id=q('SELECT shown_badge FROM users WHERE id=?').get(userId)?.shown_badge;
+ if(!id||!q('SELECT 1 FROM user_rewards WHERE user_id=? AND reward=?').get(userId,id))return null;
+ const r=rewardById(id);return r?.kind==='badge'?{id:r.id,name:r.name,icon:r.icon||null,emoji:r.emoji,color:r.color}:null;
+}
 
 export const userRewards = (userId) => q('SELECT reward, source, granted_at FROM user_rewards WHERE user_id = ? ORDER BY granted_at').all(userId)
   .map((r) => ({ id: r.reward, source: r.source, at: r.granted_at })).filter((r) => rewardById(r.id));
@@ -54,16 +61,26 @@ export function grantReward(userId, rewardId, source) {
 export function revokeReward(userId, rewardId) {
   q('DELETE FROM user_rewards WHERE user_id = ? AND reward = ?').run(userId, rewardId);
   q('UPDATE users SET shown_role = NULL WHERE id = ? AND shown_role = ?').run(userId, rewardId);
+  q('UPDATE users SET shown_badge = NULL WHERE id = ? AND shown_badge = ?').run(userId,rewardId);
 }
 
 /** In-app routes (signed-in user). */
-export function registerRewards(api, { bad, pushMe }) {
+export function registerRewards(api, { bad, pushMe, broadcastUser=()=>{} }) {
   api.get('/rewards/catalog', (req, res) => res.json({ rewards: rewardCatalog() }));
 
   api.get('/users/:id/rewards', (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isSafeInteger(id)) return bad(res, 'not_found', 404);
     res.json({ rewards: userRewards(id) });
+  });
+
+  api.post('/me/badge',(req,res)=>{
+    const id=req.body?.badge;
+    if(id!==null&&(typeof id!=='string'||id.length>32))return bad(res,'bad_reward',400);
+    if(id!==null&&(!rewardById(id)||rewardById(id).kind!=='badge'||!q('SELECT 1 FROM user_rewards WHERE user_id=? AND reward=?').get(req.user.id,id)))return bad(res,'not_found',404);
+    q('UPDATE users SET shown_badge=? WHERE id=?').run(id,req.user.id);
+    pushMe(req.user.id);broadcastUser(q('SELECT * FROM users WHERE id=?').get(req.user.id));
+    res.json({ok:true,profileBadge:selectedProfileBadge(req.user.id)});
   });
 
   api.post('/me/role', (req, res) => {
@@ -110,6 +127,7 @@ export function registerRewardsAdmin(admin, { pushMe, notify, broadcastUser = ()
     kvSet('rewards_custom', JSON.stringify(custom.filter((x) => x.id !== req.params.id)));
     q('DELETE FROM user_rewards WHERE reward = ?').run(req.params.id);
     q('UPDATE users SET shown_role = NULL WHERE shown_role = ?').run(req.params.id);
+    q('UPDATE users SET shown_badge = NULL WHERE shown_badge = ?').run(req.params.id);
     log(req, 'admin_reward_delete', { id: req.params.id });
     res.json({ ok: true });
   });
