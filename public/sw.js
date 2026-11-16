@@ -69,7 +69,7 @@ self.addEventListener('notificationclick', (e) => {
       await client.focus();
       client.postMessage({ type: 'open-chat', chatId });
     } else {
-      await self.clients.openWindow('/');
+      await self.clients.openWindow(Number.isSafeInteger(Number(chatId))&&Number(chatId)>0?'/?chat='+Number(chatId):'/');
     }
   })());
 });

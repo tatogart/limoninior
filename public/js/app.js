@@ -665,6 +665,7 @@ function dropCommunity(id) {
 }
 
 async function handleDeepLink() {
+  const notificationChat=Number(new URLSearchParams(location.search).get('chat'));
   const postcard=/^\/postcard\/([a-f0-9]{24})$/.exec(location.pathname);if(postcard)return postcardModal(postcard[1]);
   const inv = location.pathname.match(/^\/join\/([A-Za-z0-9_-]{8,32})$/);
   const callTok = location.pathname.match(/^\/call\/([A-Za-z0-9_-]{10,40})$/);
@@ -676,6 +677,7 @@ async function handleDeepLink() {
   if (callTok) return callLinkPreview(callTok[1]);
   if (stickerSlug) return openPackPreview(stickerSlug[1]);
   if (cmTok) return openCommunityInvite(cmTok[1]);
+  if(notificationChat>0&&S.chats.has(notificationChat))return openChat(notificationChat);
   if (!m) return;
   try {
     if (m[1].toLowerCase() === S.me.username.toLowerCase()) return openSaved();
@@ -903,15 +905,16 @@ async function resync() {
 async function notify(chat, m) {
   if (m.chatId === S.current && !document.hidden) return;
   if (chat.muted) return;
+  const pref=isGroup(chat)?'notifyGroups':isChannel(chat)?'notifyChannels':'notifyPrivate';if(S.me.prefs?.[pref]===false)return;
   if (!S.settings.notify || !('Notification' in window) || Notification.permission !== 'granted' || !document.hidden) return;
   const title = isGroup(chat) || isChannel(chat) ? chat.title : userName(m.senderId);
-  const body = `${isGroup(chat) ? `${userName(m.senderId)}: ` : ''}${messagePreview(m)}`.slice(0, 140);
+  const body = S.me.prefs?.pushPreview===false?'Новое сообщение':`${isGroup(chat) ? `${userName(m.senderId)}: ` : ''}${messagePreview(m)}`.slice(0, 140);
   try {
     const reg = await navigator.serviceWorker?.getRegistration();
-    if(reg?.pushManager && await reg.pushManager.getSubscription())return;
+    if(!window.limoNative?.desktop&&reg?.pushManager && await reg.pushManager.getSubscription())return;
     const opts = { body, tag: `chat${chat.id}`, renotify: true, icon: '/icons/icon-192.png', badge: '/icons/badge.png', data: { chatId: chat.id } };
-    if (reg) reg.showNotification(title, opts);
-    else new Notification(title, opts);
+    if (reg&&!window.limoNative?.desktop) reg.showNotification(title, opts);
+    else {const note=new Notification(title,opts);note.onclick=()=>{window.limoNative?.show();window.focus();openChat(chat.id);note.close();};}
   } catch { /* ignore */ }
 }
 
@@ -3779,7 +3782,7 @@ function settingsModal() {
       toggleLocal('Меньше анимаций', 'Для слабых устройств и экономии батареи', 'reduceMotion')),
     customSection({ section, row, seg, defaultsReactions: REACTIONS }),
     section('bell', 'Уведомления и звуки',
-      toggleLocal('Push-уведомления', 'Сообщения и звонки, даже когда приложение закрыто', 'notify', async (v) => {
+      toggleLocal('Push-уведомления', window.limoNative?.desktop?'Сообщения, пока Limochat работает в трее':'Сообщения и звонки, даже когда приложение закрыто', 'notify', async (v) => {
         if (!v) { await disablePush(); return false; }
         return enablePush();
       }),
@@ -4269,6 +4272,7 @@ function urlB64ToUint8(b64) {
 }
 
 async function enablePush({ silent = false } = {}) {
+  if(window.limoNative?.desktop&&'Notification' in window){const perm=Notification.permission==='granted'?'granted':silent?Notification.permission:await Notification.requestPermission();if(!silent)toast(perm==='granted'?'Уведомления включены. Закрытие окна сворачивает приложение в трей.':'Разрешите уведомления для Limochat',perm==='granted'?'success':'error');return perm==='granted';}
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
     if (!silent) toast(isIOS() ? 'На iPhone уведомления работают, если установить приложение на экран Домой' : 'Браузер не поддерживает push-уведомления', 'error');
     return false;
@@ -4307,7 +4311,7 @@ async function disablePush() {
 
 /** Ask once (softly) to turn on notifications after login. */
 function maybeOfferPush() {
-  if (!('Notification' in window) || !('PushManager' in window)) return;
+  if (!('Notification' in window) || (!window.limoNative?.desktop&&!('PushManager' in window))) return;
   if (Notification.permission === 'granted') { if (S.settings.notify !== false) enablePush({ silent: true }); return; }
   let asked = true;
   try { asked = !!localStorage.getItem('limoninior.pushAsked'); } catch { /* storage blocked */ }

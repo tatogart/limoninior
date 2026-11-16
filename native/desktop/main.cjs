@@ -1,14 +1,19 @@
-const {app,BrowserWindow,Menu,session,shell,dialog,desktopCapturer}=require('electron');
+const {app,BrowserWindow,Menu,session,shell,dialog,desktopCapturer,Tray,ipcMain}=require('electron');
 const fs=require('node:fs');const path=require('node:path');const {HOME,trusted,external}=require('./policy.cjs');
-let win;
+let win,tray,quitting=false;
+app.on('before-quit',()=>{quitting=true;});
 if(!app.requestSingleInstanceLock())app.quit();
 else {
  app.on('second-instance',()=>{if(win){if(win.isMinimized())win.restore();win.show();win.focus();}});
  app.whenReady().then(()=>{
   app.setAppUserModelId('io.limochat.desktop');
   let bounds={width:1180,height:800};try{const v=JSON.parse(fs.readFileSync(path.join(app.getPath('userData'),'window.json'),'utf8'));if(v.width>=680&&v.width<=3840&&v.height>=480&&v.height<=2160)bounds={width:v.width,height:v.height};}catch{}
-  win=new BrowserWindow({...bounds,minWidth:680,minHeight:480,title:'Limochat',backgroundColor:'#101820',icon:path.join(__dirname,'icon.ico'),autoHideMenuBar:true,webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,allowRunningInsecureContent:false}});
+  win=new BrowserWindow({...bounds,minWidth:680,minHeight:480,title:'Limochat',backgroundColor:'#101820',icon:path.join(__dirname,'icon.ico'),autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),backgroundThrottling:false,nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,allowRunningInsecureContent:false}});
   Menu.setApplicationMenu(Menu.buildFromTemplate([{label:'Limochat',submenu:[{label:'Обновить',accelerator:'CmdOrCtrl+R',click:()=>win.webContents.reload()},{role:'togglefullscreen'},{role:'quit'}]},{label:'Правка',submenu:[{role:'undo'},{role:'redo'},{type:'separator'},{role:'cut'},{role:'copy'},{role:'paste'},{role:'selectAll'}]},{label:'Вид',submenu:[{role:'resetZoom'},{role:'zoomIn'},{role:'zoomOut'}]}]));
+  const show=()=>{if(!win||win.isDestroyed())return;if(win.isMinimized())win.restore();win.show();win.focus();};
+  ipcMain.on('native:show',event=>{if(event.sender===win.webContents&&trusted(event.senderFrame?.url))show();});
+  if(!process.argv.includes('--smoke')){tray=new Tray(path.join(__dirname,'icon.ico'));tray.setToolTip('Limochat — работает в фоне');tray.setContextMenu(Menu.buildFromTemplate([{label:'Открыть Limochat',click:show},{type:'separator'},{label:'Выйти полностью',click:()=>app.quit()}]));tray.on('double-click',show);}
+  win.on('close',event=>{if(!quitting&&!process.argv.includes('--smoke')){event.preventDefault();win.hide();}});
   const openOutside=url=>{if(external(url))shell.openExternal(url).catch(()=>{});};
   win.webContents.on('will-navigate',(event,url)=>{if(!trusted(url)){event.preventDefault();openOutside(url);}});
   win.webContents.setWindowOpenHandler(({url})=>{openOutside(url);return {action:'deny'};});

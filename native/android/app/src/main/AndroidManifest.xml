@@ -1,14 +1,17 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
  <uses-permission android:name="android.permission.INTERNET"/>
- <uses-permission android:name="android.permission.CAMERA"/>
- <uses-permission android:name="android.permission.RECORD_AUDIO"/>
- <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
- <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
- <uses-feature android:name="android.hardware.camera" android:required="false"/>
- <uses-feature android:name="android.hardware.microphone" android:required="false"/>
- <application android:allowBackup="false" android:usesCleartextTraffic="false" android:label="Limochat" android:icon="@drawable/app_icon" android:theme="@style/AppTheme">
-  <activity android:name=".MainActivity" android:exported="true" android:configChanges="orientation|screenSize|keyboardHidden" android:windowSoftInputMode="adjustResize">
+ <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+ <queries><intent><action android:name="android.support.customtabs.action.CustomTabsService"/></intent></queries>
+ <application android:allowBackup="false" android:usesCleartextTraffic="false" android:label="Limochat" android:icon="@drawable/app_icon" android:theme="@android:style/Theme.Translucent.NoTitleBar">
+  <meta-data android:name="asset_statements" android:resource="@string/asset_statements"/>
+  <activity android:name=".MainActivity" android:exported="true">
+   <meta-data android:name="android.support.customtabs.trusted.DEFAULT_URL" android:value="https://81-90-31-167.sslip.io/"/>
    <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+   <intent-filter android:autoVerify="true"><action android:name="android.intent.action.VIEW"/><category android:name="android.intent.category.DEFAULT"/><category android:name="android.intent.category.BROWSABLE"/><data android:scheme="https" android:host="81-90-31-167.sslip.io"/></intent-filter>
   </activity>
+  <service android:name="com.google.androidbrowserhelper.trusted.DelegationService" android:exported="true" tools:ignore="ExportedService">
+   <meta-data android:name="android.support.customtabs.trusted.SMALL_ICON" android:resource="@drawable/notification_icon"/>
+   <intent-filter><action android:name="android.support.customtabs.trusted.TRUSTED_WEB_ACTIVITY_SERVICE"/><category android:name="android.intent.category.DEFAULT"/></intent-filter>
+  </service>
  </application>
 </manifest>

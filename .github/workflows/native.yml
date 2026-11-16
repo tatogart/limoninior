@@ -24,20 +24,26 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: '8.13'
       - name: Install SDK
-        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
       - name: Assemble test APK
         working-directory: native/android
         run: gradle --no-daemon :app:assembleDebug
       - name: Verify APK signature
         run: $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose native/android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Generate public site association
+        run: |
+          $ANDROID_HOME/build-tools/35.0.0/apksigner verify --print-certs native/android/app/build/outputs/apk/debug/app-debug.apk > signer.txt
+          python3 scripts/android-assetlinks.py signer.txt assetlinks.generated.json
       - name: Name APK
         run: cp native/android/app/build/outputs/apk/debug/app-debug.apk Limochat-Android-test.apk
       - uses: actions/upload-artifact@v4
         with:
           name: Limochat-Android-APK
-          path: Limochat-Android-test.apk
+          path: |
+            Limochat-Android-test.apk
+            assetlinks.generated.json
           retention-days: 30
   windows:
     runs-on: windows-latest
