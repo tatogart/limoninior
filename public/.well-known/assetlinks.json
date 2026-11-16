@@ -1,1 +1,14 @@
-[]
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "io.limochat.app.browser",
+      "sha256_cert_fingerprints": [
+        "98:10:A2:80:56:1F:91:76:F9:B6:36:E4:5D:4F:55:D0:D2:52:02:B3:FB:4A:9B:2B:D7:E9:E1:A6:8A:BE:4A:AE"
+      ]
+    }
+  }
+]
