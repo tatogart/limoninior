@@ -300,13 +300,15 @@ function registerServiceWorker() {
 
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
+  if (isStandalone()) return;
   S.installPrompt = e;
   document.querySelectorAll('[data-install]').forEach((el) => el.classList.remove('hidden'));
 });
-const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+const isStandalone = () => !!window.limoNative?.desktop || matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches || !!navigator.standalone || /android-app:\/\//i.test(document.referrer);
 const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
 async function installApp() {
+  if (isStandalone()) return;
   if (S.installPrompt) {
     S.installPrompt.prompt();
     const r = await S.installPrompt.userChoice.catch(() => null);
@@ -3420,7 +3422,7 @@ function openDrawer() {
       item('search', 'Быстрый переход', commandPalette),
       item('crown', S.me.subUntil ? `${planById(S.me.sub)?.name || 'Подписка'} ✓` : 'Limochat Premium', subscriptionsModal, 'premium-item'),
       item('gift','Коллекционные подарки',openCollectibles),
-      item('download','Скачать APK / EXE',()=>window.open('/download','_blank','noopener')),
+      !isStandalone() ? item('download','Скачать APK / EXE',()=>window.open('/download','_blank','noopener')) : null,
       item('settings', 'Настройки', settingsModal),
       (S.me.isModerator || S.me.isAdmin) ? item('shield','Модерация',moderatorPanel) : null,
       h('details',{class:'drawer-category'},h('summary',{},'Дополнительно'),item('gift', 'Пригласить друзей', referralModal, 'ref-item'),item('sparkles', 'Сотрудничество', () => window.open('/partners', '_blank', 'noopener')),
