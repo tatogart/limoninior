@@ -9,3 +9,26 @@
 .paid-reaction { background:#f4cf4724; border:1px solid #d5a51d80; color:var(--text); font-weight:700; }
 .paid-lemon-dialog { display:grid; gap:14px; }.paid-lemon-dialog p { line-height:1.5; margin:0; }.paid-lemon-presets { display:flex; flex-wrap:wrap; gap:6px; }.paid-lemon-presets .btn { min-height:42px; }
 @media (max-width:650px) { .chat-item { border-radius:0; padding:10px 8px; }.chat-header { min-height:56px; }.chat-list { padding-left:0; padding-right:0; }.header-info { gap:10px; } }
+
+/* Phone controls keep space for text; secondary video recording stays in Attach. */
+.ctx-menu { overflow-y:auto; overscroll-behavior:contain; }
+.viewer-bar { flex-shrink:0; position:relative; z-index:1; }
+.viewer-bar .icon-btn { width:44px; height:44px; flex-shrink:0; }
+.viewer-caption { max-height:25%; overflow-y:auto; flex-shrink:0; }
+.modal-body { min-height:0; }
+@media (max-width:760px) {
+  .composer, [data-style="glass"] .composer { padding-left:6px; padding-right:6px; }
+  .composer-row { gap:6px; }
+  .composer-box { min-height:46px; }
+  .composer .attach-btn, .composer .smile-btn, .composer .cmd-btn { width:44px; height:46px; flex-shrink:0; }
+  .composer .circle-btn { display:none; }
+  .composer .send-btn { width:46px; height:46px; }
+  .composer .self-gift { width:40px; height:46px; flex-shrink:0; }
+  .composer-input { padding:12px 4px 12px 0; max-height:min(160px,calc(var(--app-h,100vh) / 4)); overflow-y:auto; }
+  .input, .composer-input { font-size:16px; }
+  [data-keyboard="open"] .composer { padding-bottom:4px; }
+  .ctx-menu { min-width:min(200px,calc(100vw - 16px)); }
+  .ctx-item { min-height:44px; }
+  .modal:not(.modal-viewer) { max-height:min(92dvh,calc(var(--app-h,100vh) - 12px)); }
+  [data-style="glass"] .modal-viewer { border-radius:0; }
+}

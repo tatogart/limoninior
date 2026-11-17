@@ -89,7 +89,7 @@ a { color: var(--accent); }
 
 /* Pin the app to the visible viewport: works even where 100dvh is unsupported or wrong
    (older Android Chrome, installed PWAs with edge-to-edge display). */
-#app { position: fixed; inset: 0; height: var(--app-h, 100%); overflow: hidden; }
+#app { position: fixed; inset: var(--app-top, 0px) 0 auto; height: var(--app-h, 100%); overflow: hidden; }
 
 .ic { width: 24px; height: 24px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 
@@ -608,7 +608,7 @@ button.chat-hint-emoji:hover { transform: scale(1.15) rotate(-6deg); }
 /* ============================================================ modals */
 
 .modal-backdrop {
-  position: fixed; inset: 0; z-index: 300; display: grid; place-items: center; padding: 16px;
+  position: fixed; inset: var(--app-top, 0px) 0 auto; height: var(--app-h, 100%); z-index: 300; display: grid; place-items: center; padding: 16px;
   background: transparent; transition: background 0.22s;
 }
 .modal-backdrop.show { background: var(--scrim); }

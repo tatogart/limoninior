@@ -1255,6 +1255,7 @@ function renderComposerMode() {
 
 function closeChat({ fromHistory = false } = {}) {
   if (!S.current) return;
+  V.messageResizeObserver?.disconnect();
   cancelRecording();
   closeChatSearch();
   if (V.panel && panelRelease) togglePanel(false);
@@ -1287,6 +1288,7 @@ async function loadGroupMembers(id) {
 }
 
 function buildChatView(c) {
+  V.messageResizeObserver?.disconnect();
   nodeCache.clear();
   V.headerAvatar = h('div', { class: 'header-avatar' });
   V.headerTitle = h('div', { class: 'header-title' });
@@ -1322,7 +1324,11 @@ function buildChatView(c) {
   V.scroller.addEventListener('scroll', onScroll, { passive: true });
   wasAtBottom = true;
   // Keyboard / composer growth shrinks the list: stay pinned to the newest message.
-  if (window.ResizeObserver) new ResizeObserver(() => { if (wasAtBottom && V.scroller) V.scroller.scrollTop = V.scroller.scrollHeight; }).observe(V.scroller);
+  if (window.ResizeObserver) {
+    const scroller = V.scroller;
+    V.messageResizeObserver = new ResizeObserver(() => { if (wasAtBottom && V.scroller === scroller) scroller.scrollTop = scroller.scrollHeight; });
+    V.messageResizeObserver.observe(scroller);
+  }
   V.downBadge = h('span', { class: 'badge hidden' });
   V.downBtn = h('button', { class: 'scroll-down hidden', 'aria-label': 'Вниз', onclick: () => scrollToBottom(true) }, icon('down'), V.downBadge);
 
@@ -2405,7 +2411,7 @@ function openViewer(m) {
       h('div', { class: 'viewer-who' }, avatar({ id: m.senderId, name: sender?.name || '?', src: sender?.avatar }, 36),
         h('div', {}, h('b', {}, sender?.name || 'Пользователь'), h('span', {}, `${dayLabel(m.createdAt)}, ${timeHM(m.createdAt)}`))),
       h('a', { class: 'icon-btn', href: src, download: '', 'aria-label': 'Скачать' }, icon('download')),
-      h('button', { class: 'icon-btn', 'aria-label': 'Закрыть' }, icon('close'))),
+      h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Закрыть', onclick: (e) => { e.stopPropagation(); closeFn(); } }, icon('close'))),
     h('img', { src, alt: '' }),
     m.text ? h('div', { class: 'viewer-caption' }, m.text) : null);
   const { close } = openModal({ className: 'modal-viewer', body: v });

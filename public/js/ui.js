@@ -498,10 +498,19 @@ export function contextMenu(x, y, items, { above = false } = {}) {
     onclick: () => { closeMenu(); it.onClick(); },
   }, icon(it.icon), it.label)));
   document.body.append(menu);
+  const vv = window.visualViewport;
+  const visible = vv && Math.abs(vv.scale - 1) < 0.01;
+  const viewportTop = visible ? Math.max(0, vv.offsetTop) : 0;
+  const viewportLeft = visible ? Math.max(0, vv.offsetLeft || 0) : 0;
+  const viewportHeight = visible ? vv.height : window.innerHeight;
+  const viewportWidth = visible ? vv.width : window.innerWidth;
+  menu.style.maxHeight = `${Math.max(44, viewportHeight - 16)}px`;
+  menu.style.maxWidth = `${Math.max(44, viewportWidth - 16)}px`;
   const r = menu.getBoundingClientRect();
-  const left = Math.min(x, window.innerWidth - r.width - 8);
-  const top = above ? Math.max(8,y-r.height) : y + r.height > window.innerHeight - 8 ? Math.max(8, y - r.height) : y;
-  menu.style.left = `${Math.max(8, left)}px`;
+  const left = Math.max(viewportLeft + 8, Math.min(x, viewportLeft + viewportWidth - r.width - 8));
+  const desiredTop = above || y + r.height > viewportTop + viewportHeight - 8 ? y - r.height : y;
+  const top = Math.max(viewportTop + 8, Math.min(desiredTop, viewportTop + viewportHeight - r.height - 8));
+  menu.style.left = `${left}px`;
   menu.style.top = `${top}px`;
   requestAnimationFrame(() => menu.classList.add('show'));
   activeMenu = menu;
