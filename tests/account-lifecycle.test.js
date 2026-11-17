@@ -37,7 +37,9 @@ test('account recovery and deletion require ownership, revoke sessions and prese
   assert.equal((await post('/me/recovery-code',{},b.cookie)).status,403);
   db.prepare("UPDATE sessions SET created_at=? WHERE user_id=?").run(Date.now(),b.body.user.id);
   const googleRecovery=await post('/me/recovery-code',{},b.cookie);assert.equal(googleRecovery.status,200);assert.ok(googleRecovery.body.code);
+  assert.equal((await post('/auth/desktop/approve',{id:desktopRequest.body.id,approve:desktopRequest.body.approve},b.cookie)).status,200);
   const googleChange=await post('/me/password',{password:'Google-recovered-password'},b.cookie);assert.equal(googleChange.status,200);assert.ok(googleChange.body.recoveryCode);
+  assert.equal((await post('/auth/desktop/poll',{id:desktopRequest.body.id,poll:desktopRequest.body.poll})).status,410);
   const chat=await post('/chats/private',{userId:b.body.user.id},login.cookie);assert.equal(chat.status,200);
   const sent=await post('/chats/'+chat.body.chat.id+'/messages',{text:'Shared history survives deletion'},login.cookie);assert.equal(sent.status,200);
   assert.equal((await post('/me/delete',{confirmation:'УДАЛИТЬ',current:'wrong'},login.cookie)).status,403);

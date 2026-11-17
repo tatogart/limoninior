@@ -19,7 +19,7 @@ async function confirmOwner(req){
  return false;
 }
 function stillCurrent(req){const u=q('SELECT password_hash,deleted_at FROM users WHERE id=?').get(req.user.id);return u&&!u.deleted_at&&u.password_hash===req.user.password_hash&&!!q('SELECT 1 FROM sessions WHERE id=? AND user_id=? AND expires_at>?').get(req.session.id,req.user.id,now());}
-export function registerAccountLifecycle(api,{publicUser}){
+export function registerAccountLifecycle(api,{publicUser,onRevoke=()=>{}}){
  const limiter=rateLimit({windowMs:15*60000,limit:20,standardHeaders:'draft-7',legacyHeaders:false});
  api.post('/me/recovery-code',requireAuth,limiter,async(req,res)=>{
   res.set('Cache-Control','no-store');
@@ -41,7 +41,7 @@ export function registerAccountLifecycle(api,{publicUser}){
    q('DELETE FROM sessions WHERE user_id=?').run(u.id);return true;
   });
   if(!changed)return error(res,'bad_recovery_code',401);
-  disconnectUser(u.id);audit(u.id,req.ip,'password_recovered');
+  onRevoke(u.id);disconnectUser(u.id);audit(u.id,req.ip,'password_recovered');
   res.json({ok:true,code:nextCode});
  });
  api.post('/me/delete',requireAuth,limiter,async(req,res)=>{
@@ -71,6 +71,6 @@ export function registerAccountLifecycle(api,{publicUser}){
   if(!changed)return error(res,'recent_login_required',403);
   for(const file of avatars)try{deleteMediaFile(file.name);}catch{}
   emitToUsers(recipients,'user',{...publicUser(q('SELECT * FROM users WHERE id=?').get(uid)),online:false,lastSeen:null,lastSeenHidden:true});
-  destroySession(res);res.json({ok:true});disconnectUser(uid);
+  onRevoke(uid);destroySession(res);res.json({ok:true});disconnectUser(uid);
  });
 }

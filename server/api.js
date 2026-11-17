@@ -346,7 +346,7 @@ export function pushMe(userId) {
 
 // ---------- rate limits ----------
 
-registerAccountLifecycle(api,{publicUser});
+registerAccountLifecycle(api,{publicUser,onRevoke:uid=>desktopLogins.revoke(uid)});
 
 const authLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false });
 const sendLimiter = rateLimit({
@@ -556,6 +556,7 @@ api.post('/me/password', requireAuth, authLimiter, async (req, res) => {
   });
   if(!others)return bad(res,'recent_login_required',403);
   others.forEach((s) => disconnectSession(s.id));
+  desktopLogins.revoke(req.user.id);
   audit(req.user.id, req.ip, 'password_set');
   res.set('Cache-Control','no-store').json({ user: meUser(q('SELECT * FROM users WHERE id = ?').get(req.user.id)), recoveryCode });
 });
