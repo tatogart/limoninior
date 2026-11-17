@@ -18,7 +18,7 @@ async function confirmOwner(req){
  if(u.password_hash)return verifyPassword(String(req.body?.current||'').slice(0,128),u.password_hash);
  return false;
 }
-function stillCurrent(req){const u=q('SELECT password_hash,deleted_at FROM users WHERE id=?').get(req.user.id);return u&&!u.deleted_at&&u.password_hash===req.user.password_hash;}
+function stillCurrent(req){const u=q('SELECT password_hash,deleted_at FROM users WHERE id=?').get(req.user.id);return u&&!u.deleted_at&&u.password_hash===req.user.password_hash&&!!q('SELECT 1 FROM sessions WHERE id=? AND user_id=? AND expires_at>?').get(req.session.id,req.user.id,now());}
 export function registerAccountLifecycle(api,{publicUser}){
  const limiter=rateLimit({windowMs:15*60000,limit:20,standardHeaders:'draft-7',legacyHeaders:false});
  api.post('/me/recovery-code',requireAuth,limiter,async(req,res)=>{

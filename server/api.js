@@ -545,10 +545,16 @@ api.post('/me/password', requireAuth, authLimiter, async (req, res) => {
   const err = passwordError(password);
   if (err) return bad(res, err);
   const recoveryCode=newRecoveryCode();
-  q('UPDATE users SET password_hash = ?, recovery_hash = ? WHERE id = ?').run(await hashPassword(password), recoveryDigest(recoveryCode), req.user.id);
-  // Sign out every other device after a password change.
-  const others = q('SELECT id FROM sessions WHERE user_id = ? AND id != ?').all(req.user.id, req.session.id);
-  q('DELETE FROM sessions WHERE user_id = ? AND id != ?').run(req.user.id, req.session.id);
+  const passwordHash=await hashPassword(password);
+  const others=tx(()=>{
+    const fresh=q('SELECT password_hash,deleted_at FROM users WHERE id=?').get(req.user.id);
+    if(!fresh||fresh.deleted_at||fresh.password_hash!==req.user.password_hash||!q('SELECT 1 FROM sessions WHERE id=? AND user_id=? AND expires_at>?').get(req.session.id,req.user.id,now()))return null;
+    q('UPDATE users SET password_hash = ?, recovery_hash = ? WHERE id = ?').run(passwordHash, recoveryDigest(recoveryCode), req.user.id);
+    const sessions=q('SELECT id FROM sessions WHERE user_id = ? AND id != ?').all(req.user.id,req.session.id);
+    q('DELETE FROM sessions WHERE user_id = ? AND id != ?').run(req.user.id,req.session.id);
+    return sessions;
+  });
+  if(!others)return bad(res,'recent_login_required',403);
   others.forEach((s) => disconnectSession(s.id));
   audit(req.user.id, req.ip, 'password_set');
   res.set('Cache-Control','no-store').json({ user: meUser(q('SELECT * FROM users WHERE id = ?').get(req.user.id)), recoveryCode });
