@@ -40,13 +40,13 @@ export function upsertUser({ sub, email, name, picture }) {
   return q('SELECT * FROM users WHERE id = ?').get(r.lastInsertRowid);
 }
 
-export function createSession(res, req, userId) {
+export function createSession(res, req, userId, method = 'password') {
   const token = crypto.randomBytes(32).toString('base64url');
   const t = now();
   const expires = t + config.sessionDays * 864e5;
-  q(`INSERT INTO sessions (token_hash, user_id, created_at, last_used, expires_at, user_agent, ip)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .run(sha256(token), userId, t, t, expires, String(req.get('user-agent') || '').slice(0, 300), req.ip || '');
+  q(`INSERT INTO sessions (token_hash, user_id, created_at, last_used, expires_at, user_agent, ip, auth_method)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(sha256(token), userId, t, t, expires, String(req.get('user-agent') || '').slice(0, 300), req.ip || '', method);
   res.cookie(COOKIE, token, {
     httpOnly: true,
     secure: config.isProd,

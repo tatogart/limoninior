@@ -113,6 +113,7 @@ function addColumn(table, name, ddl) {
   if (!columns(table).includes(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${ddl}`);
 }
 
+addColumn('sessions', 'auth_method', "TEXT NOT NULL DEFAULT 'password'");
 addColumn('users', 'password_hash', 'TEXT');
 addColumn('users', 'verified', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('users', 'coins', 'INTEGER NOT NULL DEFAULT 0');

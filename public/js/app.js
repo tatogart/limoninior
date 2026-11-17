@@ -380,8 +380,10 @@ function renderLogin() {
       try {
         const body = { username: userIn.value, password: passIn.value };
         if (mode === 'register') body.name = nameIn.value;
-        S.me = (await api.post(mode === 'login' ? '/auth/login' : '/auth/register', body)).user;
+        const result = await api.post(mode === 'login' ? '/auth/login' : '/auth/register', body);
+        S.me = result.user;
         S.me.needsProfile ? renderOnboarding() : startApp();
+        if(result.recoveryCode)showRecoveryCode(result.recoveryCode);
       } catch (err) {
         toast(errorText(err), 'error');
       } finally {
@@ -399,6 +401,7 @@ function renderLogin() {
     h('h1', {}, 'Limochat'),
     h('p', { class: 'login-sub' }, 'Быстрый, красивый и безопасный мессенджер'),
     form,
+    h('button',{class:'link-btn',type:'button',onclick:()=>resetPasswordModal(userIn.value)},'Забыли пароль?'),
     S.config.googleClientId ? h('div', { class: 'or' }, h('span', {}, 'или')) : null,
     gbtn,
   );
@@ -2582,6 +2585,35 @@ async function myGiftsModal() {
     grid);
 }
 
+function showRecoveryCode(code){
+  const input=h('input',{class:'input',value:code,readOnly:true,'aria-label':'Код восстановления',onclick:e=>e.target.select()});
+  openModal({title:'Сохраните код восстановления',className:'modal-small',body:h('div',{class:'stack'},h('p',{},'Этот код показывается один раз. Храните его отдельно от пароля и никому не передавайте. Он позволяет заменить пароль. Предыдущий код больше не действует.'),input),actions:[{label:'Скачать код',onClick:()=>{
+    const url=URL.createObjectURL(new Blob(['Код восстановления Limochat\n'+code+'\nНикому не передавайте этот код.\n'],{type:'text/plain;charset=utf-8'}));const a=h('a',{href:url,download:'Limochat-recovery.txt'});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }},{label:'Я сохранил код',primary:true,onClick:close=>close()}]});
+}
+function recoveryCodeModal(){
+  const current=h('input',{class:'input',type:'password',placeholder:'Текущий пароль',autocomplete:'current-password',maxLength:128});
+  openModal({title:'Код восстановления',className:'modal-small',body:h('div',{class:'stack'},h('p',{},'Создайте новый одноразовый код. Старый сразу перестанет действовать. '+(S.me.hasPassword?'Подтвердите текущим паролем или войдите через привязанный Google заново.':'Для подтверждения войдите через Google заново, если прошло больше 5 минут.')),S.me.hasPassword?current:null),actions:[{label:'Отмена',onClick:close=>close()},{label:'Создать код',primary:true,onClick:async(close,button)=>{button.disabled=true;try{const r=await api.post('/me/recovery-code',{current:current.value});close();showRecoveryCode(r.code);}catch(e){toast(errorText(e),'error');}finally{button.disabled=false;}}}]});
+}
+function resetPasswordModal(username=''){
+  const user=h('input',{class:'input',placeholder:'Ваш @username',value:username,autocomplete:'username',maxLength:33});
+  const code=h('input',{class:'input',placeholder:'Сохранённый код восстановления',autocomplete:'off',maxLength:100});
+  const password=h('input',{class:'input',type:'password',placeholder:'Новый пароль (минимум 8 символов)',autocomplete:'new-password',maxLength:128});
+  const repeat=h('input',{class:'input',type:'password',placeholder:'Повторите новый пароль',autocomplete:'new-password',maxLength:128});
+  openModal({title:'Восстановление пароля',className:'modal-small',body:h('div',{class:'stack'},h('p',{},'Введите код, сохранённый при регистрации или в настройках безопасности. Все устройства выйдут из аккаунта. Без кода используйте привязанный вход Google; сброс только по имени невозможен.'),user,code,password,repeat),actions:[{label:'Отмена',onClick:close=>close()},{label:'Сбросить пароль',primary:true,onClick:async(close,button)=>{
+    if(password.value!==repeat.value)return toast('Пароли не совпадают','error');button.disabled=true;
+    try{const result=await api.post('/auth/password/reset',{username:user.value,code:code.value,password:password.value});close();toast('Пароль изменён. Войдите с новым паролем.');showRecoveryCode(result.code);}catch(e){toast(errorText(e),'error');}finally{button.disabled=false;}
+  }}]});
+}
+function deleteAccountModal(){
+  const current=h('input',{class:'input',type:'password',placeholder:'Текущий пароль',autocomplete:'current-password',maxLength:128});
+  const confirmation=h('input',{class:'input',placeholder:'Напишите УДАЛИТЬ',autocomplete:'off'});
+  openModal({title:'Удалить аккаунт навсегда?',className:'modal-small',body:h('div',{class:'stack'},h('p',{},'Будут удалены данные профиля, пароль, доступ ко всем сеансам и сохранённые сообщения в «Избранном». Баланс и подписка обнулятся. Отменить это действие нельзя.'),h('p',{},'Сообщения и отправленные файлы у собеседников останутся от «Удалённого аккаунта». Группы, каналы, сообщества и ботов сначала передайте другому владельцу или удалите; семейную связь отключите отдельно.'),S.me.hasPassword?current:h('p',{},'Для подтверждения войдите через Google заново, если прошло больше 5 минут.'),confirmation),actions:[{label:'Отмена',onClick:close=>close()},{label:'Удалить навсегда',danger:true,onClick:async(close,button)=>{
+    if(confirmation.value!=='УДАЛИТЬ')return toast('Введите УДАЛИТЬ для подтверждения','error');button.disabled=true;
+    try{await api.post('/me/delete',{confirmation:confirmation.value,current:current.value});try{localStorage.removeItem('limoninior.drafts.'+S.me.id);}catch{}S.socket?.disconnect();close();navigate('/');}catch(e){toast(errorText(e),'error');button.disabled=false;}
+  }}]});
+}
+
 function passwordModal() {
   const has = S.me.hasPassword;
   const cur = h('input', { class: 'input', type: 'password', placeholder: 'Текущий пароль', autocomplete: 'current-password', maxLength: 128 });
@@ -2592,7 +2624,7 @@ function passwordModal() {
     className: 'modal-small',
     body: h('div', { class: 'stack' },
       h('p', { class: 'muted small' }, has
-        ? 'После смены пароля все другие устройства выйдут из аккаунта.'
+        ? 'После смены пароля все другие устройства выйдут из аккаунта. Если пароль забыт, войдите через привязанный Google заново и смените пароль в течение 5 минут; старый можно не вводить.'
         : `Задайте пароль, чтобы входить по @${S.me.username} без Google.`),
       has ? cur : null, pw, pw2),
     actions: [
@@ -2600,9 +2632,11 @@ function passwordModal() {
       { label: 'Сохранить', primary: true, onClick: async (close) => {
         if (pw.value !== pw2.value) return toast('Пароли не совпадают', 'error');
         try {
-          S.me = { ...S.me, ...(await api.post('/me/password', { current: cur.value, password: pw.value })).user };
+          const result=await api.post('/me/password', { current: cur.value, password: pw.value });
+          S.me = { ...S.me, ...result.user };
           close();
           toast('Пароль сохранён 🔐');
+          if(result.recoveryCode)showRecoveryCode(result.recoveryCode);
         } catch (e) { toast(errorText(e), 'error'); }
       } },
     ],
@@ -3827,6 +3861,8 @@ function settingsModal() {
     section('chat', 'Чаты',
       toggleLocal('Отправка по Enter', 'Shift+Enter — новая строка', 'enterToSend')),
     section('shield', 'Безопасность',
+      h('button',{class:'set-row clickable',onclick:recoveryCodeModal},h('div',{class:'set-text'},h('div',{class:'row-main'},'Код восстановления'),h('div',{class:'row-sub'},'Сохраните на случай потери пароля')),icon('key')),
+      h('button',{class:'set-row clickable',onclick:deleteAccountModal},h('div',{class:'set-text'},h('div',{class:'row-main'},'Удалить аккаунт'),h('div',{class:'row-sub'},'Без возможности восстановления')),icon('trash')),
       h('button', { class: 'set-row clickable', onclick: passwordModal },
         h('div', { class: 'set-text' }, h('div', { class: 'row-main' }, S.me.hasPassword ? 'Сменить пароль' : 'Задать пароль'),
           h('div', { class: 'row-sub' }, S.me.hasPassword ? `Вход по @${S.me.username} и паролю` : 'Чтобы входить без Google')), icon('key')),

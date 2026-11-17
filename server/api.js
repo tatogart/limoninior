@@ -1,3 +1,4 @@
+import {registerAccountLifecycle,newRecoveryCode,recoveryDigest} from './account-lifecycle.js';
 import {loginRequests} from './desktop-login.js';
 import {planLimits} from '../public/js/subscription-limits.js';
 import {registerPaidReactions,paidSummary} from './paid-reactions.js';
@@ -345,6 +346,8 @@ export function pushMe(userId) {
 
 // ---------- rate limits ----------
 
+registerAccountLifecycle(api,{publicUser});
+
 const authLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false });
 const sendLimiter = rateLimit({
   windowMs: 10_000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false,
@@ -398,7 +401,9 @@ api.post('/auth/register', registerLimiter, async (req, res) => {
   }
   createSession(res, req, user.id);
   audit(user.id, req.ip, 'register');
-  res.json({ user: meUser(user) });
+  const recoveryCode=newRecoveryCode();
+  q('UPDATE users SET recovery_hash=? WHERE id=?').run(recoveryDigest(recoveryCode),user.id);
+  res.set('Cache-Control','no-store').json({ user: meUser(user), recoveryCode });
 });
 
 api.post('/auth/login', authLimiter, async (req, res) => {
@@ -431,6 +436,7 @@ api.post('/auth/desktop/start',authLimiter,(req,res)=>{
   try{res.set('Cache-Control','no-store').json(desktopLogins.create());}catch{return bad(res,'busy',503);}
 });
 api.post('/auth/desktop/approve',requireAuth,authLimiter,(req,res)=>{
+  if(req.session.auth_method!=='google'||req.session.created_at<=now()-300000)return bad(res,'recent_login_required',403);
   if(!desktopLogins.approve(req.body?.id,req.body?.approve,req.user.id))return bad(res,'expired',410);
   res.set('Cache-Control','no-store').json({ok:true});
 });
@@ -442,7 +448,7 @@ api.post('/auth/desktop/poll',desktopPollLimiter,(req,res)=>{
   if(result.pending)return res.json({pending:true});
   const user=q('SELECT * FROM users WHERE id = ?').get(result.userId);
   if(!user||user.banned)return bad(res,'unavailable',403);
-  createSession(res,req,user.id);audit(user.id,req.ip,'login','desktop browser confirmation');
+  createSession(res,req,user.id,'google');audit(user.id,req.ip,'login','desktop browser confirmation');
   res.json({user:meUser(user)});
 });
 
@@ -462,7 +468,7 @@ api.post('/auth/google', authLimiter, async (req, res) => {
     audit(user.id, req.ip, 'login_banned');
     return banned(res, user);
   }
-  createSession(res, req, user.id);
+  createSession(res, req, user.id, 'google');
   audit(user.id, req.ip, 'login');
   res.json({ user: meUser(user) });
 });
@@ -534,16 +540,18 @@ api.patch('/me', requireAuth, (req, res) => {
 
 api.post('/me/password', requireAuth, authLimiter, async (req, res) => {
   const { current, password } = req.body || {};
-  if (req.user.password_hash && !(await verifyPassword(String(current || ''), req.user.password_hash))) return bad(res, 'bad_current_password');
+  if(!req.user.password_hash&&!(req.session.auth_method==='google'&&req.session.created_at>now()-300000))return bad(res,'recent_login_required',403);
+  if (req.user.password_hash && !(req.session.auth_method==='google'&&req.session.created_at>now()-300000) && !(await verifyPassword(String(current || ''), req.user.password_hash))) return bad(res, 'bad_current_password');
   const err = passwordError(password);
   if (err) return bad(res, err);
-  q('UPDATE users SET password_hash = ? WHERE id = ?').run(await hashPassword(password), req.user.id);
+  const recoveryCode=newRecoveryCode();
+  q('UPDATE users SET password_hash = ?, recovery_hash = ? WHERE id = ?').run(await hashPassword(password), recoveryDigest(recoveryCode), req.user.id);
   // Sign out every other device after a password change.
   const others = q('SELECT id FROM sessions WHERE user_id = ? AND id != ?').all(req.user.id, req.session.id);
   q('DELETE FROM sessions WHERE user_id = ? AND id != ?').run(req.user.id, req.session.id);
   others.forEach((s) => disconnectSession(s.id));
   audit(req.user.id, req.ip, 'password_set');
-  res.json({ user: meUser(q('SELECT * FROM users WHERE id = ?').get(req.user.id)) });
+  res.set('Cache-Control','no-store').json({ user: meUser(q('SELECT * FROM users WHERE id = ?').get(req.user.id)), recoveryCode });
 });
 
 api.patch('/me/prefs', requireAuth, (req, res) => {
