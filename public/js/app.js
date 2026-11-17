@@ -3480,7 +3480,6 @@ function openDrawer() {
       item('search', 'Быстрый переход', commandPalette),
       item('crown', S.me.subUntil ? `${planById(S.me.sub)?.name || 'Подписка'} ✓` : 'Limochat Premium', subscriptionsModal, 'premium-item'),
       item('gift','Коллекционные подарки',openCollectibles),
-      !isStandalone() ? item('download','Скачать APK / EXE',()=>window.open('/download','_blank','noopener')) : null,
       item('settings', 'Настройки', settingsModal),
       (S.me.isModerator || S.me.isAdmin) ? item('shield','Модерация',moderatorPanel) : null,
       h('details',{class:'drawer-category'},h('summary',{},'Дополнительно'),item('gift', 'Пригласить друзей', referralModal, 'ref-item'),item('sparkles', 'Сотрудничество', () => window.open('/partners', '_blank', 'noopener')),
