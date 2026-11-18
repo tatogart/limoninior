@@ -259,7 +259,7 @@ async function claimReferral() {
       className: 'modal-small',
       body: h('div', { class: 'ref-welcome' }, h('div', { class: 'ref-gift' }, '🎁'),
         h('h2', {}, 'Подарок за приглашение!'),
-        h('p', {}, `Вас пригласил @${r.inviter}. Вам начислена подписка Plus на месяц — награды в мини-играх ×2 и файлы до 50 МБ.`)),
+        h('p', {}, `Вас пригласил @${r.inviter}. Вам начислена подписка Plus на неделю — награды в мини-играх ×2 и файлы до 50 МБ.`)),
       actions: [{ label: 'Круто!', primary: true, onClick: (c) => c() }],
     });
   } catch (e) {
@@ -409,7 +409,7 @@ function renderLogin() {
   if (ref) {
     api.get(`/ref/${encodeURIComponent(ref)}`).then(({ user }) => {
       card.insertBefore(h('div', { class: 'ref-banner' }, avatar(user, 40),
-        h('div', {}, h('b', {}, `${user.name} приглашает вас`), h('span', {}, '🎁 Зарегистрируйтесь — и получите Plus на месяц в подарок')),
+        h('div', {}, h('b', {}, `${user.name} приглашает вас`), h('span', {}, '🎁 Зарегистрируйтесь — и получите Plus на неделю в подарок')),
       ), card.querySelector('form') || card.firstChild.nextSibling);
       setMode('register');
     }).catch(() => {});
@@ -2801,10 +2801,10 @@ async function referralModal() {
       h('div', { class: 'ref-hero' },
         h('div', { class: 'ref-gift' }, '🎁'),
         h('div', { class: 'ref-hero-title' }, 'Месяц подписки — вам и другу'),
-        h('div', { class: 'ref-hero-sub' }, 'Друг регистрируется по вашей ссылке и получает Plus на месяц. А вам продлеваем подписку на месяц — или дарим Plus, если подписки нет.')),
+        h('div', { class: 'ref-hero-sub' }, 'Друг регистрируется по вашей ссылке и получает Plus на неделю. А вам продлеваем подписку на неделю — или дарим Plus, если подписки нет.')),
       h('button', { class: 'ref-link', onclick: () => copyText(link) }, h('span', { class: 'ellipsis' }, link.replace(/^https?:\/\//, '')), icon('copy')),
       h('div', { class: 'ref-actions' },
-        h('button', { class: 'btn btn-primary', onclick: () => shareLink(link, 'Залетай в Limochat — по моей ссылке Plus на месяц в подарок 🍋') }, icon('share'), 'Поделиться'),
+        h('button', { class: 'btn btn-primary', onclick: () => shareLink(link, 'Залетай в Limochat — по моей ссылке Plus на неделю в подарок 🍋') }, icon('share'), 'Поделиться'),
         h('button', { class: 'btn btn-ghost', onclick: () => copyText(link) }, icon('copy'), 'Копировать')),
       stats,
       list),
@@ -2813,10 +2813,10 @@ async function referralModal() {
     const r = await api.get('/referrals');
     stats.replaceChildren(
       h('div', { class: 'ref-stat' }, h('b', {}, String(r.invited.length)), h('span', {}, plural(r.invited.length, 'приглашён', 'приглашено', 'приглашено'))),
-      h('div', { class: 'ref-stat' }, h('b', {}, `+${r.rewarded}`), h('span', {}, `${plural(r.rewarded, 'месяц', 'месяца', 'месяцев')} подписки`)));
+      h('div', { class: 'ref-stat' }, h('b', {}, `+${r.rewarded}`), h('span', {}, `${plural(r.rewarded, 'бонус', 'бонуса', 'бонусов')} за приглашения`)));
     list.replaceChildren(...(r.invited.length ? r.invited.map((u) => h('div', { class: 'ref-row' }, avatar(u, 40),
       h('div', { class: 'grow' }, h('div', { class: 'row-main' }, nameWithBadge(u.name, u)), h('div', { class: 'row-sub' }, `@${u.username} · ${dayLabel(u.joinedAt)}`)),
-      h('span', { class: `pill ${u.rewarded ? '' : 'muted'}` }, u.rewarded ? '+1 месяц' : 'без бонуса')))
+      h('span', { class: `pill ${u.rewarded ? '' : 'muted'}` }, u.rewarded ? `+${u.rewardDays ?? 30} дн.` : 'без бонуса')))
       : [h('div', { class: 'list-note' }, 'Пока никого — отправьте ссылку друзьям!')]));
   } catch (e) { list.replaceChildren(h('div', { class: 'list-note' }, errorText(e))); }
 }

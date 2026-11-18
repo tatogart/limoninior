@@ -13,7 +13,7 @@ import {registerFamily} from './family.js';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import { config } from './config.js';
-import { db, q, tx, now, audit, blockedBetween } from './db.js';
+import { db, q, tx, now, audit, blockedBetween, kvGet, kvSet } from './db.js';
 import {
   verifyGoogleCredential, upsertUser, createSession, destroySession,
   requireAuth, requireProfile, isAdminUser, hashPassword, verifyPassword, createLocalUser, sessionFromCookie,
@@ -637,9 +637,9 @@ api.delete('/sessions', requireAuth, (req, res) => {
 
 // ---------- referral program ----------
 // Invite link: https://domain/?ref=<username>. A new account that comes through it gets
-// Plus for a month; the inviter gets a month added to their current subscription (or Plus).
+// Plus for a week; the inviter gets a week added to their current subscription (or Plus).
 
-const REF_DAYS = 30;
+const REF_DAYS = 7;
 const REF_WINDOW = 7 * 864e5; // the new account must claim within a week of registering
 const REF_MAX_REWARDS = 100; // per inviter
 
@@ -697,13 +697,13 @@ api.post('/me/referral', requireAuth, requireProfile, (req, res) => {
   if (!inviter || inviter.id === me.id || inviter.google_sub === OFFICIAL_SUB) return bad(res, 'ref_invalid');
   if (inviter.created_at > me.created_at) return bad(res, 'ref_invalid');
   q('UPDATE users SET referred_by = ? WHERE id = ?').run(inviter.id, me.id);
-  q('UPDATE users SET ref_rewarded = 1 WHERE id = ?').run(me.id);
+  q('UPDATE users SET ref_rewarded = 1, ref_reward_days = ? WHERE id = ?').run(REF_DAYS, me.id);
   const mine = addSubscriptionDays(me.id, REF_DAYS);
-  officialNote(me.id, `🎁 Вы пришли по приглашению @${inviter.username} — дарим ${mine.plan.emoji} ${mine.plan.name} на месяц (до ${new Date(mine.until).toLocaleDateString('ru-RU')}). Приглашайте друзей — и получайте ещё!`);
+  officialNote(me.id, `🎁 Вы пришли по приглашению @${inviter.username} — дарим ${mine.plan.emoji} ${mine.plan.name} на неделю (до ${new Date(mine.until).toLocaleDateString('ru-RU')}). Приглашайте друзей — и получайте ещё!`);
   const rewarded = q('SELECT COUNT(*) AS n FROM users WHERE referred_by = ? AND ref_rewarded = 1').get(inviter.id).n;
   if (rewarded <= REF_MAX_REWARDS) {
     const theirs = addSubscriptionDays(inviter.id, REF_DAYS);
-    officialNote(inviter.id, `🎉 По вашей ссылке зарегистрировался ${me.name} (@${me.username})! ${theirs.plan.emoji} ${theirs.plan.name} продлена на месяц — до ${new Date(theirs.until).toLocaleDateString('ru-RU')}.`);
+    officialNote(inviter.id, `🎉 По вашей ссылке зарегистрировался ${me.name} (@${me.username})! ${theirs.plan.emoji} ${theirs.plan.name} продлена на неделю — до ${new Date(theirs.until).toLocaleDateString('ru-RU')}.`);
   }
   audit(me.id, req.ip, 'referral', { inviter: inviter.id });
   res.json({ user: meUser(q('SELECT * FROM users WHERE id = ?').get(me.id)), inviter: inviter.username });
@@ -754,7 +754,7 @@ api.get('/referrals', (req, res) => {
   const rows = q('SELECT * FROM users WHERE referred_by = ? ORDER BY created_at DESC LIMIT 200').all(req.user.id);
   res.json({
     code: req.user.username,
-    invited: rows.map((u) => ({ ...publicUser(u), rewarded: !!u.ref_rewarded, joinedAt: u.created_at })),
+    invited: rows.map((u) => ({ ...publicUser(u), rewarded: !!u.ref_rewarded, rewardDays: u.ref_rewarded ? u.ref_reward_days : 0, joinedAt: u.created_at })),
     rewarded: rows.filter((u) => u.ref_rewarded).length,
     days: REF_DAYS,
   });
@@ -1864,3 +1864,18 @@ api.use((err, req, res, next) => {
 // Provision the official news channel once; only project admins become publishers.
 const newsOwner=officialUser();
 ensureNewsChannel(newsOwner,q('SELECT * FROM users WHERE banned=0').all().filter(isAdminUser));
+
+// Released product news is published only once, after the HTTP server starts successfully.
+export function announceReleasedUpdates() {
+  const key='news:referral-week-2026-11-18';
+  const message=tx(()=>{
+    if(kvGet(key))return null;
+    const channel=q('SELECT * FROM chats WHERE id=?').get(Number(kvGet('official_news_channel'))||0);
+    if(!channel)return null;
+    const author=officialUser();
+    const message=insertMessage(channel.id,author.id,{kind:'text',text:'🎁 Обновление приглашений\n\nЗа новое приглашение теперь начисляется 7 дней подписки вместо 30: другу — Plus, пригласившему — продление действующей подписки или Plus, если её нет.\n\nУже выданные сроки подписок не сокращаются.'});
+    kvSet(key,message.id);
+    return message;
+  });
+  if(message)broadcastNewMessage(message.chat_id,message);
+}

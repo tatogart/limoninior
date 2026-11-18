@@ -323,6 +323,8 @@ db.exec(`
 
 addColumn('users', 'referred_by', 'INTEGER');
 addColumn('users', 'ref_rewarded', 'INTEGER NOT NULL DEFAULT 0');
+// Existing referral rewards were 30 days; new claims explicitly record their actual duration.
+addColumn('users', 'ref_reward_days', 'INTEGER NOT NULL DEFAULT 30');
 
 // Communities (like Discord servers): a group of channels with shared members and roles.
 db.exec(`

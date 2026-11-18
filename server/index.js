@@ -7,7 +7,7 @@ import rateLimit from 'express-rate-limit';
 import { config } from './config.js';
 import { q, now } from './db.js';
 import { checkOrigin, requireAuth, sessionFromCookie, isAdminUser } from './auth.js';
-import { api, officialNewsChannel } from './api.js';
+import { api, officialNewsChannel, announceReleasedUpdates } from './api.js';
 import { botApi } from './bots.js';
 import { admin,consumeAdminEntry } from './admin.js';
 import { serveMedia } from './media.js';
@@ -115,6 +115,7 @@ setInterval(() => q('DELETE FROM sessions WHERE expires_at < ?').run(now()), 360
 const server = http.createServer(app);
 initRealtime(server, app.get('trust proxy fn'));
 server.listen(config.port, config.host, () => {
+  try { announceReleasedUpdates(); } catch (error) { console.error('News announcement failed:',error.message); }
   console.log(`Limochat listening on http://${config.host}:${config.port} (origin ${config.appOrigin})`);
   if (config.devLogin) console.log('DEV LOGIN is enabled — do not use in production');
   if (!config.adminEmails.length || !config.adminTotpSecret) console.log('Admin panel disabled (set ADMIN_EMAILS and ADMIN_TOTP_SECRET)');
