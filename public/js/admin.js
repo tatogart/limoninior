@@ -575,6 +575,10 @@ async function channels() {
             h('div', { class: 'row-sub' }, `${c.username ? `@${c.username}` : '🔒 приватный'} · владелец ${c.owner}`),
             h('div', { class: 'row-sub' }, `${fmt(c.subscribers)} подписчиков · ${fmt(c.posts)} постов · создан ${dayLabel(c.createdAt)}`)),
           h('div', { class: 'user-actions' },
+            act('Войти в канал', async () => {
+              const result=await call(() => api.post(`/admin/channels/${c.id}/join`));
+              if(result?.url)location.assign(result.url);
+            }, 'btn-primary'),
             c.verified ? act('Снять галочку', () => doIt('post', `/admin/channels/${c.id}/verify`, { verified: false }, `Снять галочку с «${c.title}»?`))
               : act('✓ Верифицировать', () => doIt('post', `/admin/channels/${c.id}/verify`, { verified: true }), 'btn-primary'),
             act(c.scam?'Снять SCAM':'Отметить SCAM',()=>markScam('channels',c,load)),

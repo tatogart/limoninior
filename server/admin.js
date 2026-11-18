@@ -334,6 +334,17 @@ function anyChannel(req, res) {
   return c || null;
 }
 
+// Administrative entry adds only an ordinary subscription; existing roles are preserved.
+admin.post('/channels/:id/join', (req, res) => {
+  const c = anyChannel(req, res);
+  if (!c) return;
+  if (c.community_id) return res.status(400).json({ error: 'community_chat' });
+  const result = q("INSERT OR IGNORE INTO chat_members (chat_id,user_id,role,joined_at,last_read_id) VALUES (?,?,'member',?,?)").run(c.id,req.user.id,now(),c.last_msg_id);
+  audit(req.user.id,req.ip,'admin_channel_join',{chatId:c.id,private:!c.username,joined:!!result.changes});
+  pushChat(c.id);
+  res.json({ok:true,url:'/?chat='+c.id});
+});
+
 admin.post('/channels/:id/verify', (req, res) => {
   const c = anyChannel(req, res);
   if (!c) return;
