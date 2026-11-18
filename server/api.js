@@ -3,7 +3,7 @@ import {registerAccountLifecycle,newRecoveryCode,recoveryDigest} from './account
 import {loginRequests} from './desktop-login.js';
 import {planLimits} from '../public/js/subscription-limits.js';
 import {registerPaidReactions,paidSummary} from './paid-reactions.js';
-import {MEME_ID,limitedStock,nextMemeEdition,recordMemeEdition,giftEdition} from './limited-gifts.js';
+import {limitedStock,nextMemeEdition,recordMemeEdition,giftEdition} from './limited-gifts.js';
 import './scam.js';
 import {registerPostcards} from './postcards.js';
 import {registerCollectibles,selectedCollectible} from './collectibles.js';
@@ -1022,12 +1022,12 @@ api.post('/chats/:id/gift', sendLimiter, (req, res) => {
   const note = clean(req.body?.note, 140);
   let edition=null;
   const ok = tx(() => {
-    if(gift.id===MEME_ID){edition=nextMemeEdition();if(!edition)return 'sold_out';}
+    if(gift.limited){edition=nextMemeEdition(gift.id);if(!edition)return 'sold_out';}
     const r = q('UPDATE users SET coins = coins - ? WHERE id = ? AND coins >= ?').run(gift.price, req.user.id, gift.price);
     if (!r.changes) return false;
     const issued=q('INSERT INTO user_gifts (id,gift_id, from_id, to_id, note, price, created_at) VALUES ((SELECT MAX(v)+1 FROM (SELECT COALESCE(MAX(id),0) AS v FROM user_gifts UNION ALL SELECT COALESCE(MAX(gift_id),0) AS v FROM limited_gift_issues)),?, ?, ?, ?, ?, ?)')
       .run(gift.id, req.user.id, toId, note, gift.price, now());
-    if(edition)recordMemeEdition(edition,Number(issued.lastInsertRowid));
+    if(edition)recordMemeEdition(edition,Number(issued.lastInsertRowid),null,gift.id);
     return true;
   });
   if(ok==='sold_out')return bad(res,'limited_sold_out',409);

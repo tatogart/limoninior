@@ -33,6 +33,7 @@ export function stickerInfo(id) {
 }
 
 export const GIFTS = [
+  {id:'hamam',name:'Хаммам',emoji:'🧖',price:300,colors:['#a4e7e1','#247f88'],image:'/gifts/hamam.svg',limited:10,description:'По просьбе @VeryOldPepper'},
   {id:'mell-chick',name:'Мёд по телу',emoji:'🐥',price:300,colors:['#ffdb84','#ce8728'],image:'/gifts/mell-chick.svg',animated:true,limited:5},
 {"id":"coffee","emoji":"☕","name":"Кофе","price":8,"colors":["#dcefff","#87a9dc"]},
 {"id":"cookie","emoji":"🍪","name":"Печенье","price":8,"colors":["#dcefff","#87a9dc"]},

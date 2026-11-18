@@ -1,3 +1,4 @@
+import {channelInviteToken} from './channel-invites.js';
 import {paidLemonDialog} from './paid-reactions.js';
 import {collectibleReceipt} from './collectible-receipt.js';
 import {postcardModal} from './postcards.js';
@@ -635,6 +636,7 @@ function createMenu(x, y, above = false) {
     { icon: 'at', label: 'Написать по @юзернейму', onClick: () => { V.search.focus(); toast('Введите @юзернейм в поиске'); } },
     { icon: 'group', label: 'Группа', onClick: newGroupModal },
     { icon: 'megaphone', label: 'Канал', onClick: newChannelModal },
+    { icon: 'link', label: 'Вступить в канал по ссылке', onClick: joinChannelByLinkModal },
     featureOn('communities') ? { icon: 'community', label: 'Сообщество', onClick: newCommunityModal } : null,
     featureOn('stories') ? { icon: 'sparkles', label: 'История', onClick: newStory } : null,
     { icon: 'phone', label: 'Звонок по ссылке', onClick: newCallLinkModal },
@@ -1781,7 +1783,7 @@ function messageEl(c, m, first, last, read) {
     h('div', { class: 'gift-shine' }),
     h('div', { class: 'gift-emoji' },giftArt(g)),
     h('div', { class: 'gift-title' }, mine ? 'Вы отправили подарок' : toMe ? 'Вам подарок!' : 'Подарок'),
-    h('div', { class: 'gift-name' }, g.name+(m.extra?.edition?' · '+m.extra.edition+'/5':'')),
+    h('div', { class: 'gift-name' }, g.name+(m.extra?.edition?' · '+m.extra.edition+'/'+g.limited:'')),
     h('div', { class: 'gift-price' }, `🍋 ${g.price}`),
     m.text ? h('div', { class: 'gift-note' }, `«${m.text}»`) : null), meta);
     return finishRow(c, m, bubble, { mine, group, first, last });
@@ -2531,7 +2533,7 @@ function giftShop(c) {
     },
     h('div', { class: 'gift-item-art', style: { background: `linear-gradient(150deg, ${g.colors[0]}, ${g.colors[1]})` } }, giftArt(g)),
     h('div', { class: 'gift-item-name' }, g.name),
-    h('div', { class: 'gift-item-price' }, `🍋 ${g.price}${g.limited?' · Тираж 5':''}`)))));
+    h('div', { class: 'gift-item-price' }, `🍋 ${g.price}${g.limited?' · Тираж '+g.limited:''}`)))));
   api.get('/gifts/limited').then(({stock})=>{for(const [id,v] of Object.entries(stock)){const item=shop.querySelector('[data-gift-id="'+id+'"]');if(item){item.disabled=v.remaining===0;item.querySelector('.gift-item-price').textContent='🍋 '+giftById(id).price+' · Осталось '+v.remaining+'/'+v.total;}}}).catch(()=>{});
   return shop;
 }
@@ -2545,7 +2547,8 @@ function giftConfirm(c, g) {
     body: h('div', { class: 'gift-confirm' },
       h('div', { class: 'gift-confirm-art', style: { background: `linear-gradient(150deg, ${g.colors[0]}, ${g.colors[1]})` } }, giftArt(g)),
       h('div', { class: 'profile-name' }, g.name),
-      g.limited?h('div',{class:'limited-gift-label'},'Лимитка · всего 5 экземпляров. NFT через улучшение.'):null,
+      g.description?h('p',{class:'muted'},g.description):null,
+      g.limited?h('div',{class:'limited-gift-label'},'Лимитка · всего '+g.limited+' экземпляров. NFT через улучшение.'):null,
       h('div', { class: 'muted' }, `Подарок для ${peer?.name || ''} — появится в профиле получателя`),
       note,
       h('div', { class: `gift-balance ${enough ? '' : 'bad'}` }, `Ваш баланс: 🍋 ${S.me.coins ?? 0}`)),
@@ -2576,7 +2579,7 @@ async function giftsGrid(userId) {
       if (!g) return null;
       return h('div', { class: 'pg-item', title: `${g.name} от ${x.fromName || 'пользователя'}${x.note ? ` — «${x.note}»` : ''}` },
         h('div', { class: 'pg-art', style: { background: `linear-gradient(150deg, ${g.colors[0]}, ${g.colors[1]})` } }, giftArt(g)),
-        h('div', { class: 'pg-from' }, x.fromName || '—'),x.edition?h('small',{class:'limited-gift-label'},x.edition+'/5'):null);
+        h('div', { class: 'pg-from' }, x.fromName || '—'),x.edition?h('small',{class:'limited-gift-label'},x.edition+'/'+g.limited):null);
     }).filter(Boolean) : [h('div', { class: 'list-note' }, 'Подарков пока нет')]));
   } catch { grid.replaceChildren(h('div', { class: 'list-note' }, 'Не удалось загрузить')); }
   return grid;
@@ -3202,6 +3205,14 @@ function channelTypeField(isPrivate, uname) {
 
 const inviteLink = (c) => (c.inviteToken ? `${location.origin}/join/${c.inviteToken}` : null);
 const channelLink = (c) => (c.username ? `${location.origin}/@${c.username}` : inviteLink(c));
+
+function joinChannelByLinkModal() {
+  const input=h('input',{class:'input',type:'url',placeholder:location.origin+'/join/…','aria-label':'Ссылка-приглашение',maxLength:2048});
+  let modal;
+  const submit=()=>{const token=channelInviteToken(input.value.trim(),location.origin);if(!token)return toast('Вставьте ссылку-приглашение в канал Limochat','error');modal.close();afterHistory(()=>openInvite(token));};
+  input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();submit();}});
+  modal=openModal({title:'Вступить в канал',body:h('div',{class:'ws-stack'},h('p',{},'Вставьте ссылку от владельца приватного канала.'),input),actions:[{label:'Открыть приглашение',primary:true,onClick:submit}]});
+}
 
 /** /join/<token>: open the channel if already subscribed, else show an invite card. */
 async function openInvite(token) {
@@ -4167,6 +4178,8 @@ const TRUST_KEY = 'limoninior.trustedHosts';
 const trustedHosts = () => { try { return new Set(JSON.parse(localStorage.getItem(TRUST_KEY) || '[]')); } catch { return new Set(); } };
 
 function openExternal(href) {
+  const invite=channelInviteToken(href,location.origin);
+  if(invite)return openInvite(invite);
   try{const u=new URL(href,location.origin);if(u.origin===location.origin&&/^\/postcard\/[a-f0-9]{24}$/.test(u.pathname))return postcardModal(u.pathname.split('/').pop());}catch{}
   let host = '';
   try { host = new URL(href).hostname; } catch { return; }

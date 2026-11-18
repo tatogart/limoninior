@@ -1,0 +1,4 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {channelInviteToken} from '../public/js/channel-invites.js';
+const origin='https://limo.example';
+test('private channel invitations accept local absolute and relative links',()=>{for(const value of ['/join/abcdefgh',origin+'/join/abcdefgh',origin+'/join/abcdefgh/?from=chat'])assert.equal(channelInviteToken(value,origin),'abcdefgh');});
+test('foreign origins, malformed links and invalid invitation tokens cannot open a private channel',()=>{for(const value of ['https://evil.example/join/abcdefgh','https://limo.example.evil/join/abcdefgh',origin+'/join/short',origin+'/join/abcdefgh/extra',origin+'/join/abc%2Fdefgh','javascript:alert(1)','https://user@limo.example/join/abcdefgh'])assert.equal(channelInviteToken(value,origin),null);});
