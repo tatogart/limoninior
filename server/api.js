@@ -1867,15 +1867,19 @@ ensureNewsChannel(newsOwner,q('SELECT * FROM users WHERE banned=0').all().filter
 
 // Released product news is published only once, after the HTTP server starts successfully.
 export function announceReleasedUpdates() {
-  const key='news:referral-week-2026-11-18';
-  const message=tx(()=>{
-    if(kvGet(key))return null;
-    const channel=q('SELECT * FROM chats WHERE id=?').get(Number(kvGet('official_news_channel'))||0);
-    if(!channel)return null;
-    const author=officialUser();
-    const message=insertMessage(channel.id,author.id,{kind:'text',text:'🎁 Обновление приглашений\n\nЗа новое приглашение теперь начисляется 7 дней подписки вместо 30: другу — Plus, пригласившему — продление действующей подписки или Plus, если её нет.\n\nУже выданные сроки подписок не сокращаются.'});
-    kvSet(key,message.id);
-    return message;
-  });
-  if(message)broadcastNewMessage(message.chat_id,message);
+  const updates=[
+    {key:'news:referral-week-2026-11-18',text:'🎁 Обновление приглашений\n\nЗа новое приглашение теперь начисляется 7 дней подписки вместо 30: другу — Plus, пригласившему — продление действующей подписки или Plus, если её нет.\n\nУже выданные сроки подписок не сокращаются.'},
+    {key:'news:anon-self-profile-fix-2026-11-18',text:'🛠 Исправление профиля\n\nУбрали кнопку анонимного сообщения самому себе: в собственном профиле она больше не показывается и не вызывает ошибку. В чужих профилях анонимные сообщения доступны, если получатель их разрешил.'},
+  ];
+  for(const update of updates){
+    const message=tx(()=>{
+      if(kvGet(update.key))return null;
+      const channel=q('SELECT * FROM chats WHERE id=?').get(Number(kvGet('official_news_channel'))||0);
+      if(!channel)return null;
+      const message=insertMessage(channel.id,officialUser().id,{kind:'text',text:update.text});
+      kvSet(update.key,message.id);
+      return message;
+    });
+    if(message)broadcastNewMessage(message.chat_id,message);
+  }
 }

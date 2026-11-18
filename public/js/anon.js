@@ -19,7 +19,7 @@ const when = (t) => new Date(t).toLocaleString('ru-RU', { day: 'numeric', month:
 
 /** The NGL-style card in someone's profile. */
 export function anonCard(u) {
-  if (!u?.px?.anon) return null;
+  if (!u?.px?.anon || deps?.currentUserId?.() === u.id) return null;
   return h('button', { class: 'anon-card', onclick: () => anonSendModal(u) },
     h('span', { class: 'anon-card-mask' }, '🎭'),
     h('div', { class: 'grow' }, h('b', {}, 'Напиши анонимно'), h('span', {}, `${u.name.split(' ')[0]} не узнает, что это вы`)),
@@ -27,6 +27,7 @@ export function anonCard(u) {
 }
 
 export function anonSendModal(u) {
+  if (!u || deps?.currentUserId?.() === u.id) return;
   let style = 'lemon';
   const ta = h('textarea', { class: 'anon-input', rows: 4, maxLength: 1000, placeholder: 'Напишите что угодно — имя не покажем…' });
   const paper = h('div', { class: `anon-paper st-${style}` }, h('div', { class: 'anon-paper-head' }, '🎭 Анонимно для ', h('b', {}, u.name)), ta);

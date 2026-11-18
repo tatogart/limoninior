@@ -565,7 +565,7 @@ function startApp() {
   });
   initExtras({ S, userName, jumpToMessage });
   initGames({ me: () => S.me });
-  initAnon({ reportModal: (...a) => reportModal(...a), onUnread: (n) => setAnonUnread(n) });
+  initAnon({ currentUserId: () => S.me?.id, reportModal: (...a) => reportModal(...a), onUnread: (n) => setAnonUnread(n) });
   api.get('/anon/unread').then((r) => setAnonUnread(r.unread)).catch(() => {});
   initDuels({ me: () => S.me, userName: (id) => userName(id), rematch: (x) => { const c = curChat(); if (c) duelModal(c, (m) => { addMessage(m); renderMessages({ stick: true }); }, x); } });
   initCircles({ inCall: () => inCall(), onSent: (m) => { addMessage(m); if (S.current === m.chatId) renderMessages({ stick: true }); } });
@@ -3574,7 +3574,7 @@ async function openUserProfile(id, ownPreview=false) {
             chat ? { icon: chat.muted ? 'bell' : 'mute', label: chat.muted ? 'Включить уведомления' : 'Выключить уведомления', onClick: () => { toggleMute(chat); closeTopModal(); } } : null,
             { icon: 'share', label: 'Поделиться профилем', onClick: () => shareLink(link, u.name) },
             { icon: 'pencil', label: nickname(u.id) ? 'Изменить имя контакта' : 'Переименовать для себя', onClick: () => nicknameModal(u) },
-            u.px?.anon ? { icon: 'eye', label: 'Написать анонимно 🎭', onClick: () => anonSendModal(u) } : null,
+            u.id !== S.me.id && u.px?.anon ? { icon: 'eye', label: 'Написать анонимно 🎭', onClick: () => anonSendModal(u) } : null,
             !u.official ? { icon: 'warning', label: 'Пожаловаться', danger: true, onClick: () => reportModal('user', u.id, `Жалоба на ${u.name}`) } : null,
             !u.official ? { icon: 'block', label: chat?.blocked === 'me' ? 'Разблокировать' : 'Заблокировать', danger: chat?.blocked !== 'me', onClick: () => { closeTopModal(); setBlocked(u, chat?.blocked !== 'me'); } } : null,
           ]);
