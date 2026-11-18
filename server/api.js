@@ -1,3 +1,4 @@
+import {ensureNewsChannel} from './news-channel.js';
 import {registerAccountLifecycle,newRecoveryCode,recoveryDigest} from './account-lifecycle.js';
 import {loginRequests} from './desktop-login.js';
 import {planLimits} from '../public/js/subscription-limits.js';
@@ -643,6 +644,10 @@ const REF_WINDOW = 7 * 864e5; // the new account must claim within a week of reg
 const REF_MAX_REWARDS = 100; // per inviter
 
 /** The official "Limochat" account used for announcements. */
+export function officialNewsChannel(user=null) {
+  return ensureNewsChannel(officialUser(),user?[user]:[]);
+}
+
 export function officialUser() {
   let u = q('SELECT * FROM users WHERE google_sub = ?').get(OFFICIAL_SUB);
   if (!u) {
@@ -706,6 +711,11 @@ api.post('/me/referral', requireAuth, requireProfile, (req, res) => {
 
 // Everything below needs a completed profile (username chosen).
 api.use(requireAuth, requireProfile);
+
+api.get('/news/channel',(req,res)=>{
+  const channel=officialNewsChannel(req.user);
+  res.json({channel:channelPublic(channel),chat:chatForUser(channel.id,req.user.id)});
+});
 
 registerFamily(api,{bad,int,publicUser,emitToUser});
 registerPostcards(api,{isMember,postError,postMessage});
@@ -1851,5 +1861,6 @@ api.use((err, req, res, next) => {
   next(err);
 });
 
-// Make sure the official account exists (and carries the current brand name) from the start.
-officialUser();
+// Provision the official news channel once; only project admins become publishers.
+const newsOwner=officialUser();
+ensureNewsChannel(newsOwner,q('SELECT * FROM users WHERE banned=0').all().filter(isAdminUser));

@@ -3483,6 +3483,7 @@ function openDrawer() {
       item('settings', 'Настройки', settingsModal),
       (S.me.isModerator || S.me.isAdmin) ? item('shield','Модерация',moderatorPanel) : null,
       h('details',{class:'drawer-category'},h('summary',{},'Дополнительно'),item('gift', 'Пригласить друзей', referralModal, 'ref-item'),item('sparkles', 'Сотрудничество', () => window.open('/partners', '_blank', 'noopener')),
+      item('megaphone','Новости Limochat',async()=>{try{const r=await api.get('/news/channel');if(r.chat){upsertChat(r.chat);renderChatList();openChat(r.chat.id);}else openChannel(r.channel);}catch(e){toast(errorText(e),'error');}}),
       item('info', 'Справка', () => window.open('/help', '_blank', 'noopener')),
       themeToggle,
       !isStandalone() ? item('download', 'Установить приложение', installApp) : null),

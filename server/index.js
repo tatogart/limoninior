@@ -7,7 +7,7 @@ import rateLimit from 'express-rate-limit';
 import { config } from './config.js';
 import { q, now } from './db.js';
 import { checkOrigin, requireAuth, sessionFromCookie, isAdminUser } from './auth.js';
-import { api } from './api.js';
+import { api, officialNewsChannel } from './api.js';
 import { botApi } from './bots.js';
 import { admin,consumeAdminEntry } from './admin.js';
 import { serveMedia } from './media.js';
@@ -83,6 +83,7 @@ app.get('/privacy', (req, res) => res.sendFile(path.join(pub, 'privacy.html')));
 app.get('/help', (req, res) => res.sendFile(path.join(pub, 'help.html')));
 app.get('/partners', (req, res) => res.sendFile(path.join(pub, 'partners.html')));
 app.get(['/download','/download.html'],(_req,res)=>res.redirect(302,'/'));
+app.get('/news',(_req,res)=>{const channel=officialNewsChannel();res.redirect(302,'/@'+encodeURIComponent(channel.username));});
 app.get('/about', (req, res) => res.sendFile(path.join(pub, 'about.html')));
 
 app.get('/.well-known/assetlinks.json',(_req,res)=>{res.set('Cache-Control','public, max-age=300');res.type('application/json').sendFile(path.join(pub,'.well-known','assetlinks.json'),{dotfiles:'allow'});});
