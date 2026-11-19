@@ -37,7 +37,7 @@ import { initCustom, applyCustomLook, nickname, nicknameModal, nameStyleProps, q
 import { initAnon, anonCard, anonSendModal, anonInbox } from './anon.js';
 import { initDuels, duelModal, duelEl } from './duels.js';
 import { initCircles, recordCircle, circleEl, circlesSupported } from './circles.js';
-import { initProfileX, decorateCover, profileInfoRows, tagsEl, moodEl, trackEl, stopTrack, profileEditor } from './profilex.js';
+import { initProfileX, decorateCover, profileInfoRows, tagsEl, moodEl, trackEl, playlistsEl, stopTrack, profileEditor } from './profilex.js';
 import { initRewards, roleTag, rewardsBlock, rolePicker } from './rewards.js';
 import { initGames, gamesHub, diceEl, chatGamesMenu } from './games.js';
 import { initThemes, applyCustomTheme, ensureEffect, themesModal, winterSettings, themeMsgEl, currentTheme, setChatPicker } from './themes.js';
@@ -3598,6 +3598,7 @@ async function openUserProfile(id, ownPreview=false) {
         ...profileInfoRows(u),
         u.createdAt ? h('div', { class: 'pf-row' }, icon('calendar'), h('div', {}, h('div', { class: 'row-main' }, joinedText(u.createdAt)))) : null),
       trackEl(u.px?.track),
+      playlistsEl(u.px?.playlists),
       tagsEl(u),
       anonCard(u),
       rewardsSlot,

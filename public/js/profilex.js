@@ -1,3 +1,5 @@
+import {trackEl,stopTrack,playlistEditor} from './profile-music.js';
+export {trackEl,stopTrack,playlistsEl} from './profile-music.js';
 // Profile 2.0 on the client: cover, emoji status, mood, links, birthday, city, interests,
 // animated effect, profile track and the views counter.
 import { api, errorText } from './api.js';
@@ -43,28 +45,6 @@ const plural = (n, one, few, many) => { const a = Math.abs(n) % 100, b = a % 10;
 export const bdayText = (b) => `${b.d} ${MONTHS[b.m - 1]}${b.showYear && b.y ? ` ${b.y} · ${ageOf(b)} ${plural(ageOf(b), 'год', 'года', 'лет')}` : ''}`;
 
 // ---------------------------------------------------------------- profile track
-
-const player = { audio: null, url: null, ui: null };
-export function trackEl(track) {
-  if (!track) return null;
-  const btn = h('button', { class: 'pf-track-btn', 'aria-label': 'Слушать' }, icon('play'));
-  const bar = h('i', { class: 'pf-track-bar' });
-  const el = h('div', { class: 'pf-track' }, btn,
-    h('div', { class: 'grow' }, h('div', { class: 'pf-track-name' }, '🎵 ', track.name), h('div', { class: 'pf-track-line' }, bar)),
-    h('div', { class: 'pf-track-eq' }, h('i'), h('i'), h('i'), h('i')));
-  const ui = (playing, frac) => { btn.replaceChildren(icon(playing ? 'pause' : 'play')); el.classList.toggle('playing', playing); bar.style.width = `${(frac || 0) * 100}%`; };
-  btn.addEventListener('click', () => {
-    if (player.url === track.url && player.audio) { if (player.audio.paused) player.audio.play().catch(() => {}); else player.audio.pause(); return; }
-    player.audio?.pause();
-    const a = new Audio(track.url);
-    Object.assign(player, { audio: a, url: track.url, ui });
-    const upd = () => player.audio === a && ui(!a.paused, a.duration ? a.currentTime / a.duration : 0);
-    ['play', 'pause', 'timeupdate', 'ended'].forEach((ev) => a.addEventListener(ev, upd));
-    a.play().catch(() => toast('Не удалось воспроизвести', 'error'));
-  });
-  return el;
-}
-export function stopTrack() { player.audio?.pause(); player.audio = null; player.url = null; }
 
 // ---------------------------------------------------------------- what other people see
 
@@ -229,6 +209,7 @@ export function profileEditor(me, onPreview) {
     h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Обложка'), coverActs, coverIn),
     h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Эффект профиля'), fx),
     h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Трек профиля'), trackBox, trackIn),
+    h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Плейлисты'), playlistEditor(px, music=>deps.setMe({px:music}))),
     h('div', { class: 'pf-two' },
       h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Город'), input('city', 'Москва', 40)),
       h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'День рождения'), bd, h('label', { class: 'th-check' }, showYear, 'Показывать год'))),

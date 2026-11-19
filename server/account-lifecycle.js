@@ -53,7 +53,7 @@ export function registerAccountLifecycle(api,{publicUser,onRevoke=()=>{}}){
   if(q('SELECT 1 FROM family_links WHERE child=? OR parent=?').get(uid,uid))return error(res,'account_family_linked',409);
   const recipients=q('SELECT DISTINCT other.user_id FROM chat_members mine JOIN chat_members other ON mine.chat_id=other.chat_id WHERE mine.user_id=? AND other.user_id!=?').all(uid,uid).map(r=>r.user_id);
   let profile={};try{profile=JSON.parse(req.user.profile_x||'{}');}catch{}
-  const personalFiles=[req.user.avatar,profile.cover,profile.track?.file].filter(x=>typeof x==='string');
+  const personalFiles=[req.user.avatar,profile.cover,profile.track?.file,...(profile.playlists||[]).flatMap(list=>list.tracks.map(track=>track.file))].filter(x=>typeof x==='string');
   const avatars=[...personalFiles.map(name=>({name})),...q("SELECT m.name FROM media m JOIN chats c ON c.id=m.chat_id WHERE c.owner_id=? AND c.type='saved'").all(uid),...q('SELECT file AS name FROM stories WHERE user_id=? AND file IS NOT NULL').all(uid)];
   const changed=tx(()=>{
    if(!stillCurrent(req))return false;

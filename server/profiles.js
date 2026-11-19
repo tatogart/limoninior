@@ -44,6 +44,7 @@ export function profileView(u) {
   if (p.nameColor) out.nameColor = p.nameColor;
   if (p.frame && p.frame !== 'none') out.frame = p.frame;
   if (p.track) out.track = { url: `/media/${p.track.file}`, name: p.track.name, dur: p.track.dur };
+  if (p.playlists?.length) out.playlists=p.playlists.map(list=>({id:list.id,name:list.name,tracks:list.tracks.map(track=>({id:track.id,url:'/media/'+track.file,name:track.name,dur:track.dur}))}));
   if (!p.anonOff && !/^(bot|system):/.test(String(u?.google_sub))) out.anon = true;
   return out;
 }
@@ -150,6 +151,59 @@ export function registerProfiles(api, { bad, int, pushMe, broadcastProfile }) {
     delete p.track;
     save(req.user.id, p);
     res.json({ ok: true, px: profileView(q('SELECT * FROM users WHERE id = ?').get(req.user.id)) });
+  });
+
+  // Music collections belong to the authenticated account; URLs are generated server-side.
+  const currentProfile = req => profileOf(q('SELECT profile_x FROM users WHERE id=?').get(req.user.id));
+  const musicReply = (req,res,p) => {const u=save(req.user.id,p);res.json({ok:true,px:profileView(u)});};
+  api.post('/me/playlists',limiter,(req,res)=>{
+    const p=currentProfile(req),name=clean(req.body?.name,60);
+    if(!name)return bad(res,'bad_title');
+    p.playlists ||= [];
+    if(p.playlists.length>=5)return bad(res,'playlist_limit');
+    p.playlists.push({id:crypto.randomBytes(12).toString('hex'),name,tracks:[]});
+    musicReply(req,res,p);
+  });
+  api.patch('/me/playlists/:id',limiter,(req,res)=>{
+    const p=currentProfile(req),list=p.playlists?.find(x=>x.id===req.params.id);
+    if(!list)return bad(res,'not_found',404);
+    if(req.body?.name!==undefined){const name=clean(req.body.name,60);if(!name)return bad(res,'bad_title');list.name=name;}
+    if(req.body?.trackIds!==undefined){const ids=req.body.trackIds;
+      if(!Array.isArray(ids)||ids.length!==list.tracks.length||new Set(ids).size!==ids.length||ids.some(id=>!list.tracks.some(t=>t.id===id)))return bad(res,'bad_playlist');
+      list.tracks=ids.map(id=>list.tracks.find(t=>t.id===id));
+    }
+    musicReply(req,res,p);
+  });
+  api.delete('/me/playlists/:id',limiter,(req,res)=>{
+    const p=currentProfile(req),list=p.playlists?.find(x=>x.id===req.params.id);
+    if(!list)return bad(res,'not_found',404);
+    p.playlists=p.playlists.filter(x=>x.id!==list.id);musicReply(req,res,p);
+    for(const track of list.tracks)deleteMediaFile(track.file);
+  });
+  api.post('/me/playlists/:id/tracks',limiter,upload.single('file'),(req,res)=>{
+    const p=currentProfile(req),list=p.playlists?.find(x=>x.id===req.params.id);
+    if(!list)return bad(res,'not_found',404);
+    if(p.playlists.reduce((n,x)=>n+x.tracks.length,0)>=20)return bad(res,'playlist_track_limit');
+    const buf=req.file?.buffer;if(!buf)return bad(res,'no_file');
+    const type=sniffMusic(buf);if(!type)return bad(res,'unsupported_audio');
+    const file=crypto.randomBytes(16).toString('hex')+'.'+type.ext;
+    const orig=Buffer.from(String(req.file.originalname||''),'latin1').toString('utf8').replace(/\.[a-z0-9]{2,4}$/i,'');
+    const duration=Number(req.body?.duration);
+    const track={id:crypto.randomBytes(12).toString('hex'),file,name:clean(req.body?.name||orig,60)||'Трек',dur:Number.isFinite(duration)?Math.min(Math.max(duration,0),3600):0};
+    fs.writeFileSync(path.join(mediaDir,file),buf,{flag:'wx'});
+    try{
+      db.exec('BEGIN IMMEDIATE');
+      q('INSERT INTO media (name,owner_id,kind,chat_id,mime,size,created_at) VALUES (?,?,?,NULL,?,?,?)').run(file,req.user.id,'avatar',type.mime,buf.length,now());
+      list.tracks.push(track);
+      q('UPDATE users SET profile_x=? WHERE id=?').run(JSON.stringify(p),req.user.id);
+      db.exec('COMMIT');
+    }catch(error){db.exec('ROLLBACK');fs.rmSync(path.join(mediaDir,file),{force:true});throw error;}
+    const u=q('SELECT * FROM users WHERE id=?').get(req.user.id);broadcastProfile(u);pushMe(req.user.id);res.json({ok:true,px:profileView(u)});
+  });
+  api.delete('/me/playlists/:id/tracks/:trackId',limiter,(req,res)=>{
+    const p=currentProfile(req),list=p.playlists?.find(x=>x.id===req.params.id),track=list?.tracks.find(t=>t.id===req.params.trackId);
+    if(!track)return bad(res,'not_found',404);
+    list.tracks=list.tracks.filter(t=>t.id!==track.id);musicReply(req,res,p);deleteMediaFile(track.file);
   });
 
   // Someone opened a profile: one view per viewer per day.
