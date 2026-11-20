@@ -55,6 +55,7 @@ const ICONS = {
   pause: '<rect x="6.5" y="5" width="3.8" height="14" rx="1.2" fill="currentColor" stroke="none"/><rect x="13.7" y="5" width="3.8" height="14" rx="1.2" fill="currentColor" stroke="none"/>',
   stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="2.5" fill="currentColor" stroke="none"/>',
   search: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/>',
+  link: '<path d="m10 14 4-4M8 16l-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0M16 8l1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0"/>',
   right: '<path d="m9 5 7 7-7 7"/>',
   folder: '<path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3z"/>',
   back: '<path d="M15 5l-7 7 7 7"/>',
@@ -161,7 +162,7 @@ export function icon(name, cls = '') {
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('class', `ic ${cls}`);
   svg.setAttribute('aria-hidden', 'true');
-  svg.innerHTML = ICONS[name] || '';
+  svg.innerHTML = ICONS[name] || ICONS.info;
   return svg;
 }
 

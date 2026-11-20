@@ -4,7 +4,7 @@ function surface(){const listeners={};return {addEventListener(name,fn){(listene
 function fixture(withViewport=true){
  const props=new Map(),frames=new Map(),timers=new Map();let id=0;
  const root={dataset:{},style:{setProperty:(k,v)=>props.set(k,v)}};
- const document={...surface(),documentElement:root,activeElement:{tagName:'BODY'}};
+ const document={...surface(),documentElement:root,getElementById:()=>null,activeElement:{tagName:'BODY'}};
  const viewport={...surface(),height:800,width:390,offsetTop:0,offsetLeft:0,scale:1};
  const window={...surface(),innerHeight:800,innerWidth:390,visualViewport:withViewport?viewport:undefined,scrollTo(){throw Error('must not fight native focus panning');}};
  vm.runInNewContext(code,{window,document,localStorage:{getItem:()=>null},location:{pathname:'/'},matchMedia:()=>({matches:false}),requestAnimationFrame(fn){frames.set(++id,fn);return id;},setTimeout(fn){timers.set(++id,fn);return id;},clearTimeout(key){timers.delete(key);},isFinite,Math});

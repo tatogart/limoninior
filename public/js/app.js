@@ -1,3 +1,4 @@
+import {interfaceMode,applyInterfaceMode} from './interface-mode.js';
 import {navigation,settingsHome,contactsScreen,profileTabs} from './interface.js';
 import {channelInviteToken} from './channel-invites.js';
 import {paidLemonDialog} from './paid-reactions.js';
@@ -84,8 +85,8 @@ function loadSettings() {
   try { s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch { /* ignore */ }
   return {
     theme: 'system', accent: 'blue', enterToSend: !isTouch(), notify: false,
-    style: 'glass', wallpaper: 'auto', textSize: 15.5, reduceMotion: false,
-    ringtone: 'lemon', messageSound: 'pop', volume: 0.8, vibrate: true, inAppSounds: true, ...s,
+    interfaceMode:'modern', style: 'glass', wallpaper: 'auto', textSize: 15.5, reduceMotion: false,
+    ringtone: 'lemon', messageSound: 'pop', volume: 0.8, vibrate: true, inAppSounds: true, ...s,interfaceMode:interfaceMode(s),
   };
 }
 function saveSettings() {
@@ -93,6 +94,7 @@ function saveSettings() {
   applyTheme();
 }
 function applyTheme() {
+  applyInterfaceMode(document.documentElement,S.settings,document.getElementById('interface-styles'));
   let t = S.settings.theme;
   if (t === 'system') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   document.documentElement.dataset.theme = t;
@@ -593,7 +595,7 @@ function buildLayout() {
   V.conn = h('div', { class: 'conn-status hidden' }, h('span', { class: 'spinner' }), 'Соединение…');
   V.sidebar = h('aside', { class: 'sidebar' },
     h('div', { class: 'sidebar-header' },
-      V.menuBtn = h('button', { class: 'icon-btn menu-btn', 'aria-label': 'Меню', onclick: openDrawer }, icon('menu')),
+      V.menuBtn = h('button', { class: 'icon-btn menu-btn', 'aria-label': 'Все возможности', title:'Все возможности',onclick: toolsModal }, icon('community')),
       h('div', { class: 'search-wrap' }, icon('search', 'search-ic'), V.search,
         h('button', { class: 'search-clear', 'aria-label': 'Очистить', onclick: clearSearch }, icon('close')))),
     V.conn,
@@ -601,6 +603,7 @@ function buildLayout() {
     V.banner = h('div', { class: 'banner-slot' }),
     initStories({ me: () => S.me, prepareImage }),
     V.list,
+    chatFooter(),
     h('button', { class: 'fab', 'aria-label': 'Новый чат', onclick: onFab }, icon('pencil')));
   V.pane = h('main', { class: 'chat-pane' }, emptyPane());
   V.layout = h('div', { class: 'layout' }, V.sidebar, V.pane);
@@ -615,7 +618,7 @@ function buildLayout() {
 let rootNavigationEpoch=0;
 function initRootNavigation(){
   V.navigationObserver?.disconnect();
-  const sync=()=>{const dialogs=[...document.querySelectorAll('#modals > .modal-backdrop.show > .modal')];const top=dialogs.at(-1);const section=top?.dataset.navigation||'chats';V.navigation.select(section);V.navigation.el.hidden=top?!top.classList.contains('shell-screen'):V.layout.classList.contains('chat-open')&&matchMedia('(max-width: 760px)').matches;};
+  const sync=()=>{const dialogs=[...document.querySelectorAll('#modals > .modal-backdrop.show > .modal')];const top=dialogs.at(-1);const section=top?.dataset.navigation||'chats';V.navigation.select(section);V.navigation.el.hidden=interfaceMode(S.settings)==='legacy'||(top?!top.classList.contains('shell-screen'):V.layout.classList.contains('chat-open')&&matchMedia('(max-width: 760px)').matches);};
   V.navigationObserver=new MutationObserver(sync);
   V.navigationObserver.observe(document.getElementById('modals'),{subtree:true,attributes:true,attributeFilter:['class','data-navigation'],childList:true});
   V.navigationObserver.observe(V.layout,{attributes:true,attributeFilter:['class']});
@@ -629,10 +632,10 @@ function navigateRoot(section){
     if(epoch!==rootNavigationEpoch)return;
     let modal;
     if(section==='profile')modal=await ownProfilePreview();
-    if(section==='settings')modal=openSettingsHome();
+    if(section==='settings')modal=interfaceMode(S.settings)==='legacy'?settingsModal():openSettingsHome();
     if(section==='contacts')modal=openContacts();
     if(epoch!==rootNavigationEpoch){modal?.close();return;}
-    if(modal){modal.dialog.classList.add('shell-screen');modal.dialog.dataset.navigation=section;}
+    if(modal){if(interfaceMode(S.settings)!=='legacy')modal.dialog.classList.add('shell-screen');modal.dialog.dataset.navigation=section;}
     V.navigation.select(section);
   });
 }
@@ -643,7 +646,7 @@ function openContacts(){
 }
 function openSettingsHome(){
   const details=title=>()=>settingsModal(title);
-  return settingsHome({me:S.me,avatar:()=>userAvatar(S.me,104),version:clientVersion(),actions:{edit:editProfileModal,appearance:details('Оформление'),privacy:details('Конфиденциальность'),notifications:details('Уведомления и звуки'),folders:()=>workspaceHub(),devices:sessionsModal,themes:themesModal,performance:details('Читаемость и производительность'),allSettings:()=>settingsModal(),subscription:subscriptionsModal,gifts:openCollectibles,security:details('Безопасность'),family:familyModal,news:async()=>{try{const r=await api.get('/news/channel');while(closeTopModal()){}afterHistory(()=>{if(r.chat){upsertChat(r.chat);renderChatList();openChat(r.chat.id);}else openChannel(r.channel);});}catch(e){toast(errorText(e),'error');}},help:()=>window.open('/help','_blank','noopener'),policy:()=>window.open('/privacy','_blank','noopener')}});
+  return settingsHome({me:S.me,avatar:()=>userAvatar(S.me,104),version:clientVersion(),actions:{edit:editProfileModal,appearance:details('Оформление'),privacy:details('Конфиденциальность'),notifications:details('Уведомления и звуки'),folders:()=>workspaceHub(),devices:sessionsModal,themes:themesModal,performance:details('Читаемость и производительность'),interface:details('Интерфейс'),tools:toolsModal,allSettings:()=>settingsModal(),subscription:subscriptionsModal,gifts:openCollectibles,security:details('Безопасность'),family:familyModal,news:async()=>{try{const r=await api.get('/news/channel');while(closeTopModal()){}afterHistory(()=>{if(r.chat){upsertChat(r.chat);renderChatList();openChat(r.chat.id);}else openChannel(r.channel);});}catch(e){toast(errorText(e),'error');}},help:()=>window.open('/help','_blank','noopener'),policy:()=>window.open('/privacy','_blank','noopener')}});
 }
 
 function setAnonUnread(n) {
@@ -3486,67 +3489,20 @@ function openCollectibles(){return collectiblesModal({refreshMe:async()=>{S.me=(
 
 function ownProfilePreview(){return openUserProfile(S.me.id,true);}
 
-function openDrawer() {
-  const me = S.me;
-  let backdrop;
-  let release = null;
-  const close = (fromBack = false) => {
-    if (!backdrop.classList.contains('show')) return;
-    backdrop.classList.remove('show');
-    setTimeout(() => backdrop.remove(), 250);
-    if (fromBack !== true) release?.();
-  };
-  const item = (ic, label, onClick, cls = '') => h('button', { class: `drawer-item ${cls}`, onclick: () => { close(); onClick(); } }, icon(ic), label);
-  const themeToggle = h('button', {
-    class: 'drawer-item',
-    onclick: () => {
-      const dark = document.documentElement.dataset.theme === 'dark';
-      S.settings.theme = dark ? 'light' : 'dark';
-      saveSettings();
-      sw.classList.toggle('on', !dark);
-    },
-  }, icon('moon'), 'Ночной режим');
-  const sw = h('span', { class: `switch ${document.documentElement.dataset.theme === 'dark' ? 'on' : ''}` });
-  themeToggle.append(sw);
-  const panel = h('nav', { class: 'drawer' },
-    h('div', { class: 'drawer-head' },
-      h('button', { class: 'drawer-me', onclick: () => { close(); afterHistory(ownProfilePreview); } },
-        userAvatar(me, 64),
-        h('div', { class: 'drawer-name' }, nameWithBadge(me.name, me)),
-        h('div', { class: 'drawer-username' }, `@${me.username}`)),
-      h('button', { class: 'drawer-coins', onclick: () => { close(); myGiftsModal(); } },
-        h('span', {}, `🍋 ${me.coins ?? 0}`), h('span', { class: 'dc-label' }, 'лимонов'))),
-    h('div', { class: 'drawer-items' },
-      // Profile and gifts open from the header above; sessions live in Settings.
-      h('button', { class: 'drawer-item', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); close(); createMenu(r.left + 16, r.bottom); } }, icon('plus'), 'Создать…'),
-      h('details',{class:'drawer-category'},h('summary',{},'Общение и развлечения'),item('gamepad', 'Мини-игры', gamesHub),
-      featureOn('bots') ? item('bot', 'Мои боты', myBotsModal) : null,
-      item('eye', ['Анонимные послания', S.anonUnread ? h('span', { class: 'drawer-badge' }, String(S.anonUnread)) : null], () => anonInbox()),
-      item('search', 'Каталог каналов', popularChannelsModal)),
-      item('user','Мой профиль',()=>ownProfilePreview()),
-      item('pencil','Редактировать профиль',editProfileModal),
-      item('bookmark', 'Избранное', openSaved),
-      item('check', 'Органайзер', () => workspaceHub()),
-      item('search', 'Быстрый переход', commandPalette),
-      item('crown', S.me.subUntil ? `${planById(S.me.sub)?.name || 'Подписка'} ✓` : 'Limochat Premium', subscriptionsModal, 'premium-item'),
-      item('gift','Коллекционные подарки',openCollectibles),
-      item('settings', 'Настройки',()=>navigateRoot('settings')),
-      (S.me.isModerator || S.me.isAdmin) ? item('shield','Модерация',moderatorPanel) : null,
-      h('details',{class:'drawer-category'},h('summary',{},'Дополнительно'),item('gift', 'Пригласить друзей', referralModal, 'ref-item'),item('sparkles', 'Сотрудничество', () => window.open('/partners', '_blank', 'noopener')),
-      item('megaphone','Новости Limochat',async()=>{try{const r=await api.get('/news/channel');if(r.chat){upsertChat(r.chat);renderChatList();openChat(r.chat.id);}else openChannel(r.channel);}catch(e){toast(errorText(e),'error');}}),
-      item('info', 'Справка', () => window.open('/help', '_blank', 'noopener')),
-      themeToggle,
-      !isStandalone() ? item('download', 'Установить приложение', installApp) : null),
-      h('div', { class: 'drawer-sep' }),
-      item('logout', 'Выйти', async () => { if (await confirmDialog('Выйти из аккаунта на этом устройстве?', { ok: 'Выйти', danger: true })) logout(); }, 'danger')),
-    h('div', { class: 'drawer-foot' }, h('img', { src: '/icons/icon.svg', alt: '' }), h('b', {}, 'Limochat'), h(me.isAdmin ? 'button' : 'span', me.isAdmin ? {
-      type: 'button', class: 'drawer-version', 'aria-label': `Версия ${clientVersion()}`,
-      onclick: createAdminTapHandler({ isAdmin: () => !!S.me?.isAdmin, open: () => { close(); api.get('/admin/entry').then(r=>navigate(r.url)).catch(e=>toast(errorText(e),'error')); } }),
-    } : {}, clientVersion())));
-  backdrop = h('div', { class: 'drawer-backdrop', onclick: (e) => { if (e.target === backdrop) close(); } }, panel);
-  document.body.append(backdrop);
-  requestAnimationFrame(() => backdrop.classList.add('show'));
-  release = registerOverlay(() => close(true));
+function chatFooter(){
+  const version=h(S.me.isAdmin?'button':'span',S.me.isAdmin?{type:'button',class:'chat-version','aria-label':'Версия '+clientVersion(),onclick:createAdminTapHandler({isAdmin:()=>!!S.me?.isAdmin,open:()=>api.get('/admin/entry').then(r=>navigate(r.url)).catch(e=>toast(errorText(e),'error'))})}:{class:'chat-version'},clientVersion());
+  return h('footer',{class:'chat-footer'},h('img',{src:'/icons/icon.svg',alt:'',width:30,height:30}),h('b',{},'Limochat'),version);
+}
+function toolsModal(){
+  const row=(ic,label,fn)=>h('button',{type:'button',class:'tools-row',onclick:()=>{modal.close();afterHistory(fn);}},icon(ic),h('span',{},label),icon('right'));
+  const group=(title,...items)=>h('section',{class:'tools-group'},h('h3',{},title),...items.filter(Boolean));
+  let modal;
+  modal=openModal({title:'Возможности Limochat',className:'modal-tools',body:h('div',{class:'tools-home'},
+    group('Основное',row('settings','Настройки',()=>navigateRoot('settings')),row('user','Мой профиль',()=>navigateRoot('profile')),row('user','Контакты',()=>navigateRoot('contacts')),row('pencil','Редактировать профиль',editProfileModal),row('bookmark','Избранное',openSaved),row('check','Органайзер',()=>workspaceHub()),row('search','Быстрый переход',commandPalette)),
+    group('Общение и развлечения',row('gamepad','Мини-игры',gamesHub),featureOn('bots')?row('bot','Мои боты',myBotsModal):null,row('eye','Анонимные послания'+(S.anonUnread?' · '+S.anonUnread:''),()=>anonInbox()),row('megaphone','Каталог каналов',popularChannelsModal),row('plus','Создать группу или канал',()=>{const r=V.menuBtn.getBoundingClientRect();createMenu(r.left,r.bottom);})),
+    group('Подарки и подписка',row('coin','Лимоны · '+(S.me.coins??0),myGiftsModal),row('crown',planById(S.me.sub)?.name||'Подписки Limochat',subscriptionsModal),row('gift','Коллекционные подарки',openCollectibles),row('gift','Пригласить друзей',referralModal)),
+    group('Приложение',row('moon','Сменить светлую / тёмную тему',()=>{S.settings.theme=document.documentElement.dataset.theme==='dark'?'light':'dark';saveSettings();}),row('sparkles','Сотрудничество',()=>window.open('/partners','_blank','noopener')),row('megaphone','Новости Limochat',async()=>{try{const r=await api.get('/news/channel');if(r.chat){upsertChat(r.chat);renderChatList();openChat(r.chat.id);}else openChannel(r.channel);}catch(e){toast(errorText(e),'error');}}),row('info','Справка',()=>window.open('/help','_blank','noopener')),!isStandalone()?row('download','Установить приложение',installApp):null,(S.me.isModerator||S.me.isAdmin)?row('shield','Модерация',moderatorPanel):null,row('logout','Выйти из аккаунта',async()=>{if(await confirmDialog('Выйти из аккаунта на этом устройстве?',{ok:'Выйти',danger:true}))logout();})))});
+  return modal;
 }
 
 function openInfo(c) {
@@ -3640,7 +3596,7 @@ async function openUserProfile(id, ownPreview=false) {
       tagsEl(u),
       anonCard(u),
       rewardsSlot,
-      profileTabs([{id:'gifts',title:'Подарки'+(u.giftsCount?' · '+u.giftsCount:''),content:h('div',{},ownPreview?h('button',{class:'profile-collections-btn',onclick:openCollectibles},icon('gift'),'Мои коллекции и площадка'):null,gifts)},{id:'music',title:'Музыка',content:h('div',{class:'profile-music-library'},playlistsEl(u.px?.playlists)||h('p',{class:'list-note'},'Плейлистов пока нет'),ownPreview?h('button',{class:'btn btn-primary',onclick:()=>{closeTopModal();afterHistory(editProfileModal);}},'Добавить музыку'):null)},...(chat?[{id:'media',title:'Общие фото',content:media}]:[])])),
+      interfaceMode(S.settings)==='legacy'?h('div',{class:'legacy-profile-library'},h('div',{class:'pf-section-title'},'Музыка'),playlistsEl(u.px?.playlists),h('div',{class:'pf-section-title'},'Подарки'),gifts,chat?media:null):profileTabs([{id:'gifts',title:'Подарки'+(u.giftsCount?' · '+u.giftsCount:''),content:h('div',{},ownPreview?h('button',{class:'profile-collections-btn',onclick:openCollectibles},icon('gift'),'Мои коллекции и площадка'):null,gifts)},{id:'music',title:'Музыка',content:h('div',{class:'profile-music-library'},playlistsEl(u.px?.playlists)||h('p',{class:'list-note'},'Плейлистов пока нет'),ownPreview?h('button',{class:'btn btn-primary',onclick:()=>{closeTopModal();afterHistory(editProfileModal);}},'Добавить музыку'):null)},...(chat?[{id:'media',title:'Общие фото',content:media}]:[])])),
     onClose: stopTrack,
   });
   return m;
@@ -3873,6 +3829,8 @@ function settingsModal(focusSection) {
   renderWalls();
 
   body.append(
+    section('settings','Интерфейс',row('Внешний вид приложения','Переключение сохранится на этом устройстве',seg('interfaceMode',[['modern','Новый интерфейс'],['legacy','Старый интерфейс']],()=>{saveDraft();location.reload();}))),
+    section('community','Возможности',h('button',{class:'set-row clickable',onclick:toolsModal},icon('community'),h('span',{},'Все возможности Limochat'))),
     section('shield', 'Родительский контроль', h('button',{class:'set-row clickable',onclick:familyModal},h('div',{class:'set-text'},h('div',{class:'row-main'},'Семья и ограничения'),h('div',{class:'row-sub'},'Привязка аккаунта, родительский PIN и расписание')))),
     section('palette','Читаемость и производительность',toggleLocal('Лёгкое стекло','Уменьшить размытие для плавной работы','liteGlass'),row('Шрифт сообщений','Выберите удобный стиль',seg('readingFont',[['system','Обычный'],['rounded','Округлый'],['mono','Моно']]))),
     section('sparkles', 'Зимнее настроение', winterSettings()),
@@ -4454,8 +4412,6 @@ document.addEventListener('keydown', (e) => {
   if (document.querySelector('.ctx-menu')) return closeMenu();
   if (V.panel && !V.panel.classList.contains('hidden')) return togglePanel(false);
   if (closeTopModal()) return;
-  const drawer = document.querySelector('.drawer-backdrop.show');
-  if (drawer) return drawer.click();
   if (S.current && !isTouch()) closeChat();
 });
 

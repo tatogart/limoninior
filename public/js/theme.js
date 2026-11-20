@@ -2,6 +2,9 @@
 (function () {
   var s = {};
   try { s = JSON.parse(localStorage.getItem('limoninior.settings') || '{}'); } catch (e) { /* storage unavailable */ }
+  var mode=s.interfaceMode==='legacy'?'legacy':'modern';
+  document.documentElement.dataset.interface=mode;
+  var uiStyles=document.getElementById('interface-styles');if(uiStyles)uiStyles.disabled=mode==='legacy';
   var theme = s.theme || 'system';
   if (theme === 'system') theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   if (s.themeId && s.themeBase && location.pathname.indexOf('/admin') !== 0) theme = s.themeBase; // a custom theme decides light/dark

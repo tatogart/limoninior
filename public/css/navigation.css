@@ -1,0 +1,29 @@
+/* Navigation and modal sizing shared by both interface versions. */
+.chat-footer {flex:none;display:flex;align-items:center;gap:8px;padding:10px 16px;margin-bottom:calc(94px + env(safe-area-inset-bottom));color:var(--text-2);font-size:11px;min-width:0;}
+.chat-footer img {width:30px;height:30px;border-radius:9px;}
+.chat-footer b {color:var(--text);font-size:14px;}
+.chat-version {margin-left:auto;max-width:55%;white-space:normal;text-align:right;line-height:1.4;font:inherit;color:inherit;overflow-wrap:anywhere;}
+.chat-version:is(button) {min-height:36px;padding:4px;border-radius:10px;}
+.sidebar .chat-list {min-height:0;padding-bottom:76px;}
+.sidebar .fab {bottom:calc(150px + env(safe-area-inset-bottom));}
+.tools-home {display:grid;gap:18px;}
+.tools-group {background:var(--bg-2);border:1px solid var(--border);border-radius:20px;padding:8px;}
+.tools-group h3 {font-size:13px;color:var(--accent);margin:8px 12px;}
+.tools-row {display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:14px 12px;min-height:52px;border-radius:14px;}
+.tools-row:hover {background:var(--hover);}
+.tools-row>span {flex:1;min-width:0;}
+.tools-row>.ic {width:22px;height:22px;flex:none;color:var(--text-2);}
+.tools-row>.ic:last-child {width:16px;}
+.modal-tools {width:min(520px,100%);}
+[data-interface="legacy"] .shell-nav {display:none!important;}
+[data-interface="legacy"] .chat-footer {margin-bottom:env(safe-area-inset-bottom);}
+[data-interface="legacy"] .sidebar .fab {bottom:calc(70px + env(safe-area-inset-bottom));}
+[data-interface="legacy"] .composer-gift {display:none;}
+[data-interface="legacy"] .shell-screen {width:min(560px,100%);}
+[data-interface="legacy"] .legacy-profile-library {display:grid;gap:12px;}
+/* Both interfaces must scroll within the visible viewport, not grow with their contents. */
+.modal-backdrop {grid-template-rows:minmax(0,1fr);min-height:0;overflow:hidden;}
+.modal {min-height:0;overflow:hidden;max-height:min(86dvh,calc(var(--app-h,100vh) - 32px));}
+.modal-header,.modal-actions {flex-shrink:0;}
+.modal:not(.modal-viewer)>.modal-body {flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;}
+@media(max-width:760px){.chat-footer{padding:8px 14px;}.modal-tools{max-height:calc(var(--app-h,100vh) - 24px);}}
