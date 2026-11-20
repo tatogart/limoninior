@@ -243,6 +243,8 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS user_gifts_to ON user_gifts(to_id, id);
 `);
 
+addColumn('user_gifts','profile_hidden','INTEGER NOT NULL DEFAULT 0');
+
 const stmtCache = new Map();
 /** Cached prepared statement. */
 export function q(sql) {

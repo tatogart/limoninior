@@ -1,3 +1,4 @@
+import {profileGiftsGrid} from './profile-gifts.js';
 import {interfaceMode,applyInterfaceMode} from './interface-mode.js';
 import {navigation,settingsHome,contactsScreen,profileTabs} from './interface.js';
 import {channelInviteToken} from './channel-invites.js';
@@ -2613,18 +2614,7 @@ function giftConfirm(c, g) {
 }
 
 async function giftsGrid(userId) {
-  const grid = h('div', { class: 'profile-gifts' }, h('div', { class: 'list-note' }, h('span', { class: 'spinner' })));
-  try {
-    const { gifts } = await api.get(`/users/${userId}/gifts`);
-    grid.replaceChildren(...(gifts.length ? gifts.map((x) => {
-      const g = giftById(x.giftId);
-      if (!g) return null;
-      return h('button', { type:'button',class: 'pg-item',onclick:()=>openModal({title:g.name,body:h('div',{class:'gift-passport'},giftArt(g),h('b',{},g.name),h('p',{},'От: '+(x.fromName||'пользователя')),x.note?h('p',{class:'pre'},x.note):null,x.edition?h('span',{class:'limited-gift-label'},'Экземпляр '+x.edition+'/'+g.limited):null)}), title: `${g.name} от ${x.fromName || 'пользователя'}${x.note ? ` — «${x.note}»` : ''}` },
-        h('div', { class: 'pg-art', style: { background: `linear-gradient(150deg, ${g.colors[0]}, ${g.colors[1]})` } }, giftArt(g)),
-        h('div', { class: 'pg-from' }, x.fromName || '—'),x.edition?h('small',{class:'limited-gift-label'},x.edition+'/'+g.limited):null);
-    }).filter(Boolean) : [h('div', { class: 'list-note' }, 'Подарков пока нет')]));
-  } catch { grid.replaceChildren(h('div', { class: 'list-note' }, 'Не удалось загрузить')); }
-  return grid;
+  return profileGiftsGrid(userId,{onChange:async()=>{if(userId===S.me.id){S.me=(await api.get('/me')).user;mergeUser(S.me);}}});
 }
 
 async function myGiftsModal() {

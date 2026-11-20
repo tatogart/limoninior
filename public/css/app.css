@@ -2925,3 +2925,19 @@ button, input, textarea, select { font-family: inherit; }
 .modal:not(.modal-viewer)>.modal-body {flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;}
 @media(max-width:760px){.modal-tools .modal-body{padding:10px 14px 24px;}.chat-footer{padding:8px 14px;}.modal-tools{max-height:calc(var(--app-h,100vh) - 24px);}}
 @media(max-width:350px){.tools-row-text strong{font-size:13px;}.tools-hero h2{font-size:20px;}.tools-hero{padding:14px;}.tools-group-list>.tools-row{gap:9px;padding:11px 8px;}.chat-footer{gap:7px;}.chat-footer b{font-size:12px;}.chat-version{font-size:9px;max-width:49%;}}
+
+/* Public profile gift inventory; owner-only controls live in the gift passport. */
+.profile-gift-grid {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;}
+.profile-gift-tile {position:relative;display:flex;flex-direction:column;align-items:stretch;min-width:0;text-align:center;border:1px solid var(--border);border-radius:18px;background:var(--bg-2);overflow:hidden;padding:0 0 10px;}
+.profile-gift-tile .pg-art {display:grid;place-items:center;aspect-ratio:1;height:auto;padding:6px;background:transparent;}
+.profile-gift-tile .collectible-preview {width:100%;height:100%;max-width:180px;}
+.profile-gift-tile .gift-art-image {width:90%;height:90%;object-fit:contain;}
+.profile-gift-title {display:block;font-size:11px;font-weight:600;line-height:1.35;padding:2px 5px;overflow-wrap:anywhere;}
+.profile-gift-meta {font-size:10px;color:var(--text-2);padding:2px 5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.profile-gift-hidden,.profile-gift-collectible {position:absolute;top:6px;left:5px;right:5px;font-size:8px;font-weight:650;padding:3px;border-radius:10px;background:color-mix(in srgb,var(--bg) 80%,transparent);color:var(--text-2);}
+.profile-gift-hidden {color:var(--text);background:var(--bg);border:1px solid var(--border);}
+.profile-gift-tile.is-hidden {border-style:dashed;}
+.profile-gift-hint {font-size:11px;color:var(--text-2);line-height:1.5;margin:0 0 12px;}
+.gift-passport {display:grid;justify-items:center;gap:10px;text-align:center;}
+.gift-passport>.collectible-preview {width:190px;max-width:100%;aspect-ratio:1;}
+.gift-passport>.gift-art-image {width:160px;height:160px;}

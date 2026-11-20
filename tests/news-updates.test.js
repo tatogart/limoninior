@@ -1,0 +1,5 @@
+import test,{after} from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';
+process.env.DATA_DIR=fs.mkdtempSync(path.join(os.tmpdir(),'limo-news-updates-'));
+const {db,q,kvGet}=await import('../server/db.js');const {announceReleasedUpdates}=await import('../server/api.js');
+after(()=>{db.close();fs.rmSync(process.env.DATA_DIR,{recursive:true,force:true});});
+test('release announcements create the news channel when needed and publish each update once',()=>{announceReleasedUpdates();const cid=Number(kvGet('official_news_channel'));assert.ok(cid>0);const id=Number(kvGet('news:interface-music-gifts-2026-11-20'));assert.ok(id>0);const post=q('SELECT * FROM messages WHERE id=? AND chat_id=?').get(id,cid);assert.match(post.text,/плейлисты/);assert.match(post.text,/подарки/);const count=q('SELECT COUNT(*) AS n FROM messages WHERE chat_id=?').get(cid).n;announceReleasedUpdates();assert.equal(q('SELECT COUNT(*) AS n FROM messages WHERE chat_id=?').get(cid).n,count);assert.equal(Number(kvGet('news:interface-music-gifts-2026-11-20')),id);});

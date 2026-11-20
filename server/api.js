@@ -6,7 +6,7 @@ import {registerPaidReactions,paidSummary} from './paid-reactions.js';
 import {limitedStock,nextMemeEdition,recordMemeEdition,giftEdition} from './limited-gifts.js';
 import './scam.js';
 import {registerPostcards} from './postcards.js';
-import {registerCollectibles,selectedCollectible} from './collectibles.js';
+import {registerCollectibles,selectedCollectible,profileGiftInventory,visibleGiftCount} from './collectibles.js';
 import {registerStudio,subscribed,animatedAllowed} from './studio.js';
 import {registerModerator,isModerator} from './moderator.js';
 import {registerFamily} from './family.js';
@@ -96,7 +96,7 @@ export function publicUser(u) {
     official: u.google_sub === OFFICIAL_SUB,
     bot,
     sub: activePlan(u)?.id || null,
-    giftsCount: q('SELECT COUNT(*) AS n FROM user_gifts WHERE to_id = ?').get(u.id).n,
+    giftsCount: visibleGiftCount(u.id),
   };
 }
 
@@ -1041,9 +1041,8 @@ api.post('/chats/:id/gift', sendLimiter, (req, res) => {
 api.get('/users/:id/gifts', (req, res) => {
   const id = int(req.params.id);
   if (!id) return bad(res, 'not_found', 404);
-  const rows = q(`SELECT g.*, u.name AS from_name FROM user_gifts g LEFT JOIN users u ON u.id = g.from_id
-                  WHERE g.to_id = ? ORDER BY g.id DESC LIMIT 200`).all(id);
-  res.json({ gifts: rows.map((g) => ({ id: g.id, edition:giftEdition(g.id),giftId: g.gift_id, fromId: g.from_id, fromName: g.from_name, note: g.note, price: g.price, createdAt: g.created_at })) });
+  if(!q('SELECT 1 FROM users WHERE id=? AND deleted_at IS NULL').get(id))return bad(res,'not_found',404);
+  res.json(profileGiftInventory(id,req.user.id));
 });
 
 api.patch('/messages/:id', sendLimiter, (req, res) => {
@@ -1867,9 +1866,11 @@ ensureNewsChannel(newsOwner,q('SELECT * FROM users WHERE banned=0').all().filter
 
 // Released product news is published only once, after the HTTP server starts successfully.
 export function announceReleasedUpdates() {
+  officialNewsChannel();
   const updates=[
     {key:'news:referral-week-2026-11-18',text:'🎁 Обновление приглашений\n\nЗа новое приглашение теперь начисляется 7 дней подписки вместо 30: другу — Plus, пригласившему — продление действующей подписки или Plus, если её нет.\n\nУже выданные сроки подписок не сокращаются.'},
     {key:'news:anon-self-profile-fix-2026-11-18',text:'🛠 Исправление профиля\n\nУбрали кнопку анонимного сообщения самому себе: в собственном профиле она больше не показывается и не вызывает ошибку. В чужих профилях анонимные сообщения доступны, если получатель их разрешил.'},
+    {key:'news:interface-music-gifts-2026-11-20',text:'🍋 Большое обновление Limochat\n\nНовая нижняя навигация, настройки с поиском и вкладки профиля. Боковое меню заменили разделом «Возможности». В настройках интерфейса можно вернуть старое оформление.\n\n🎵 В профиле появились плейлисты и регулировка громкости с сохранением уровня.\n\n🎁 Коллекционные подарки теперь видны в чужих профилях. Любой свой подарок можно скрыть из профиля и затем вернуть — нажмите на него. Скрытие не удаляет старые сообщения о подарке и объявления на площадке.\n\n🛠 Исправлены прокрутка экранов, отсутствующие иконки и расположение версии приложения.'},
   ];
   for(const update of updates){
     const message=tx(()=>{
