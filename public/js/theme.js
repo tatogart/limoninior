@@ -6,7 +6,7 @@
   if (theme === 'system') theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   if (s.themeId && s.themeBase && location.pathname.indexOf('/admin') !== 0) theme = s.themeBase; // a custom theme decides light/dark
   document.documentElement.dataset.theme = theme;
-  document.documentElement.dataset.accent = s.accent || 'lime';
+  document.documentElement.dataset.accent = s.accent || 'blue';
   // "Liquid Glass" is the default look; "classic" is the flat one.
   document.documentElement.dataset.style = s.style || 'glass';
   document.documentElement.dataset.wallpaper = s.wallpaper || 'auto';

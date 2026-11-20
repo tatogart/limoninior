@@ -1,3 +1,4 @@
+import {navigation,settingsHome,contactsScreen,profileTabs} from './interface.js';
 import {channelInviteToken} from './channel-invites.js';
 import {paidLemonDialog} from './paid-reactions.js';
 import {collectibleReceipt} from './collectible-receipt.js';
@@ -82,7 +83,7 @@ function loadSettings() {
   let s = {};
   try { s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch { /* ignore */ }
   return {
-    theme: 'system', accent: 'lime', enterToSend: !isTouch(), notify: false,
+    theme: 'system', accent: 'blue', enterToSend: !isTouch(), notify: false,
     style: 'glass', wallpaper: 'auto', textSize: 15.5, reduceMotion: false,
     ringtone: 'lemon', messageSound: 'pop', volume: 0.8, vibrate: true, inAppSounds: true, ...s,
   };
@@ -231,6 +232,7 @@ function totalUnread() {
 }
 function updateBadge() {
   const n = totalUnread();
+  V.navigation?.unread(n);
   document.title = n ? `(${n}) Limochat` : 'Limochat';
   if ('setAppBadge' in navigator) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
 }
@@ -602,10 +604,46 @@ function buildLayout() {
     h('button', { class: 'fab', 'aria-label': 'Новый чат', onclick: onFab }, icon('pencil')));
   V.pane = h('main', { class: 'chat-pane' }, emptyPane());
   V.layout = h('div', { class: 'layout' }, V.sidebar, V.pane);
-  app.replaceChildren(V.layout);
+  V.navigation=navigation({onSelect:navigateRoot,avatar:()=>userAvatar(S.me,26)});
+  app.replaceChildren(V.layout,V.navigation.el);
+  initRootNavigation();
   ensureEffect();
   renderBanner();
   renderChatList();
+}
+
+let rootNavigationEpoch=0;
+function initRootNavigation(){
+  V.navigationObserver?.disconnect();
+  const sync=()=>{const dialogs=[...document.querySelectorAll('#modals > .modal-backdrop.show > .modal')];const top=dialogs.at(-1);const section=top?.dataset.navigation||'chats';V.navigation.select(section);V.navigation.el.hidden=top?!top.classList.contains('shell-screen'):V.layout.classList.contains('chat-open')&&matchMedia('(max-width: 760px)').matches;};
+  V.navigationObserver=new MutationObserver(sync);
+  V.navigationObserver.observe(document.getElementById('modals'),{subtree:true,attributes:true,attributeFilter:['class','data-navigation'],childList:true});
+  V.navigationObserver.observe(V.layout,{attributes:true,attributeFilter:['class']});
+  window.addEventListener('resize',sync);sync();
+}
+function navigateRoot(section){
+  const epoch=++rootNavigationEpoch;
+  while(closeTopModal()){}
+  if(S.current)closeChat();
+  afterHistory(async()=>{
+    if(epoch!==rootNavigationEpoch)return;
+    let modal;
+    if(section==='profile')modal=await ownProfilePreview();
+    if(section==='settings')modal=openSettingsHome();
+    if(section==='contacts')modal=openContacts();
+    if(epoch!==rootNavigationEpoch){modal?.close();return;}
+    if(modal){modal.dialog.classList.add('shell-screen');modal.dialog.dataset.navigation=section;}
+    V.navigation.select(section);
+  });
+}
+function openContacts(){
+  const ids=new Set([...S.chats.values()].filter(c=>c.type==='private'&&c.peer&&!c.peer.bot&&!c.peer.official).map(c=>c.peer.id));
+  const users=[...ids].map(id=>S.users.get(id)||[...S.chats.values()].find(c=>c.peer?.id===id)?.peer).filter(Boolean).sort((a,b)=>Number(b.online)-Number(a.online)||a.name.localeCompare(b.name,'ru'));
+  return contactsScreen({users,avatar:u=>userAvatar(u,48,true),status:lastSeenText,onOpen:id=>{while(closeTopModal()){}afterHistory(()=>startPrivate(id));},onFind:()=>{while(closeTopModal()){}afterHistory(()=>{V.search.focus();toast('Введите имя или @юзернейм в поиске');});}});
+}
+function openSettingsHome(){
+  const details=title=>()=>settingsModal(title);
+  return settingsHome({me:S.me,avatar:()=>userAvatar(S.me,104),version:clientVersion(),actions:{edit:editProfileModal,appearance:details('Оформление'),privacy:details('Конфиденциальность'),notifications:details('Уведомления и звуки'),folders:()=>workspaceHub(),devices:sessionsModal,themes:themesModal,performance:details('Читаемость и производительность'),allSettings:()=>settingsModal(),subscription:subscriptionsModal,gifts:openCollectibles,security:details('Безопасность'),family:familyModal,news:async()=>{try{const r=await api.get('/news/channel');while(closeTopModal()){}afterHistory(()=>{if(r.chat){upsertChat(r.chat);renderChatList();openChat(r.chat.id);}else openChannel(r.channel);});}catch(e){toast(errorText(e),'error');}},help:()=>window.open('/help','_blank','noopener'),policy:()=>window.open('/privacy','_blank','noopener')}});
 }
 
 function setAnonUnread(n) {
@@ -1305,6 +1343,7 @@ function buildChatView(c) {
     V.gcBar = h('div', { class: 'gc-bar hidden' }),
     V.pinBar = h('div', { class: 'pin-bar hidden' }),
     V.searchBar = h('div', { class: 'chat-search hidden' }));
+  header.dataset.chatType=c.type;
   const cc = c;
   if (isChannel(c) && !c.preview && c.canPost) {
     V.callBtns.append(h('button', { class: 'icon-btn live-btn', 'aria-label': 'Начать эфир', title: 'Прямой эфир', onclick: (e) => liveMenu(curChat(), e.currentTarget) }, icon('live')));
@@ -1346,7 +1385,7 @@ function buildChatView(c) {
   V.input.addEventListener('focus', () => { if (isTouch() && !V.panel.classList.contains('hidden')) togglePanel(false); keepBottom(); });
   V.panel = h('div', { class: 'emoji-panel hidden' });
   V.panelBtn = h('button', { class: 'icon-btn smile-btn', 'aria-label': 'Эмодзи, стикеры и подарки', onclick: () => togglePanel() }, icon('smile'));
-  const composer = h('div', { class: 'composer' },
+  const composer = h('div', { class: 'composer',dataset:{giftable:String(canGift(c))} },
     V.panel,
     V.bar,
     V.composerRow = h('div', { class: 'composer-row' },
@@ -1355,7 +1394,7 @@ function buildChatView(c) {
         h('button', { class: 'icon-btn attach-btn', 'aria-label': 'Прикрепить', onclick: (e) => attachMenu(e.currentTarget) }, icon('attach')),
         V.input,
         V.circleBtn = circlesSupported() ? h('button', { class: 'icon-btn circle-btn', 'aria-label': 'Записать кружок', title: 'Видеосообщение (кружок)', onclick: () => startCircle() }, h('span', { class: 'circle-ic' }, icon('video'))) : null,
-        V.panelBtn, V.file),
+        h('button',{class:'icon-btn composer-gift','aria-label':'Подарки',onclick:()=>{panelTab='gifts';togglePanel(true);}},icon('gift')),V.panelBtn, V.file),
       V.sendBtn),
     V.channelBar = h('div', { class: 'channel-bar hidden' }));
 
@@ -2577,7 +2616,7 @@ async function giftsGrid(userId) {
     grid.replaceChildren(...(gifts.length ? gifts.map((x) => {
       const g = giftById(x.giftId);
       if (!g) return null;
-      return h('div', { class: 'pg-item', title: `${g.name} от ${x.fromName || 'пользователя'}${x.note ? ` — «${x.note}»` : ''}` },
+      return h('button', { type:'button',class: 'pg-item',onclick:()=>openModal({title:g.name,body:h('div',{class:'gift-passport'},giftArt(g),h('b',{},g.name),h('p',{},'От: '+(x.fromName||'пользователя')),x.note?h('p',{class:'pre'},x.note):null,x.edition?h('span',{class:'limited-gift-label'},'Экземпляр '+x.edition+'/'+g.limited):null)}), title: `${g.name} от ${x.fromName || 'пользователя'}${x.note ? ` — «${x.note}»` : ''}` },
         h('div', { class: 'pg-art', style: { background: `linear-gradient(150deg, ${g.colors[0]}, ${g.colors[1]})` } }, giftArt(g)),
         h('div', { class: 'pg-from' }, x.fromName || '—'),x.edition?h('small',{class:'limited-gift-label'},x.edition+'/'+g.limited):null);
     }).filter(Boolean) : [h('div', { class: 'list-note' }, 'Подарков пока нет')]));
@@ -3491,7 +3530,7 @@ function openDrawer() {
       item('search', 'Быстрый переход', commandPalette),
       item('crown', S.me.subUntil ? `${planById(S.me.sub)?.name || 'Подписка'} ✓` : 'Limochat Premium', subscriptionsModal, 'premium-item'),
       item('gift','Коллекционные подарки',openCollectibles),
-      item('settings', 'Настройки', settingsModal),
+      item('settings', 'Настройки',()=>navigateRoot('settings')),
       (S.me.isModerator || S.me.isAdmin) ? item('shield','Модерация',moderatorPanel) : null,
       h('details',{class:'drawer-category'},h('summary',{},'Дополнительно'),item('gift', 'Пригласить друзей', referralModal, 'ref-item'),item('sparkles', 'Сотрудничество', () => window.open('/partners', '_blank', 'noopener')),
       item('megaphone','Новости Limochat',async()=>{try{const r=await api.get('/news/channel');if(r.chat){upsertChat(r.chat);renderChatList();openChat(r.chat.id);}else openChannel(r.channel);}catch(e){toast(errorText(e),'error');}}),
@@ -3555,7 +3594,7 @@ async function openUserProfile(id, ownPreview=false) {
   const gifts = h('div', { class: 'pf-gifts' }, h('span', { class: 'spinner' }));
   const rewardsSlot = h('div');
   rewardsBlock(u.id).then((el) => { if (el) rewardsSlot.replaceWith(el); });
-  giftsGrid(u.id).then((g) => gifts.replaceWith(g));
+  giftsGrid(u.id).then((g) => gifts.replaceChildren(g));
   const media = h('div', { class: 'pf-media' });
   if (chat) {
     api.get(`/chats/${chat.id}/media`).then((r) => {
@@ -3573,7 +3612,7 @@ async function openUserProfile(id, ownPreview=false) {
         status: u.official ? 'официальный аккаунт' : lastSeenText(u),
         extra: h('button', { class: 'pf-glass-btn', 'aria-label': 'Поделиться', onclick: () => shareLink(link, u.name) }, icon('share')),
       }),
-      ownPreview ? h('div',{class:'pf-actions'},action('edit','Редактировать',()=>{closeTopModal();afterHistory(editProfileModal);})):h('div', { class: 'pf-actions' },
+      ownPreview ? h('div',{class:'pf-actions pf-own-actions'},action('image','Фото',()=>{closeTopModal();afterHistory(editProfileModal);}),action('edit','Изменить',()=>{closeTopModal();afterHistory(editProfileModal);}),action('settings','Настройки',()=>navigateRoot('settings'))):h('div', { class: 'pf-actions' },
         action('chat', 'Написать', () => { closeTopModal(); startPrivate(u.id); }, 'primary'),
         !u.official && !u.bot && chat ? action('phone', 'Звонок', () => { closeTopModal(); startCall(chat, u, false); }) : null,
         !u.official && !u.bot && chat ? action('video', 'Видео', () => { closeTopModal(); startCall(chat, u, true); }) : null,
@@ -3597,15 +3636,11 @@ async function openUserProfile(id, ownPreview=false) {
         plan ? h('div', { class: 'pf-row' }, h('span', { class: 'pf-row-emoji' }, plan.emoji), h('div', {}, h('div', { class: 'row-main' }, plan.name), h('div', { class: 'row-sub' }, 'Подписка'))) : null,
         ...profileInfoRows(u),
         u.createdAt ? h('div', { class: 'pf-row' }, icon('calendar'), h('div', {}, h('div', { class: 'row-main' }, joinedText(u.createdAt)))) : null),
-      trackEl(u.px?.track),
-      playlistsEl(u.px?.playlists),
+      u.px?.track?h('div',{class:'profile-music-feature'},trackEl(u.px.track)):null,
       tagsEl(u),
       anonCard(u),
       rewardsSlot,
-      h('div', { class: 'pf-section-title' }, `Подарки${u.giftsCount ? ` · ${u.giftsCount}` : ''}`),
-      gifts,
-      chat ? h('div', { class: 'pf-section-title' }, 'Общие фото') : null,
-      chat ? media : null),
+      profileTabs([{id:'gifts',title:'Подарки'+(u.giftsCount?' · '+u.giftsCount:''),content:h('div',{},ownPreview?h('button',{class:'profile-collections-btn',onclick:openCollectibles},icon('gift'),'Мои коллекции и площадка'):null,gifts)},{id:'music',title:'Музыка',content:h('div',{class:'profile-music-library'},playlistsEl(u.px?.playlists)||h('p',{class:'list-note'},'Плейлистов пока нет'),ownPreview?h('button',{class:'btn btn-primary',onclick:()=>{closeTopModal();afterHistory(editProfileModal);}},'Добавить музыку'):null)},...(chat?[{id:'media',title:'Общие фото',content:media}]:[])])),
     onClose: stopTrack,
   });
   return m;
@@ -3730,7 +3765,7 @@ const WALLPAPERS = [
   ['auto', 'Авто'], ['pattern', 'Узор'], ['mesh', 'Сияние'], ['aurora', 'Аврора'], ['sunset', 'Закат'], ['ocean', 'Океан'], ['plain', 'Без узора'],
 ];
 
-function settingsModal() {
+function settingsModal(focusSection) {
   const body = h('div', { class: 'settings' });
   const section = (ic, title, ...rows) => h('section', { class: 'set-section' },
     h('div', { class: 'set-title' }, h('span', { class: 'set-ic' }, icon(ic)), title),
@@ -3888,7 +3923,9 @@ function settingsModal() {
         h('div', { class: 'set-text' }, h('div', { class: 'row-main' }, 'Активные сеансы'), h('div', { class: 'row-sub' }, 'Где выполнен вход')), icon('devices'))),
     h('button', { class: 'btn btn-ghost btn-block', onclick: () => checkVersion({ manual: true }) }, 'Проверить обновления'),
     h('div', { class: 'set-foot' }, `Limochat · ${clientVersion()}`));
-  openModal({ title: 'Настройки', className: 'modal-settings', body });
+  const modal=openModal({ title: focusSection || 'Настройки', className: 'modal-settings', body });
+  if(focusSection){const target=[...body.querySelectorAll('.set-section')].find(section=>section.querySelector('.set-title')?.textContent.trim()===focusSection);if(target){for(const section of body.querySelectorAll('.set-section'))section.hidden=section!==target;}}
+  return modal;
 }
 
 async function sessionsModal() {
