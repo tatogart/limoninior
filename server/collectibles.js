@@ -11,20 +11,38 @@ db.exec("CREATE TABLE IF NOT EXISTS collectible_albums(id INTEGER PRIMARY KEY,us
 db.exec("CREATE TABLE IF NOT EXISTS collectible_listings(id INTEGER PRIMARY KEY,item_id INTEGER NOT NULL REFERENCES collectible_items(id),seller_id INTEGER NOT NULL REFERENCES users(id),price INTEGER NOT NULL,active INTEGER NOT NULL DEFAULT 1,created_at INTEGER NOT NULL);CREATE UNIQUE INDEX IF NOT EXISTS collectible_active_listing ON collectible_listings(item_id) WHERE active=1;");
 db.exec("CREATE TABLE IF NOT EXISTS collectible_upgrades(gift_id INTEGER PRIMARY KEY REFERENCES user_gifts(id) ON DELETE CASCADE,item_id INTEGER NOT NULL UNIQUE);");
 const {getPolicy,savePolicy,rollTraits,serializeTraits,policyToken}=await import('./collectible-engine.js');
+export const GIFT_SELL_WINDOW=3*86400000;
+export function giftSellInfo(gift,time=now()){const sellUntil=gift.created_at+GIFT_SELL_WINDOW;return {sellUntil,sellValue:gift.price,canSell:!gift.sold_at&&Number.isSafeInteger(gift.price)&&gift.price>0&&gift.created_at<=time&&time<sellUntil};}
 export function profileGiftInventory(uid,viewerId){
  const own=uid===viewerId;
- const gifts=q(`SELECT g.*,u.name AS from_name FROM user_gifts g LEFT JOIN users u ON u.id=g.from_id WHERE g.to_id=? AND (? OR g.profile_hidden=0) AND NOT EXISTS(SELECT 1 FROM collectible_upgrades up WHERE up.gift_id=g.id) ORDER BY g.id DESC LIMIT 500`).all(uid,own?1:0).map(g=>({id:g.id,giftId:g.gift_id,fromId:g.from_id,fromName:g.from_name,note:g.note,price:g.price,createdAt:g.created_at,edition:giftEdition(g.id),hidden:!!g.profile_hidden}));
+ const gifts=q(`SELECT g.*,u.name AS from_name FROM user_gifts g LEFT JOIN users u ON u.id=g.from_id WHERE g.to_id=? AND g.sold_at=0 AND (? OR g.profile_hidden=0) AND NOT EXISTS(SELECT 1 FROM collectible_upgrades up WHERE up.gift_id=g.id) ORDER BY g.id DESC LIMIT 500`).all(uid,own?1:0).map(g=>({id:g.id,giftId:g.gift_id,fromId:g.from_id,fromName:g.from_name,note:g.note,price:g.price,createdAt:g.created_at,edition:giftEdition(g.id),hidden:!!g.profile_hidden,...(own?giftSellInfo(g):{})}));
  const collectibles=q('SELECT id,collection,traits,selected,profile_hidden,created_at AS createdAt FROM collectible_items WHERE user_id=? AND (? OR profile_hidden=0) ORDER BY id DESC LIMIT 500').all(uid,own?1:0).map(row=>({...COLLECTIONS.find(c=>c.id===row.collection),...serializeTraits(row),serial:row.id,hidden:!!row.profile_hidden}));
  return {gifts,collectibles,isOwner:own};
 }
-export function visibleGiftCount(uid){return q('SELECT COUNT(*) AS n FROM user_gifts g WHERE to_id=? AND profile_hidden=0 AND NOT EXISTS(SELECT 1 FROM collectible_upgrades up WHERE up.gift_id=g.id)').get(uid).n+q('SELECT COUNT(*) AS n FROM collectible_items WHERE user_id=? AND profile_hidden=0').get(uid).n;}
+export function visibleGiftCount(uid){return q('SELECT COUNT(*) AS n FROM user_gifts g WHERE to_id=? AND sold_at=0 AND profile_hidden=0 AND NOT EXISTS(SELECT 1 FROM collectible_upgrades up WHERE up.gift_id=g.id)').get(uid).n+q('SELECT COUNT(*) AS n FROM collectible_items WHERE user_id=? AND profile_hidden=0').get(uid).n;}
 export function registerCollectibles(api,{pushMe,broadcastProfile,notifyReceipt}={}){
  const changed=uid=>{pushMe?.(uid);broadcastProfile?.(q('SELECT * FROM users WHERE id=?').get(uid));};
+ api.post('/gifts/regular/:id/sell',(req,res)=>{
+  const id=Number(req.params.id);if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'bad_gift'});
+  db.exec('BEGIN IMMEDIATE');let committed=false;
+  try{
+   const gift=q('SELECT * FROM user_gifts WHERE id=? AND to_id=? AND sold_at=0').get(id,req.user.id);
+   if(!gift){db.exec('ROLLBACK');return res.status(404).json({error:'not_found'});}
+   if(q('SELECT 1 FROM collectible_upgrades WHERE gift_id=?').get(id)){db.exec('ROLLBACK');return res.status(409).json({error:'gift_collectible_no_sell'});}
+   const time=now(),info=giftSellInfo(gift,time);
+   if(!info.canSell){db.exec('ROLLBACK');return res.status(409).json({error:'gift_sell_unavailable'});}
+   q('UPDATE user_gifts SET sold_at=? WHERE id=? AND sold_at=0').run(time,id);
+   q('UPDATE users SET coins=coins+? WHERE id=?').run(info.sellValue,req.user.id);
+   audit(req.user.id,req.ip,'gift_sell',{id,value:info.sellValue});
+   const balance=q('SELECT coins FROM users WHERE id=?').get(req.user.id).coins;
+   db.exec('COMMIT');committed=true;changed(req.user.id);res.json({ok:true,amount:info.sellValue,balance});
+  }catch(error){if(!committed)db.exec('ROLLBACK');throw error;}
+ });
  api.post('/gifts/:type/:id/visibility',(req,res)=>{
   const type=req.params.type,id=Number(req.params.id),hidden=req.body?.hidden;
   if(!['regular','collectible'].includes(type)||!Number.isSafeInteger(id)||id<1||typeof hidden!=='boolean')return res.status(400).json({error:'bad_settings'});
   const table=type==='regular'?'user_gifts':'collectible_items',owner=type==='regular'?'to_id':'user_id';
-  const result=q(`UPDATE ${table} SET profile_hidden=?${type==='collectible'&&hidden?',selected=0':''} WHERE id=? AND ${owner}=?`).run(hidden?1:0,id,req.user.id);
+  const result=q(`UPDATE ${table} SET profile_hidden=?${type==='collectible'&&hidden?',selected=0':''} WHERE id=? AND ${owner}=?${type==='regular'?' AND sold_at=0':''}`).run(hidden?1:0,id,req.user.id);
   if(!result.changes)return res.status(404).json({error:'not_found'});
   changed(req.user.id);audit(req.user.id,req.ip,'gift_visibility',{type,id,hidden});res.json({ok:true,hidden});
  });
@@ -34,7 +52,7 @@ export function registerCollectibles(api,{pushMe,broadcastProfile,notifyReceipt}
  api.post('/collectibles/gifts/:id/upgrade',(req,res)=>{
  const giftId=Number(req.params.id),policy=getPolicy();if(!policy.enabled)return res.status(403).json({error:'upgrades_disabled'});
  db.exec('BEGIN IMMEDIATE');try{
- const gift=q('SELECT * FROM user_gifts WHERE id=? AND to_id=?').get(giftId||0,req.user.id);
+ const gift=q('SELECT * FROM user_gifts WHERE id=? AND to_id=? AND sold_at=0').get(giftId||0,req.user.id);
  if(!gift||gift.price<=policy.minGiftPrice||!giftById(gift.gift_id)||!COLLECTIONS.some(c=>c.sourceGift===gift.gift_id)){db.exec('ROLLBACK');return res.status(400).json({error:'gift_not_upgradeable'});}
  if(q('SELECT 1 FROM collectible_upgrades WHERE gift_id=?').get(giftId)){db.exec('ROLLBACK');return res.status(409).json({error:'gift_already_upgraded'});}
  if(q('SELECT COUNT(*) AS n FROM collectible_items WHERE user_id=?').get(req.user.id).n>=500){db.exec('ROLLBACK');return res.status(400).json({error:'workspace_limit'});}
@@ -65,17 +83,17 @@ export function registerCollectibles(api,{pushMe,broadcastProfile,notifyReceipt}
  api.delete('/collectibles/albums/:id',(req,res)=>{q('DELETE FROM collectible_albums WHERE id=? AND user_id=?').run(Number(req.params.id)||0,req.user.id);res.json({ok:true});});
  api.post('/collectibles/items/:id/albums',(req,res)=>{const id=Number(req.params.id),ids=req.body?.albumIds;if(!q('SELECT 1 FROM collectible_items WHERE id=? AND user_id=?').get(id||0,req.user.id)||!Array.isArray(ids)||ids.length>20||ids.some(x=>!Number.isSafeInteger(x)||!q('SELECT 1 FROM collectible_albums WHERE id=? AND user_id=?').get(x,req.user.id)))return res.status(400).json({error:'forbidden'});db.exec('BEGIN IMMEDIATE');try{q('DELETE FROM collectible_album_items WHERE item_id=?').run(id);for(const aid of new Set(ids))q('INSERT INTO collectible_album_items VALUES(?,?)').run(aid,id);db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}res.json({ok:true});});
 
- api.get('/collectibles',(req,res)=>{const policy=getPolicy();return res.json({catalog:COLLECTIONS,limitedStock:limitedStock(),policy,policyToken:policyToken(policy),upgradeable:q('SELECT g.id,g.gift_id AS giftId,g.price FROM user_gifts g WHERE g.to_id=? AND g.price>? AND NOT EXISTS(SELECT 1 FROM collectible_upgrades u WHERE u.gift_id=g.id) ORDER BY g.id DESC LIMIT 500').all(req.user.id,policy.minGiftPrice).filter(g=>COLLECTIONS.some(c=>c.sourceGift===g.giftId)).map(g=>({...g,upgradeCost:upgradeCost(g.price,policy)})),items:q('SELECT id,collection,traits,selected,profile_hidden AS hidden,created_at AS createdAt FROM collectible_items WHERE user_id=? ORDER BY id DESC LIMIT 500').all(req.user.id).map(serializeTraits)});});
+ api.get('/collectibles',(req,res)=>{const policy=getPolicy();return res.json({catalog:COLLECTIONS,limitedStock:limitedStock(),policy,policyToken:policyToken(policy),upgradeable:q('SELECT g.id,g.gift_id AS giftId,g.price FROM user_gifts g WHERE g.to_id=? AND g.sold_at=0 AND g.price>? AND NOT EXISTS(SELECT 1 FROM collectible_upgrades u WHERE u.gift_id=g.id) ORDER BY g.id DESC LIMIT 500').all(req.user.id,policy.minGiftPrice).filter(g=>COLLECTIONS.some(c=>c.sourceGift===g.giftId)).map(g=>({...g,upgradeCost:upgradeCost(g.price,policy)})),items:q('SELECT id,collection,traits,selected,profile_hidden AS hidden,created_at AS createdAt FROM collectible_items WHERE user_id=? ORDER BY id DESC LIMIT 500').all(req.user.id).map(serializeTraits)});});
  api.post('/collectibles/showcase',(req,res)=>{const id=Number(req.body?.id)||0;if(id&&!q('SELECT 1 FROM collectible_items WHERE id=? AND user_id=?').get(id,req.user.id))return res.status(404).json({error:'not_found'});db.exec('BEGIN IMMEDIATE');try{q('UPDATE collectible_items SET selected=0 WHERE user_id=?').run(req.user.id);if(id)q('UPDATE collectible_items SET selected=1,profile_hidden=0 WHERE id=? AND user_id=?').run(id,req.user.id);db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}changed(req.user.id);res.json({ok:true});});
 }
 export function registerCollectiblesAdmin(admin,{broadcastProfile,pushMe,notifyReceipt}){
  admin.get('/gifts/recipient/:username',(req,res)=>{const user=q("SELECT id,name,username FROM users WHERE lower(username)=? AND banned=0 AND google_sub NOT LIKE 'bot:%'").get(String(req.params.username||'').replace(/^@/,'').toLowerCase());if(!user)return res.status(404).json({error:'not_found'});res.json({user});});
- admin.get('/users/:id/gift-inventory',(req,res)=>{const id=Number(req.params.id)||0;res.json({catalog:COLLECTIONS,items:q('SELECT * FROM collectible_items WHERE user_id=? ORDER BY id DESC LIMIT 500').all(id).map(serializeTraits),regular:q('SELECT g.* FROM user_gifts g WHERE to_id=? AND NOT EXISTS(SELECT 1 FROM collectible_upgrades u WHERE u.gift_id=g.id) ORDER BY id DESC LIMIT 500').all(id)});});
+ admin.get('/users/:id/gift-inventory',(req,res)=>{const id=Number(req.params.id)||0;res.json({catalog:COLLECTIONS,items:q('SELECT * FROM collectible_items WHERE user_id=? ORDER BY id DESC LIMIT 500').all(id).map(serializeTraits),regular:q('SELECT g.* FROM user_gifts g WHERE to_id=? AND g.sold_at=0 AND NOT EXISTS(SELECT 1 FROM collectible_upgrades u WHERE u.gift_id=g.id) ORDER BY id DESC LIMIT 500').all(id)});});
  admin.post('/users/:id/gifts/:giftId/transfer',(req,res)=>{
  const from=Number(req.params.id),id=Number(req.params.giftId),to=Number(req.body?.recipientId),regular=req.body?.type==='regular';
  if(!['regular','collectible'].includes(req.body?.type)||!Number.isSafeInteger(from)||!Number.isSafeInteger(to)||from===to)return res.status(400).json({error:'forbidden'});
  db.exec('BEGIN IMMEDIATE');try{
- const target=q("SELECT id FROM users WHERE id=? AND banned=0 AND google_sub NOT LIKE 'bot:%'").get(to||0),row=regular?q('SELECT * FROM user_gifts WHERE id=? AND to_id=?').get(id||0,from):q('SELECT * FROM collectible_items WHERE id=? AND user_id=?').get(id||0,from);
+ const target=q("SELECT id FROM users WHERE id=? AND banned=0 AND google_sub NOT LIKE 'bot:%'").get(to||0),row=regular?q('SELECT * FROM user_gifts WHERE id=? AND to_id=? AND sold_at=0').get(id||0,from):q('SELECT * FROM collectible_items WHERE id=? AND user_id=?').get(id||0,from);
  if(!target||!row){db.exec('ROLLBACK');return res.status(404).json({error:'not_found'});}
  if(regular&&q('SELECT 1 FROM collectible_upgrades WHERE gift_id=?').get(id)){db.exec('ROLLBACK');return res.status(409).json({error:'gift_already_upgraded'});}
  if(!regular&&q('SELECT COUNT(*) AS n FROM collectible_items WHERE user_id=?').get(to).n>=500){db.exec('ROLLBACK');return res.status(400).json({error:'workspace_limit'});}

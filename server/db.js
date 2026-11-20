@@ -244,6 +244,7 @@ db.exec(`
 `);
 
 addColumn('user_gifts','profile_hidden','INTEGER NOT NULL DEFAULT 0');
+addColumn('user_gifts','sold_at','INTEGER NOT NULL DEFAULT 0');
 
 const stmtCache = new Map();
 /** Cached prepared statement. */
