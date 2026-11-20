@@ -3494,14 +3494,21 @@ function chatFooter(){
   return h('footer',{class:'chat-footer'},h('img',{src:'/icons/icon.svg',alt:'',width:30,height:30}),h('b',{},'Limochat'),version);
 }
 function toolsModal(){
-  const row=(ic,label,fn)=>h('button',{type:'button',class:'tools-row',onclick:()=>{modal.close();afterHistory(fn);}},icon(ic),h('span',{},label),icon('right'));
-  const group=(title,...items)=>h('section',{class:'tools-group'},h('h3',{},title),...items.filter(Boolean));
+  const colors={settings:'#579be7',user:'#39a9c5',pencil:'#9175e7',bookmark:'#e8a539',check:'#46b491',search:'#608dda',gamepad:'#996fe3',bot:'#4ab7b7',eye:'#bd78ce',megaphone:'#4f9ddb',plus:'#50b78d',coin:'#deb03e',crown:'#d5a343',gift:'#d078ab',moon:'#8a83d7',sparkles:'#d39853',info:'#62a8d5',download:'#51ae8b',shield:'#56ad7f',logout:'#d66e7b'};
+  const hints={settings:'Настройте Limochat под себя',bookmark:'Сообщения, файлы и заметки',check:'Папки, задачи и шаблоны',search:'Мгновенно найдите нужный чат',gamepad:'Играйте и зарабатывайте лимоны',bot:'Управляйте своими ботами',eye:'Послания и ответы без имени',megaphone:'Открывайте новое в Limochat',plus:'Начните новое общение',coin:'Ваш баланс и подарки',crown:'Дополнительные возможности',gift:'Подарите немного внимания',moon:'Комфортное оформление',shield:'Инструменты модерации'};
+  const row=(ic,label,fn)=>h('button',{type:'button',class:'tools-row'+(ic==='logout'?' tools-row-danger':''),style:{'--tool-color':colors[ic]||'var(--accent)'},onclick:()=>{modal.close();afterHistory(fn);}},h('span',{class:'tools-row-icon'},icon(ic)),h('span',{class:'tools-row-text'},h('strong',{},label),hints[ic]?h('small',{},hints[ic]):null),icon('right','tools-row-chevron'));
+  const group=(title,...items)=>h('section',{class:'tools-group'},h('h3',{},title),h('div',{class:'tools-group-list'},...items.filter(Boolean)));
+  const search=h('input',{type:'search',class:'tools-search',placeholder:'Найти возможность','aria-label':'Поиск возможностей'});
   let modal;
-  modal=openModal({title:'Возможности Limochat',className:'modal-tools',body:h('div',{class:'tools-home'},
+  modal=openModal({title:'Возможности',className:'modal-tools',body:h('div',{class:'tools-home'},
+    h('div',{class:'tools-hero'},h('img',{src:'/icons/icon.svg',alt:'',width:46,height:46}),h('div',{},h('small',{},'ВАШ LIMOCHAT'),h('h2',{},'Всё под рукой'),h('p',{},'Общение, подарки и ваши инструменты'))),
+    h('label',{class:'tools-search-wrap'},icon('search'),search),
+    h('p',{class:'tools-no-results',hidden:true},'Ничего не найдено. Попробуйте другое название.'),
     group('Основное',row('settings','Настройки',()=>navigateRoot('settings')),row('user','Мой профиль',()=>navigateRoot('profile')),row('user','Контакты',()=>navigateRoot('contacts')),row('pencil','Редактировать профиль',editProfileModal),row('bookmark','Избранное',openSaved),row('check','Органайзер',()=>workspaceHub()),row('search','Быстрый переход',commandPalette)),
     group('Общение и развлечения',row('gamepad','Мини-игры',gamesHub),featureOn('bots')?row('bot','Мои боты',myBotsModal):null,row('eye','Анонимные послания'+(S.anonUnread?' · '+S.anonUnread:''),()=>anonInbox()),row('megaphone','Каталог каналов',popularChannelsModal),row('plus','Создать группу или канал',()=>{const r=V.menuBtn.getBoundingClientRect();createMenu(r.left,r.bottom);})),
     group('Подарки и подписка',row('coin','Лимоны · '+(S.me.coins??0),myGiftsModal),row('crown',planById(S.me.sub)?.name||'Подписки Limochat',subscriptionsModal),row('gift','Коллекционные подарки',openCollectibles),row('gift','Пригласить друзей',referralModal)),
     group('Приложение',row('moon','Сменить светлую / тёмную тему',()=>{S.settings.theme=document.documentElement.dataset.theme==='dark'?'light':'dark';saveSettings();}),row('sparkles','Сотрудничество',()=>window.open('/partners','_blank','noopener')),row('megaphone','Новости Limochat',async()=>{try{const r=await api.get('/news/channel');if(r.chat){upsertChat(r.chat);renderChatList();openChat(r.chat.id);}else openChannel(r.channel);}catch(e){toast(errorText(e),'error');}}),row('info','Справка',()=>window.open('/help','_blank','noopener')),!isStandalone()?row('download','Установить приложение',installApp):null,(S.me.isModerator||S.me.isAdmin)?row('shield','Модерация',moderatorPanel):null,row('logout','Выйти из аккаунта',async()=>{if(await confirmDialog('Выйти из аккаунта на этом устройстве?',{ok:'Выйти',danger:true}))logout();})))});
+  search.addEventListener('input',()=>{const query=search.value.trim().toLocaleLowerCase('ru');let count=0;for(const group of modal.dialog.querySelectorAll('.tools-group')){let visible=0;for(const row of group.querySelectorAll('.tools-row')){row.hidden=!row.textContent.toLocaleLowerCase('ru').includes(query);if(!row.hidden)visible++;}group.hidden=!visible;count+=visible;}modal.dialog.querySelector('.tools-no-results').hidden=!!count;});
   return modal;
 }
 
