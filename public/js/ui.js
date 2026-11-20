@@ -31,6 +31,7 @@ function append(el, children) {
 // ---------- icons (static, trusted markup) ----------
 
 const ICONS = {
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   terminal: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M13 15h4"/>',
   partner: '<path d="m8.5 14.5 7-7M9 6l1-1a4.2 4.2 0 0 1 6 6l-1 1M15 18l-1 1a4.2 4.2 0 0 1-6-6l1-1"/>',
 

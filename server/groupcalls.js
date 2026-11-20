@@ -1,3 +1,4 @@
+import {familyCallError} from './family.js';
 // Group calls: a mesh of WebRTC connections (every participant ↔ every participant),
 // signaling relayed over Socket.IO. Rooms belong to a group chat or to an invite link.
 import crypto from 'node:crypto';
@@ -157,6 +158,7 @@ export function registerGroupCallHandlers(io, socket, userId, { inOneToOne }) {
   }
 
   socket.on('gc:start', (p, ack) => {
+    const familyError=familyCallError(userId);if(familyError)return reply(ack,{error:familyError});
     const chatId = Number(p?.chatId);
     const m = Number.isInteger(chatId) ? membership(chatId, userId) : null;
     if (!m) return reply(ack, { error: 'not_found' });
@@ -175,6 +177,7 @@ export function registerGroupCallHandlers(io, socket, userId, { inOneToOne }) {
   });
 
   socket.on('gc:link', (p, ack) => {
+    const familyError=familyCallError(userId);if(familyError)return reply(ack,{error:familyError});
     if (q('SELECT COUNT(*) AS n FROM call_links WHERE creator_id = ? AND created_at > ?').get(userId, now() - 3600_000).n >= 20) return reply(ack, { error: 'too_many' });
     const token = crypto.randomBytes(12).toString('base64url');
     const title = String(p?.title || '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 64);
@@ -196,6 +199,7 @@ export function registerGroupCallHandlers(io, socket, userId, { inOneToOne }) {
   });
 
   socket.on('gc:join', (p, ack) => {
+    const familyError=familyCallError(userId);if(familyError)return reply(ack,{error:familyError});
     if (inOneToOne(userId)) return reply(ack, { error: 'busy_self' });
     const r = accessibleRoom(p || {}, userId);
     if (r.error) return reply(ack, { error: r.error });

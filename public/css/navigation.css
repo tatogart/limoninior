@@ -1,10 +1,12 @@
 /* Shared navigation belongs in app.css: older open shells already load this file. */
-.chat-footer {box-sizing:border-box;flex:0 0 auto;display:flex;align-items:center;gap:9px;min-width:0;min-height:54px;padding:10px 16px;margin:0 0 calc(94px + env(safe-area-inset-bottom));background:var(--bg);color:var(--text-2);font-size:11px;line-height:1.4;position:relative;}
+.chat-footer {box-sizing:border-box;flex:0 0 auto;display:flex;align-items:center;gap:9px;min-width:0;min-height:54px;padding:10px 16px;margin:0;background:var(--bg);color:var(--text-2);font-size:11px;line-height:1.4;position:relative;}
 .chat-footer img {display:block;width:28px;height:28px;flex:0 0 28px;border-radius:9px;object-fit:contain;}
 .chat-footer b {font-size:13px;font-weight:650;color:var(--text);flex:0 0 auto;}
 .chat-version {display:block;margin-left:auto;max-width:52%;min-width:0;white-space:normal;overflow-wrap:anywhere;text-align:right;font:inherit;font-size:10px;line-height:1.5;letter-spacing:.1px;color:inherit;}
 .chat-version:is(button) {min-height:36px;padding:5px;border-radius:9px;}
-.sidebar .chat-list {min-height:0;padding-bottom:76px;}
+.sidebar .chat-scroll {flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding-bottom:calc(94px + env(safe-area-inset-bottom));}
+.sidebar .chat-scroll .chat-list {flex:none;overflow:visible;min-height:0;padding-bottom:0;}
+[data-interface="legacy"] .sidebar .chat-scroll {padding-bottom:env(safe-area-inset-bottom);}
 #app .sidebar .fab {bottom:calc(150px + env(safe-area-inset-bottom));}
 .modal-tools {width:min(550px,100%);}
 .modal-tools .modal-body {padding:10px 18px 24px;}

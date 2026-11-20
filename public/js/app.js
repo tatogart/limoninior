@@ -638,8 +638,7 @@ function buildLayout() {
     workspaceBar(),
     V.banner = h('div', { class: 'banner-slot' }),
     initStories({ me: () => S.me, prepareImage }),
-    V.list,
-    chatFooter(),
+    h('div',{class:'chat-scroll'},V.list,chatFooter()),
     h('button', { class: 'fab', 'aria-label': 'Новый чат', onclick: onFab }, icon('pencil')));
   V.pane = h('main', { class: 'chat-pane' }, emptyPane());
   V.layout = h('div', { class: 'layout' }, V.sidebar, V.pane);
@@ -795,6 +794,7 @@ function connectSocket() {
   const s = io({ transports: ['websocket', 'polling'], withCredentials: true, auth:{accountId:S.me.id} });
   S.socket = s;
   s.on('workspace:changed', workspaceChanged);
+  s.on('family:changed',()=>{saveDraft();stopTrack();location.reload();});
   let wasConnected = false;
   s.on('connect', () => {
     S.connected = true;

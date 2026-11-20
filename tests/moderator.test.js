@@ -27,3 +27,33 @@ test('report sanctions require an open report, valid duration and a non-staff ta
  report(12,3);assert.equal(call('post','/staff/reports/:id/action',{user:2,id:12,body:{action:'ban',hours:6}}).code,200);
  assert.equal(q('SELECT banned FROM users WHERE id=3').get().banned,1);
 });
+test('moderator dashboard filters reports and saves resolution comments',()=>{
+ const summary=call('get','/staff/summary',{user:2});assert.equal(summary.code,200);assert.ok(summary.body.resolved>=1);
+ const reports=call('get','/staff/reports',{user:2,query:{status:'resolved',reason:'spam'}});assert.ok(reports.body.reports.length>=1);assert.ok(reports.body.reports.every(r=>r.status==='resolved'&&r.reason==='spam'));
+ assert.equal(call('get','/staff/summary',{user:1}).code,404);
+ assert.equal(call('get','/staff/actions',{user:1}).code,404);
+});
+test('direct sanctions require reason, reject staff, and only their author can undo an unchanged temporary measure',()=>{
+ q('UPDATE users SET banned=0,muted_until=0,banned_until=0 WHERE id=3').run();
+ assert.equal(call('post','/staff/users/:id/action',{user:2,id:3,body:{action:'mute',hours:1}}).code,400);
+ assert.equal(call('post','/staff/users/:id/action',{user:2,id:2,body:{action:'ban',hours:1,reason:'test reason'}}).code,403);
+ assert.equal(call('post','/staff/users/:id/action',{user:2,id:3,body:{action:'mute',hours:1,reason:'Repeated spam'}}).code,200);
+ let action=q('SELECT * FROM moderator_actions ORDER BY id DESC LIMIT 1').get();
+ assert.equal(call('post','/staff/actions/:id/revoke',{user:1,id:action.id}).code,404);
+ // A different moderator cannot revoke another moderator’s action.
+ q('INSERT INTO staff_moderators VALUES(1,2,0)').run();
+ assert.equal(call('post','/staff/actions/:id/revoke',{user:1,id:action.id}).code,409);
+ assert.equal(call('post','/staff/actions/:id/revoke',{user:2,id:action.id}).code,200);
+ assert.equal(q('SELECT muted_until FROM users WHERE id=3').get().muted_until,0);
+ assert.equal(call('post','/staff/actions/:id/revoke',{user:2,id:action.id}).code,409);
+ assert.equal(call('post','/staff/users/:id/action',{user:2,id:3,body:{action:'ban',hours:1,reason:'Repeated abuse'}}).code,200);
+ action=q('SELECT * FROM moderator_actions ORDER BY id DESC LIMIT 1').get();
+ assert.equal(call('post','/staff/actions/:id/revoke',{user:2,id:action.id}).code,200);
+ assert.equal(q('SELECT banned FROM users WHERE id=3').get().banned,0);
+ assert.equal(call('post','/staff/users/:id/action',{user:2,id:3,body:{action:'mute',hours:1,reason:'Repeated spam'}}).code,200);
+ action=q('SELECT * FROM moderator_actions ORDER BY id DESC LIMIT 1').get();
+ q('UPDATE users SET muted_until=? WHERE id=3').run(action.until_at+99999);
+ assert.equal(call('post','/staff/actions/:id/revoke',{user:2,id:action.id}).code,409);
+ assert.equal(q('SELECT muted_until FROM users WHERE id=3').get().muted_until,action.until_at+99999);
+ const history=call('get','/staff/actions',{user:2});assert.ok(history.body.actions.length>=4);assert.ok(history.body.actions.every(a=>!('email' in a)&&!('ip' in a)));
+});

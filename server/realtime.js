@@ -1,3 +1,4 @@
+import {familyCallError} from './family.js';
 import crypto from 'node:crypto';
 import { Server } from 'socket.io';
 import { config } from './config.js';
@@ -95,11 +96,13 @@ function registerCallHandlers(socket, userId) {
   socket.on('call:invite', (p, ack) => {
     if (Date.now() - lastInvite < 3000) return reply(ack, { error: 'too_many' });
     lastInvite = Date.now();
+    const familyError=familyCallError(userId);if(familyError)return reply(ack,{error:familyError});
     const chatId = Number(p?.chatId);
     const chat = Number.isInteger(chatId) && q("SELECT * FROM chats WHERE id = ? AND type = 'private'").get(chatId);
     const peer = chat && q('SELECT u.* FROM chat_members cm JOIN users u ON u.id = cm.user_id WHERE cm.chat_id = ? AND cm.user_id != ?').get(chatId, userId);
     if (!chat || !peer || !q('SELECT 1 FROM chat_members WHERE chat_id = ? AND user_id = ?').get(chatId, userId)) return reply(ack, { error: 'not_found' });
     if (peer.banned || /^(system|bot):/.test(String(peer.google_sub))) return reply(ack, { error: 'unavailable' });
+    const peerFamilyError=familyCallError(peer.id);if(peerFamilyError)return reply(ack,{error:peerFamilyError});
     // Callee's privacy: who may call them.
     const who = getPrefs(peer).calls;
     const isContact = !!q('SELECT 1 FROM messages WHERE chat_id = ? AND sender_id = ? LIMIT 1').get(chatId, peer.id);
@@ -126,6 +129,7 @@ function registerCallHandlers(socket, userId) {
   socket.on('call:accept', (p) => {
     const c = own(p?.callId);
     if (!c || c.to !== userId || c.startedAt) return;
+    if(familyCallError(userId)||familyCallError(c.from))return endCall(c,'declined');
     clearTimeout(c.timer);
     c.calleeSocket = socket.id;
     c.startedAt = Date.now();
