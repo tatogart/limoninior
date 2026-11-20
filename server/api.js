@@ -1,3 +1,4 @@
+import {RELEASE_NEWS} from './release-news.js';
 import {ensureNewsChannel} from './news-channel.js';
 import {registerAccountLifecycle,newRecoveryCode,recoveryDigest} from './account-lifecycle.js';
 import {loginRequests} from './desktop-login.js';
@@ -714,6 +715,7 @@ api.use(requireAuth, requireProfile);
 
 api.get('/news/channel',(req,res)=>{
   const channel=officialNewsChannel(req.user);
+  announceReleasedUpdates();
   res.json({channel:channelPublic(channel),chat:chatForUser(channel.id,req.user.id)});
 });
 
@@ -953,6 +955,7 @@ api.post('/chats/:id/leave', (req, res) => {
 api.get('/chats/:id/messages', (req, res) => {
   const id = int(req.params.id);
   if (!id || !isMember(id, req.user.id)) return bad(res, 'not_found', 404);
+  if(id===Number(kvGet('official_news_channel')))announceReleasedUpdates();
   const before = int(req.query.before);
   const after = int(req.query.after);
   let rows;
@@ -1567,6 +1570,7 @@ api.get('/channels/:id', (req, res) => {
 api.get('/channels/:id/messages', (req, res) => {
   const c = publicChannel(int(req.params.id));
   if (!c) return bad(res, 'not_found', 404);
+  if(c.id===Number(kvGet('official_news_channel')))announceReleasedUpdates();
   const before = int(req.query.before);
   const rows = (before
     ? q('SELECT * FROM messages WHERE chat_id = ? AND id < ? ORDER BY id DESC LIMIT ?').all(c.id, before, PAGE)
@@ -1872,11 +1876,12 @@ export function announceReleasedUpdates() {
     {key:'news:anon-self-profile-fix-2026-11-18',text:'🛠 Исправление профиля\n\nУбрали кнопку анонимного сообщения самому себе: в собственном профиле она больше не показывается и не вызывает ошибку. В чужих профилях анонимные сообщения доступны, если получатель их разрешил.'},
     {key:'news:interface-music-gifts-2026-11-20',text:'🍋 Большое обновление Limochat\n\nНовая нижняя навигация, настройки с поиском и вкладки профиля. Боковое меню заменили разделом «Возможности». В настройках интерфейса можно вернуть старое оформление.\n\n🎵 В профиле появились плейлисты и регулировка громкости с сохранением уровня.\n\n🎁 Коллекционные подарки теперь видны в чужих профилях. Любой свой подарок можно скрыть из профиля и затем вернуть — нажмите на него. Скрытие не удаляет старые сообщения о подарке и объявления на площадке.\n\n🛠 Исправлены прокрутка экранов, отсутствующие иконки и расположение версии приложения.'},
   ];
-  for(const update of updates){
+  for(const update of [...updates,...RELEASE_NEWS]){
     const message=tx(()=>{
-      if(kvGet(update.key))return null;
       const channel=q('SELECT * FROM chats WHERE id=?').get(Number(kvGet('official_news_channel'))||0);
       if(!channel)return null;
+      const previous=Number(kvGet(update.key));
+      if(previous&&q('SELECT 1 FROM messages WHERE id=? AND chat_id=?').get(previous,channel.id))return null;
       const message=insertMessage(channel.id,officialUser().id,{kind:'text',text:update.text});
       kvSet(update.key,message.id);
       return message;
