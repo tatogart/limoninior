@@ -2962,3 +2962,27 @@ button, input, textarea, select { font-family: inherit; }
   position:static;margin:4px 7px 0;font-size:9px;padding:3px 5px;
 }
 .profile-gift-title {min-height:30px;display:flex;align-items:center;justify-content:center;}
+
+/* Saved accounts use the same sheet and theme tokens as settings. */
+.modal-accounts{max-width:480px}
+.accounts-home{display:flex;flex-direction:column;gap:16px;min-width:0;padding:4px 0}
+.accounts-description{margin:0;line-height:1.5;color:var(--text)}
+.accounts-caption{margin:0;font-size:13px;line-height:1.5;color:var(--text-2)}
+.accounts-list{display:flex;flex-direction:column;gap:8px;min-width:0}
+.accounts-row{display:flex;align-items:center;gap:4px;border:1px solid var(--border);border-radius:18px;overflow:hidden;background:var(--bg-2)}
+.accounts-row.selected{border-color:var(--accent)}
+.accounts-select{display:flex;align-items:center;gap:12px;flex:1;min-width:0;min-height:78px;padding:12px;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}
+.accounts-select:disabled{opacity:1;cursor:default}
+.accounts-select>.avatar{flex-shrink:0}
+.accounts-text{display:flex;flex:1;flex-direction:column;gap:4px;min-width:0}
+.accounts-text strong,.accounts-text small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.accounts-text small{color:var(--text-2)}
+.accounts-current{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--accent)}
+.accounts-current svg{width:16px;height:16px}
+.accounts-remove{display:grid;place-items:center;flex:0 0 44px;min-height:48px;border:0;border-radius:12px;background:transparent;color:var(--text-2);margin-right:6px;cursor:pointer}
+.accounts-remove:hover,.accounts-select:hover:enabled{background:var(--hover)}
+.accounts-remove:hover{color:var(--danger)}
+.accounts-select:focus-visible,.accounts-remove:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}
+.accounts-add{display:flex;justify-content:center;align-items:center;gap:8px;min-height:48px}
+.accounts-empty{padding:16px;margin:0;color:var(--text-2);text-align:center}
+@media(max-width:380px){.accounts-current{font-size:0}.accounts-select{gap:8px}.accounts-remove{flex-basis:36px}}

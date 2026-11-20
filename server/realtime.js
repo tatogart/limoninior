@@ -191,6 +191,7 @@ export function initRealtime(httpServer, trustFn) {
   io.use((socket, next) => {
     const r = sessionFromCookie(socket.request.headers.cookie);
     if (!r || !r.user.username) return next(new Error('unauthorized'));
+    if(socket.handshake.auth?.accountId && String(socket.handshake.auth.accountId)!==String(r.user.id))return next(new Error('account_changed'));
     const ip = normIp(trustFn ? proxyaddr(socket.request, trustFn) : socket.handshake.address);
     if (isIpBanned(ip)) return next(new Error('ip_banned'));
     trackIp(r.user.id, ip);

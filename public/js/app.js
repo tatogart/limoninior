@@ -11,7 +11,8 @@ import {moderatorPanel} from './moderator.js';
 import {familyModal} from './family.js';
 import { initWorkspace, refreshWorkspace, workspaceChanged, workspaceFilter, workspaceAll, workspaceUnread, workspaceOpened, workspaceBar, updateWorkspaceBar, workspaceHub, workspaceChatItems, workspaceMessageItems, workspaceSearch, templatePicker, commandPalette, exportChat, openMessageContext } from './workspace.js';
 import { io } from '/vendor/socket.io.esm.min.js';
-import { api, errorText } from './api.js';
+import { api, errorText, setAccountId } from './api.js';
+import { accountsModal } from './accounts.js';
 import { loadDrafts, persistDrafts } from './drafts.js';
 import { surpriseModal, surpriseEl } from './surprises.js';
 import { catchEl } from './catch.js';
@@ -287,6 +288,8 @@ async function boot() {
   }
   try {
     S.me = (await api.get('/me')).user;
+    setAccountId(S.me.id);
+    if(new URLSearchParams(location.search).get('addAccount')==='1')return renderLogin(true);
   } catch (e) {
     if (e.status === 401) return renderLogin();
     app.replaceChildren(h('div',{class:'fatal'},h('p',{},errorText(e)),h('button',{class:'btn btn-primary',onclick:()=>location.reload()},'Повторить')));return;
@@ -338,7 +341,7 @@ async function installApp() {
 
 // ============================================================ login
 
-function renderLogin() {
+function renderLogin(adding = false) {
   const gbtn = h('div', { class: 'gbtn' });
   let mode = 'login';
   const nameIn = h('input', { class: 'input', placeholder: 'Как вас зовут', maxLength: 64, autocomplete: 'name' });
@@ -405,7 +408,9 @@ function renderLogin() {
   const card = h('div', { class: 'login-card' },
     h('img', { class: 'login-logo', src: '/icons/icon.svg', alt: '', width: 96, height: 96 }),
     h('h1', {}, 'Limochat'),
-    h('p', { class: 'login-sub' }, 'Быстрый, красивый и безопасный мессенджер'),
+    h('p', { class: 'login-sub' }, adding ? 'Добавьте ещё один аккаунт на этом устройстве' : 'Быстрый, красивый и безопасный мессенджер'),
+    adding ? h('button',{type:'button',class:'btn btn-ghost btn-block',onclick:()=>location.replace('/')},'Вернуться в аккаунт') : null,
+    h('button',{type:'button',class:'btn btn-ghost btn-block',onclick:openAccounts},icon('user'),'Сохранённые аккаунты'),
     form,
     h('button',{class:'link-btn',type:'button',onclick:()=>resetPasswordModal(userIn.value)},'Забыли пароль?'),
     S.config.googleClientId ? h('div', { class: 'or' }, h('span', {}, 'или')) : null,
@@ -447,7 +452,7 @@ function renderLogin() {
         window.open('/desktop-login.html#'+new URLSearchParams({id:request.id,approve:request.approve}),'_blank','noopener');
         gbtn.append(h('p',{class:'hint-box'},'Подтвердите вход в браузере. Ожидаем до 5 минут…'));
         const deadline=Date.now()+300000;
-        while(Date.now()<deadline&&button.isConnected&&!S.me){
+        while(Date.now()<deadline&&button.isConnected){
           await new Promise(resolve=>setTimeout(resolve,3000));
           const result=await api.post('/auth/desktop/poll',{id:request.id,poll:request.poll});
           if(result.user){S.me=result.user;S.me.needsProfile?renderOnboarding():startApp();return;}
@@ -520,6 +525,7 @@ function usernameField(initial = '') {
 }
 
 function renderOnboarding() {
+  accountSignedIn();
   const name = h('input', { class: 'input', value: S.me.name || '', maxLength: 64, placeholder: 'Имя' });
   const uname = usernameField('');
   const submit = async () => {
@@ -541,14 +547,43 @@ function renderOnboarding() {
 }
 
 async function logout() {
-  try { await api.post('/auth/logout'); } catch { /* ignore */ }
-  S.socket?.disconnect();
-  navigate('/');
+  if(!canChangeAccount())return;
+  try { await api.post('/auth/logout'); } catch(e) { toast(errorText(e),'error'); return; }
+  reloadAccount();
 }
+
+
+const ACCOUNT_CHANGE_KEY='limoninior.account-change';
+function markAccountChange(){try{localStorage.setItem(ACCOUNT_CHANGE_KEY,Date.now()+':'+Math.random());}catch{}}
+function accountSignedIn(){
+  setAccountId(S.me.id);
+  if(new URLSearchParams(location.search).has('addAccount'))history.replaceState(null,'', '/');
+  markAccountChange();
+}
+function canChangeAccount(){
+  if(inCall()||inGroupCall()||rec){toast('Сначала завершите звонок или запись','error');return false;}
+  return true;
+}
+function reloadAccount(){
+  saveDraft();stopTrack();S.socket?.disconnect();markAccountChange();location.replace('/');
+}
+function openAccounts(){
+  return accountsModal({canChange:canChangeAccount,onSwitch:reloadAccount,onAdd:()=>{
+    saveDraft();stopTrack();S.socket?.disconnect();location.assign('/?addAccount=1');
+  }});
+}
+window.addEventListener('storage',e=>{
+  if(e.key!==ACCOUNT_CHANGE_KEY)return;
+  // Recheck before reloading: booting another tab with the same account is harmless.
+  api.get('/me').then(({user})=>{if(S.me&&user.id!==S.me.id){saveDraft();stopTrack();S.socket?.disconnect();location.replace('/');}})
+    .catch(e=>{if(e.status===401||e.code==='account_changed'){saveDraft();stopTrack();S.socket?.disconnect();location.replace('/');}});
+});
+window.addEventListener('limochat:account-changed',()=>{saveDraft();stopTrack();S.socket?.disconnect();location.replace('/');});
 
 // ============================================================ main layout
 
 function startApp() {
+  accountSignedIn();
   S.drafts = loadDrafts(S.me.id);
   initWorkspace({ S, chatTitle, userName, messagePreview, renderChatList, openChat, jumpToMessage,
     clearSearch, closeCommunity, openViewer, downloadFile, focusComposer: () => V.input?.focus(),
@@ -647,7 +682,7 @@ function openContacts(){
 }
 function openSettingsHome(){
   const details=title=>()=>settingsModal(title);
-  return settingsHome({me:S.me,avatar:()=>userAvatar(S.me,104),version:clientVersion(),actions:{edit:editProfileModal,appearance:details('Оформление'),privacy:details('Конфиденциальность'),notifications:details('Уведомления и звуки'),folders:()=>workspaceHub(),devices:sessionsModal,themes:themesModal,performance:details('Читаемость и производительность'),interface:details('Интерфейс'),tools:toolsModal,allSettings:()=>settingsModal(),subscription:subscriptionsModal,gifts:openCollectibles,security:details('Безопасность'),family:familyModal,news:async()=>{try{const r=await api.get('/news/channel');while(closeTopModal()){}afterHistory(()=>{if(r.chat){upsertChat(r.chat);renderChatList();openChat(r.chat.id);}else openChannel(r.channel);});}catch(e){toast(errorText(e),'error');}},help:()=>window.open('/help','_blank','noopener'),policy:()=>window.open('/privacy','_blank','noopener')}});
+  return settingsHome({me:S.me,avatar:()=>userAvatar(S.me,104),version:clientVersion(),actions:{accounts:openAccounts,edit:editProfileModal,appearance:details('Оформление'),privacy:details('Конфиденциальность'),notifications:details('Уведомления и звуки'),folders:()=>workspaceHub(),devices:sessionsModal,themes:themesModal,performance:details('Читаемость и производительность'),interface:details('Интерфейс'),tools:toolsModal,allSettings:()=>settingsModal(),subscription:subscriptionsModal,gifts:openCollectibles,security:details('Безопасность'),family:familyModal,news:async()=>{try{const r=await api.get('/news/channel');while(closeTopModal()){}afterHistory(()=>{if(r.chat){upsertChat(r.chat);renderChatList();openChat(r.chat.id);}else openChannel(r.channel);});}catch(e){toast(errorText(e),'error');}},help:()=>window.open('/help','_blank','noopener'),policy:()=>window.open('/privacy','_blank','noopener')}});
 }
 
 function setAnonUnread(n) {
@@ -757,7 +792,7 @@ async function handleDeepLink() {
 // ============================================================ socket
 
 function connectSocket() {
-  const s = io({ transports: ['websocket', 'polling'], withCredentials: true });
+  const s = io({ transports: ['websocket', 'polling'], withCredentials: true, auth:{accountId:S.me.id} });
   S.socket = s;
   s.on('workspace:changed', workspaceChanged);
   let wasConnected = false;
@@ -780,6 +815,7 @@ function connectSocket() {
   });
   s.on('connect_error', async (err) => {
     V.conn.classList.remove('hidden');
+    if(err?.message==='account_changed'){saveDraft();stopTrack();location.replace('/');return;}
     if (err?.message === 'unauthorized') {
       try { await api.get('/me'); } catch (e) { if (e.status === 401) location.reload(); }
     }
@@ -3494,7 +3530,7 @@ function toolsModal(){
     h('div',{class:'tools-hero'},h('img',{src:'/icons/icon.svg',alt:'',width:46,height:46}),h('div',{},h('small',{},'ВАШ LIMOCHAT'),h('h2',{},'Всё под рукой'),h('p',{},'Общение, подарки и ваши инструменты'))),
     h('label',{class:'tools-search-wrap'},icon('search'),search),
     h('p',{class:'tools-no-results',hidden:true},'Ничего не найдено. Попробуйте другое название.'),
-    group('Основное',row('settings','Настройки',()=>navigateRoot('settings')),row('user','Мой профиль',()=>navigateRoot('profile')),row('user','Контакты',()=>navigateRoot('contacts')),row('pencil','Редактировать профиль',editProfileModal),row('bookmark','Избранное',openSaved),row('check','Органайзер',()=>workspaceHub()),row('search','Быстрый переход',commandPalette)),
+    group('Основное',row('user','Аккаунты',openAccounts),row('settings','Настройки',()=>navigateRoot('settings')),row('user','Мой профиль',()=>navigateRoot('profile')),row('user','Контакты',()=>navigateRoot('contacts')),row('pencil','Редактировать профиль',editProfileModal),row('bookmark','Избранное',openSaved),row('check','Органайзер',()=>workspaceHub()),row('search','Быстрый переход',commandPalette)),
     group('Общение и развлечения',row('gamepad','Мини-игры',gamesHub),featureOn('bots')?row('bot','Мои боты',myBotsModal):null,row('eye','Анонимные послания'+(S.anonUnread?' · '+S.anonUnread:''),()=>anonInbox()),row('megaphone','Каталог каналов',popularChannelsModal),row('plus','Создать группу или канал',()=>{const r=V.menuBtn.getBoundingClientRect();createMenu(r.left,r.bottom);})),
     group('Подарки и подписка',row('coin','Лимоны · '+(S.me.coins??0),myGiftsModal),row('crown',planById(S.me.sub)?.name||'Подписки Limochat',subscriptionsModal),row('gift','Коллекционные подарки',openCollectibles),row('gift','Пригласить друзей',referralModal)),
     group('Приложение',row('moon','Сменить светлую / тёмную тему',()=>{S.settings.theme=document.documentElement.dataset.theme==='dark'?'light':'dark';saveSettings();}),row('sparkles','Сотрудничество',()=>window.open('/partners','_blank','noopener')),row('megaphone','Новости Limochat',async()=>{try{const r=await api.get('/news/channel');if(r.chat){upsertChat(r.chat);renderChatList();openChat(r.chat.id);}else openChannel(r.channel);}catch(e){toast(errorText(e),'error');}}),row('info','Справка',()=>window.open('/help','_blank','noopener')),!isStandalone()?row('download','Установить приложение',installApp):null,(S.me.isModerator||S.me.isAdmin)?row('shield','Модерация',moderatorPanel):null,row('logout','Выйти из аккаунта',async()=>{if(await confirmDialog('Выйти из аккаунта на этом устройстве?',{ok:'Выйти',danger:true}))logout();})))});
@@ -3826,6 +3862,7 @@ function settingsModal(focusSection) {
   renderWalls();
 
   body.append(
+    section('user','Аккаунты',h('button',{class:'set-row clickable',onclick:openAccounts},icon('user'),h('span',{},'Добавить или переключить аккаунт'))),
     section('settings','Интерфейс',row('Внешний вид приложения','Переключение сохранится на этом устройстве',seg('interfaceMode',[['modern','Новый интерфейс'],['legacy','Старый интерфейс']],()=>{saveDraft();location.reload();}))),
     section('community','Возможности',h('button',{class:'set-row clickable',onclick:toolsModal},icon('community'),h('span',{},'Все возможности Limochat'))),
     section('shield', 'Родительский контроль', h('button',{class:'set-row clickable',onclick:familyModal},h('div',{class:'set-text'},h('div',{class:'row-main'},'Семья и ограничения'),h('div',{class:'row-sub'},'Привязка аккаунта, родительский PIN и расписание')))),

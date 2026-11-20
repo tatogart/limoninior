@@ -40,7 +40,49 @@ export function upsertUser({ sub, email, name, picture }) {
   return q('SELECT * FROM users WHERE id = ?').get(r.lastInsertRowid);
 }
 
+export const MAX_SAVED_ACCOUNTS=5;
+export const accountCookie=userId=>COOKIE+'-account-'+userId;
+const cookieOptions=maxAge=>({httpOnly:true,secure:config.isProd,sameSite:'lax',path:'/',maxAge});
+function setSessionCookie(res,name,token,expires){res.cookie(name,token,cookieOptions(Math.max(1,expires-now())));}
+export function savedAccountSessions(req,res){
+ const cookies=parseCookies(req.headers?.cookie),byUser=new Map();
+ const current=sessionFromCookie(req.headers?.cookie);
+ if(current)byUser.set(current.user.id,{...current,token:cookies[COOKIE]});
+ for(const [name,token] of Object.entries(cookies)){
+  if(!name.startsWith(COOKIE+'-account-'))continue;
+  const uid=Number(name.slice((COOKIE+'-account-').length));
+  const value=Number.isSafeInteger(uid)&&uid>0?sessionFromCookie(COOKIE+'='+encodeURIComponent(token)):null;
+  if(value&&value.user.id===uid){if(!byUser.has(uid))byUser.set(uid,{...value,token});}
+  else if(res)res.clearCookie(name,cookieOptions(undefined));
+ }
+ return [...byUser.values()].slice(0,MAX_SAVED_ACCOUNTS);
+}
+export function assertAccountCapacity(req,userId){
+ const accounts=savedAccountSessions(req);
+ if(accounts.length>=MAX_SAVED_ACCOUNTS&&!accounts.some(a=>a.user.id===userId))throw Object.assign(new Error('account_limit'),{status:400});
+}
+export function rememberCurrentAccount(req,res){
+ const current=sessionFromCookie(req.headers?.cookie),token=parseCookies(req.headers?.cookie)[COOKIE];
+ if(current&&token)setSessionCookie(res,accountCookie(current.user.id),token,current.session.expires_at);
+ return current;
+}
+export function switchSavedAccount(req,res,userId){
+ const target=savedAccountSessions(req).find(a=>a.user.id===userId);if(!target)return null;
+ setSessionCookie(res,COOKIE,target.token,target.session.expires_at);
+ rememberCurrentAccount(req,res);
+ setSessionCookie(res,accountCookie(userId),target.token,target.session.expires_at);
+ return target;
+}
+export function forgetSavedAccount(req,res,userId){
+ const current=sessionFromCookie(req.headers?.cookie),target=savedAccountSessions(req).find(a=>a.user.id===userId);
+ if(target)q('DELETE FROM sessions WHERE id=? AND user_id=?').run(target.session.id,userId);
+ res.clearCookie(accountCookie(userId),cookieOptions(undefined));
+ if(current?.user.id===userId)res.clearCookie(COOKIE,cookieOptions(undefined));
+ return {removed:target?.session.id||null,currentRemoved:current?.user.id===userId};
+}
+
 export function createSession(res, req, userId, method = 'password') {
+  assertAccountCapacity(req,userId);
   const token = crypto.randomBytes(32).toString('base64url');
   const t = now();
   const expires = t + config.sessionDays * 864e5;
@@ -54,9 +96,14 @@ export function createSession(res, req, userId, method = 'password') {
     path: '/',
     maxAge: config.sessionDays * 864e5,
   });
+  const previous=sessionFromCookie(req.headers?.cookie);
+  if(previous&&previous.user.id!==userId)rememberCurrentAccount(req,res);
+  setSessionCookie(res,accountCookie(userId),token,expires);
 }
 
 export function destroySession(res, sessionId) {
+  const session=sessionId?q('SELECT user_id FROM sessions WHERE id=?').get(sessionId):null;
+  if(session)res.clearCookie(accountCookie(session.user_id),cookieOptions(undefined));
   if (sessionId) q('DELETE FROM sessions WHERE id = ?').run(sessionId);
   res.clearCookie(COOKIE, { httpOnly: true, secure: config.isProd, sameSite: 'lax', path: '/' });
 }
@@ -120,6 +167,8 @@ export function createLocalUser({ username, name, passwordHash }) {
 export function requireAuth(req, res, next) {
   const r = sessionFromCookie(req.headers.cookie);
   if (!r) return res.status(401).json({ error: 'unauthorized' });
+  const expected=req.headers?.['x-limochat-account'];
+  if(expected&&String(r.user.id)!==String(expected))return res.status(409).json({error:'account_changed'});
   req.session = r.session;
   req.user = r.user;
   next();

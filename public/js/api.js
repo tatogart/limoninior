@@ -1,3 +1,5 @@
+let activeAccountId=null;
+export function setAccountId(id){activeAccountId=id;}
 export class ApiError extends Error {
   constructor(status, code, data = null) {
     super(code);
@@ -9,6 +11,7 @@ export class ApiError extends Error {
 
 async function request(method, url, body) {
   const opts = { method, credentials: 'same-origin', headers: {} };
+  if(activeAccountId)opts.headers['X-Limochat-Account']=String(activeAccountId);
   if (body instanceof FormData) {
     opts.body = body;
   } else if (body !== undefined) {
@@ -23,6 +26,7 @@ async function request(method, url, body) {
   }
   let data = null;
   try { data = await res.json(); } catch { /* empty body */ }
+  if(data?.error==='account_changed')window.dispatchEvent(new Event('limochat:account-changed'));
   if (!res.ok) throw new ApiError(res.status, data?.error || 'error', data);
   return data;
 }
@@ -36,6 +40,10 @@ export const api = {
 };
 
 export const ERRORS = {
+ account_limit:'На устройстве можно сохранить до 5 аккаунтов. Сначала уберите один из списка.',
+ account_expired:'Сессия аккаунта истекла. Войдите в него заново.',
+ account_changed:'В другой вкладке выбран другой аккаунт. Обновляем приложение.',
+ bad_account:'Выберите сохранённый аккаунт.',
  playlist_limit:'Можно создать до 5 плейлистов.',
  playlist_track_limit:'В плейлистах можно хранить до 20 треков суммарно.',
  bad_playlist:'Список треков изменился. Откройте профиль заново.',

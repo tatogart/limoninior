@@ -1,3 +1,5 @@
+import {registerMultiAccounts} from './multi-accounts.js';
+import {assertAccountCapacity} from './auth.js';
 import {RELEASE_NEWS} from './release-news.js';
 import {ensureNewsChannel} from './news-channel.js';
 import {registerAccountLifecycle,newRecoveryCode,recoveryDigest} from './account-lifecycle.js';
@@ -388,6 +390,7 @@ function checkUsername(username) {
 const passwordError = (pw) => (typeof pw !== 'string' || pw.length < 8 ? 'weak_password' : pw.length > 128 ? 'bad_password' : null);
 
 api.post('/auth/register', registerLimiter, async (req, res) => {
+  assertAccountCapacity(req);
   const username = String(req.body?.username || '').replace(/^@/, '');
   const name = clean(req.body?.name, 64);
   const password = req.body?.password;
@@ -493,6 +496,8 @@ api.post('/auth/logout', requireAuth, (req, res) => {
   destroySession(res, req.session.id);
   res.json({ ok: true });
 });
+
+registerMultiAccounts(api,{meUser,disconnectSession});
 
 // ---------- profile ----------
 
