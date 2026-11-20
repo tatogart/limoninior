@@ -36,6 +36,7 @@ test('control validation rejects invalid schedules and keeps new restrictions wi
 });
 test('parent PIN cannot be replaced without its current value and attempts are limited',()=>{
  assert.equal(call('post','/family/invite').body.error,'family_pin_required');
+ for(const pin of ['1234','abcdef','1234567','']){const invalid=call('post','/family/pin',{body:{pin}});assert.equal(invalid.code,400);assert.equal(invalid.body.error,'bad_family_pin_format');assert.equal(call('get','/family').body.pinSet,false);}
  assert.equal(call('post','/family/pin',{body:{pin:'123456'}}).code,200);
  for(let i=0;i<5;i++)assert.equal(call('post','/family/pin',{body:{pin:'234567',currentPin:'000000'}}).code,403);
  assert.equal(call('post','/family/pin',{body:{pin:'234567',currentPin:'123456'}}).code,429);

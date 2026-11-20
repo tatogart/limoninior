@@ -3003,3 +3003,11 @@ button, input, textarea, select { font-family: inherit; }
 .moderation-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.moderation-summary>div{display:flex;flex-direction:column;gap:6px;padding:14px;border:1px solid var(--border);border-radius:16px;background:var(--bg-2)}.moderation-summary strong{font-size:24px;color:var(--accent)}.moderation-summary small{color:var(--text-2);line-height:1.4}
 .moderation-tabs{display:flex;flex-wrap:wrap;gap:8px}.moderation-tabs .btn{display:flex;align-items:center;gap:7px;min-height:44px}.mod-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.mod-filters>label{min-width:0}.mod-measures{padding:12px 0}.mod-measures summary{cursor:pointer;font-weight:600;margin-bottom:12px}.mod-report-text{white-space:pre-wrap;overflow-wrap:anywhere}
 @media(max-width:480px){.moderation-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.family-card{padding:14px}.mod-filters{grid-template-columns:minmax(0,1fr)}.moderation-tabs .btn{flex:1 1 40%;justify-content:center}}
+
+/* PIN setup must remain legible even with a white accent or glass theme. */
+.family-home .btn-primary{background:var(--text);color:var(--bg);box-shadow:none;border:1px solid var(--text)}
+.family-home .btn-primary:hover{background:var(--text);color:var(--bg)}
+.family-pin-field{display:flex;flex-direction:column;gap:8px;min-width:0;font-size:14px}
+.family-pin-hint{color:var(--text-2);line-height:1.5}
+.family-pin-field:has([aria-invalid="true"]) .family-pin-hint{color:var(--danger)}
+.family-pin-field [aria-invalid="true"]{border-color:var(--danger)}

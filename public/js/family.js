@@ -1,6 +1,7 @@
 import {api,errorText} from './api.js';
 import {h,icon,openModal,toast,confirmDialog} from './ui.js';
 const labels={paused:'Приостановить доступ',games:'Запретить игры',purchases:'Запретить покупки и подарки',newChats:'Запретить создание чатов и вступление',calls:'Запретить входящие и исходящие звонки',bots:'Запретить ботов и студию',stories:'Запретить просмотр и публикацию историй',channels:'Запретить открывать каналы',quiet:'Включить ограничение по расписанию'};
+let pinSequence=0;
 const days=[[1,'Пн'],[2,'Вт'],[3,'Ср'],[4,'Чт'],[5,'Пт'],[6,'Сб'],[0,'Вс']];
 export async function familyModal(){
  try{
@@ -9,18 +10,26 @@ export async function familyModal(){
  const action=(label,fn,primary=false)=>{let busy=false;const b=h('button',{type:'button',class:'btn'+(primary?' btn-primary':''),onclick:async()=>{if(busy)return;busy=true;b.disabled=true;try{await fn();}catch(e){toast(errorText(e),'error');}finally{busy=false;b.disabled=false;}}},label);return b;};
  const refresh=()=>{modal.close();familyModal();};
  const intro=h('div',{class:'family-intro'},icon('shield'),h('div',{},h('h2',{},state.parent?'Ваш семейный доступ':'Семья под защитой'),h('p',{},'Подключение подтверждает ребёнок. Родитель управляет ограничениями и расписанием, не получает доступа к переписке. Ограничения действуют для связанного аккаунта на всех устройствах.')));body.append(intro);
- const pinInput=(placeholder)=>h('input',{class:'input',type:'password',inputMode:'numeric',maxLength:6,placeholder,'aria-label':placeholder,autocomplete:'off'});
+ const pinInput=(title)=>{
+  const hintId='family-pin-hint-'+(++pinSequence);
+  const hint=h('small',{id:hintId,class:'family-pin-hint'},'Ровно 6 цифр (0–9).');
+  const input=h('input',{class:'input',type:'password',inputMode:'numeric',minLength:6,maxLength:6,pattern:'[0-9]{6}',placeholder:'6 цифр','aria-label':title,'aria-describedby':hintId,autocomplete:'off',oninput:()=>{input.removeAttribute('aria-invalid');hint.textContent='Ровно 6 цифр (0–9). Введено: '+input.value.length+' из 6.';}});
+  const field=h('label',{class:'family-pin-field'},h('span',{},title),input,hint);
+  return {input,field,valid(){const ok=/^[0-9]{6}$/.test(input.value);if(!ok){input.setAttribute('aria-invalid','true');hint.textContent='Введите ровно 6 цифр (0–9). Сейчас введено: '+input.value.length+'.';input.focus();}return ok;}};
+ };
  if(state.parent){
-  const c=state.controls,pin=pinInput('Родительский PIN — 6 цифр');
-  body.append(h('section',{class:'family-card'},h('h3',{},'Родитель: '+state.parent.name),h('div',{class:'family-status'},...Object.entries(labels).filter(([key])=>c[key]).map(([,label])=>h('span',{},label))),!Object.keys(labels).some(k=>c[k])?h('p',{class:'muted'},'Ограничения не включены'):null,c.quiet?h('p',{class:'muted'},'Расписание: '+c.quietStart+':00–'+c.quietEnd+':00 · '+c.timeZone+' · '+days.filter(([d])=>c.quietDays.includes(d)).map(([,l])=>l).join(', ')+'. Ночной интервал относится ко дню начала.'):null,pin,action('Отключить связь',async()=>{if(await confirmDialog('Отключить родительский контроль?',{ok:'Отключить'})){await api.post('/family/disconnect',{pin:pin.value});refresh();}})));
+  const c=state.controls,pinField=pinInput('Родительский PIN — 6 цифр'),pin=pinField.input;
+  body.append(h('section',{class:'family-card'},h('h3',{},'Родитель: '+state.parent.name),h('div',{class:'family-status'},...Object.entries(labels).filter(([key])=>c[key]).map(([,label])=>h('span',{},label))),!Object.keys(labels).some(k=>c[k])?h('p',{class:'muted'},'Ограничения не включены'):null,c.quiet?h('p',{class:'muted'},'Расписание: '+c.quietStart+':00–'+c.quietEnd+':00 · '+c.timeZone+' · '+days.filter(([d])=>c.quietDays.includes(d)).map(([,l])=>l).join(', ')+'. Ночной интервал относится ко дню начала.'):null,pinField.field,action('Отключить связь',async()=>{if(!pinField.valid())return;if(await confirmDialog('Отключить родительский контроль?',{ok:'Отключить'})){await api.post('/family/disconnect',{pin:pin.value});refresh();}})));
  }else{
-  const current=state.pinSet?pinInput('Текущий родительский PIN'):null,pin=pinInput(state.pinSet?'Новый родительский PIN':'Задайте PIN — 6 цифр');
-  body.append(h('section',{class:'family-card'},h('h3',{},'Родительский PIN'),h('p',{class:'muted'},state.pinSet?'Для смены кода нужен текущий PIN. После пяти ошибок — пауза 15 минут.':'Задайте код, прежде чем приглашать ребёнка. Не передавайте его ребёнку.'),current,pin,action(state.pinSet?'Сменить PIN':'Сохранить PIN',async()=>{await api.post('/family/pin',{pin:pin.value,...(current?{currentPin:current.value}:{})});pin.value='';if(current)current.value='';toast('PIN сохранён');refresh();},true)));
+  const currentField=state.pinSet?pinInput('Текущий родительский PIN'):null,pinField=pinInput(state.pinSet?'Новый родительский PIN':'Новый родительский PIN — 6 цифр'),current=currentField?.input,pin=pinField.input;
+  body.append(h('section',{class:'family-card'},h('h3',{},'Родительский PIN'),h('p',{class:'muted'},state.pinSet?'Для смены кода нужен текущий PIN. После пяти ошибок — пауза 15 минут.':'Задайте код, прежде чем приглашать ребёнка. Не передавайте его ребёнку.'),currentField?.field,pinField.field,action(state.pinSet?'Сменить PIN':'Сохранить PIN',async()=>{if(!pinField.valid()||(currentField&&!currentField.valid()))return;await api.post('/family/pin',{pin:pin.value,...(current?{currentPin:current.value}:{})});pin.value='';if(current)current.value='';toast('PIN сохранён');refresh();},true)));
   const invite=h('div',{class:'ws-stack'});
-  body.append(h('section',{class:'family-card'},h('h3',{},'Добавить ребёнка'),h('p',{class:'muted'},'Одноразовый код действует 15 минут. Ребёнок вводит его в своём аккаунте и подтверждает подключение.'),action('Создать приглашение',async()=>{
+  const inviteButton=action('Создать приглашение',async()=>{
    const {token}=await api.post('/family/invite');const out=h('textarea',{class:'input',readOnly:true,rows:2,'aria-label':'Код приглашения'});out.value=token;
    invite.replaceChildren(out,action('Скопировать код',async()=>{try{await navigator.clipboard.writeText(token);toast('Код скопирован');}catch{out.focus();out.select();toast('Скопируйте выделенный код');}}));
-  }),invite));
+  });
+  inviteButton.disabled=!state.pinSet;
+  body.append(h('section',{class:'family-card'},h('h3',{},'Добавить ребёнка'),h('p',{class:'muted'},state.pinSet?'Одноразовый код действует 15 минут. Ребёнок вводит его в своём аккаунте и подтверждает подключение.':'Сначала сохраните PIN из 6 цифр в карточке выше. Затем здесь можно будет создать приглашение.'),inviteButton,invite));
   const code=h('input',{class:'input',placeholder:'Код приглашения родителя','aria-label':'Код приглашения родителя'});
   body.append(h('details',{class:'family-card'},h('summary',{},'Подключиться как ребёнок'),h('div',{class:'ws-stack'},h('p',{class:'muted'},'Родитель сможет ограничить доступ, звонки, игры и покупки. Для самостоятельного отключения потребуется его PIN.'),code,action('Подтвердить подключение',async()=>{if(await confirmDialog('Подключить родительский контроль с этим кодом?',{ok:'Подключить'})){await api.post('/family/accept',{token:code.value});refresh();}}))));
  }

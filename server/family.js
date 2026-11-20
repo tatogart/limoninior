@@ -7,7 +7,7 @@ export const defaults=FAMILY_DEFAULTS;
 export function familyPolicy(uid){const row=q('SELECT * FROM family_links WHERE child=?').get(uid);return row?{...defaults,...JSON.parse(row.controls)}:null;}
 export function familyCallError(uid){const p=familyPolicy(uid);return p&&(p.paused||quietNow(p))?'family_paused':p?.calls?'family_restricted':null;}
 export function registerFamily(api,{bad,int,publicUser,emitToUser}){
- api.post('/family/pin',(req,res)=>{if(familyPolicy(req.user.id))return bad(res,'forbidden',403);const pin=String(req.body?.pin||'');if(!/^\d{6}$/.test(pin))return bad(res,'bad_family');const previous=q('SELECT * FROM family_pins WHERE parent=?').get(req.user.id);
+ api.post('/family/pin',(req,res)=>{if(familyPolicy(req.user.id))return bad(res,'forbidden',403);const pin=String(req.body?.pin||'');if(!/^\d{6}$/.test(pin))return bad(res,'bad_family_pin_format');const previous=q('SELECT * FROM family_pins WHERE parent=?').get(req.user.id);
  if(previous){const attempt=q('SELECT * FROM family_pin_attempts WHERE child=?').get(req.user.id);if(attempt?.until_at>now())return bad(res,'too_many_attempts',429);
  const current=String(req.body?.currentPin||'');if(!/^\d{6}$/.test(current)||!crypto.timingSafeEqual(crypto.scryptSync(current,previous.salt,32),Buffer.from(previous.hash,'hex'))){const n=attempt?.until_at&&attempt.until_at<=now()?1:(attempt?.attempts||0)+1;q('INSERT INTO family_pin_attempts VALUES(?,?,?) ON CONFLICT(child) DO UPDATE SET attempts=excluded.attempts,until_at=excluded.until_at').run(req.user.id,n,n>=5?now()+15*60000:0);return bad(res,'bad_family_pin',403);}
  q('DELETE FROM family_pin_attempts WHERE child=?').run(req.user.id);}
