@@ -1,6 +1,7 @@
 import {h} from './ui.js';
 import {TRAITS} from './collectible-traits.js';
-export const giftArt=g=>h('img',{src:(g.id==='mell-chick'?'/gifts/mell-chick.svg':g.image)||'/gifts/'+g.id+'.svg',alt:g.name,class:'gift-art-image'+(g.animated?' meme-gift-art':''),width:160,height:160,decoding:'sync',loading:'eager',draggable:false});
+export function giftImage(g){const id=g.giftId||(typeof g.id==='string'?g.id:'gift');return g.image||'/gifts/'+id+'.svg';}
+export const giftArt=g=>h('img',{src:giftImage(g),alt:g.name,class:'gift-art-image'+(g.animated?' meme-gift-art':''),width:160,height:160,decoding:'sync',loading:'eager',draggable:false});
 export function collectiblePreview(item,backdrop){
  const t=item.traits||{},hue=TRAITS.color.find(c=>c.id===t.color?.id)?.hue||0;
  return h('div',{class:'collectible-preview',dataset:{backdrop:backdrop||t.backdrop?.id||item.backdrop||'aurora',model:t.model?.id||'classic',rarity:t.rarity?.id||'legacy',symbol:t.symbol?.id||'stars'}},

@@ -2941,3 +2941,24 @@ button, input, textarea, select { font-family: inherit; }
 .gift-passport {display:grid;justify-items:center;gap:10px;text-align:center;}
 .gift-passport>.collectible-preview {width:190px;max-width:100%;aspect-ratio:1;}
 .gift-passport>.gift-art-image {width:160px;height:160px;}
+
+/* Profile inventory must override the legacy 64px gift thumbnail geometry. */
+.profile-gift-grid > .profile-gift-tile {min-width:0;align-self:start;}
+.profile-gift-tile > .pg-art {
+  position:relative;display:block;width:100%;min-width:0;height:auto;
+  aspect-ratio:1 / 1;padding:0;flex:0 0 auto;
+  font-size:0;box-shadow:none;border-radius:16px;overflow:hidden;
+}
+.profile-gift-tile > .pg-art > .collectible-preview {
+  position:absolute;inset:6px;width:calc(100% - 12px);height:calc(100% - 12px);
+  max-width:none;max-height:none;margin:0;aspect-ratio:auto;border-radius:14px;
+}
+.profile-gift-tile > .pg-art > .gift-art-image {
+  position:absolute;left:8%;top:8%;width:84%;height:84%;
+  max-width:none;max-height:none;margin:0;object-fit:contain;font-size:12px;
+}
+.profile-gift-tile .collectible-picture {width:80%;height:80%;object-fit:contain;}
+.profile-gift-tile > .profile-gift-collectible {
+  position:static;margin:4px 7px 0;font-size:9px;padding:3px 5px;
+}
+.profile-gift-title {min-height:30px;display:flex;align-items:center;justify-content:center;}
