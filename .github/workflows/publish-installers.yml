@@ -1,0 +1,18 @@
+name: Remove public installer release
+on:
+  push:
+    paths: ['.github/workflows/publish-installers.yml']
+permissions:
+  contents: write
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove installer release and its tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view native-v1.1.0 >/dev/null 2>&1; then
+            gh release delete native-v1.1.0 --yes --cleanup-tag
+          fi

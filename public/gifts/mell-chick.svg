@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 360" role="img" aria-label="Мёд по телу: пушистый цыплёнок с человеческим лицом">
+<defs>
+ <radialGradient id="feathers" cx="35%" cy="25%" r="85%"><stop stop-color="#fffef0"/><stop offset=".6" stop-color="#f7e8bb"/><stop offset="1" stop-color="#d9bd80"/></radialGradient>
+ <radialGradient id="skin" cx="42%" cy="32%" r="70%"><stop stop-color="#ffe0c0"/><stop offset=".55" stop-color="#efb496"/><stop offset="1" stop-color="#d78d77"/></radialGradient>
+ <radialGradient id="cheek"><stop stop-color="#e57f7b" stop-opacity=".7"/><stop offset="1" stop-color="#e57f7b" stop-opacity="0"/></radialGradient>
+ <linearGradient id="wing" x2="1" y2="1"><stop stop-color="#fffdef"/><stop offset="1" stop-color="#dcc18b"/></linearGradient>
+ <linearGradient id="feet" x2="0" y2="1"><stop stop-color="#f7c36e"/><stop offset="1" stop-color="#c98440"/></linearGradient>
+ <linearGradient id="hair" x2=".5" y2="1"><stop stop-color="#fffcea"/><stop offset="1" stop-color="#e5cc9d"/></linearGradient>
+</defs>
+<ellipse cx="161" cy="339" rx="97" ry="12" fill="#795327" opacity=".16"/>
+<g stroke="#b88f56" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+ <path d="m125 286-7 37-26 16 20-3-5 11 14-12 16 8-7-13 5-39M194 285l7 39 25 16-21-4 6 11-14-12-17 8 8-13-4-38" fill="url(#feet)"/>
+</g>
+<g>
+ <path d="M86 113c-23 17-39 54-38 96 0 40 28 81 66 93 32 13 78 12 107-7 37-24 57-62 52-107-4-39-23-69-49-79Z" fill="url(#feathers)" stroke="#dec89b" stroke-width="2"/>
+ <path d="M79 146c-29 5-47 36-50 75-2 26-13 48-16 54 17 2 39-6 51-20-2 13-12 22-12 22 26-3 49-36 50-70" fill="url(#wing)" stroke="#dcc495" stroke-width="2"/>
+ <path d="M239 146c28 7 45 36 46 73 1 25 12 46 19 55-18 1-34-6-47-20 2 13 8 20 8 20-24-4-43-35-44-68" fill="url(#wing)" stroke="#dcc495" stroke-width="2"/>
+ <g fill="none" stroke="#fffdf1" stroke-width="5" opacity=".8">
+  <path d="m43 210-9 30m18-32-7 25m213-24 9 29M83 257l10 15m13-4 10 12m26-3 3 15m17-17 2 16m21-20-4 15m19-17-2 11"/>
+ </g>
+ <path d="M67 88c-3-40 18-65 47-67 18-18 62-17 83-8 26 1 48 18 53 43 17 28 16 67-1 97-13 24-31 39-52 50-16 7-32 9-48 7-35-3-61-25-75-54-11-23-15-47-7-68Z" fill="url(#feathers)" stroke="#e7d2a8" stroke-width="2"/>
+ <path d="M99 55c20-21 88-27 114-4 23 21 27 56 19 85-7 25-17 47-35 54-15 7-48 8-67-3-23-14-38-39-40-68-3-28-1-49 9-64Z" fill="url(#skin)"/>
+ <ellipse cx="111" cy="125" rx="25" ry="23" fill="url(#cheek)"/><ellipse cx="215" cy="124" rx="25" ry="23" fill="url(#cheek)"/>
+ <path d="M103 72c11-9 27-10 40-5" stroke="#b1744e" stroke-width="7" stroke-linecap="round" fill="none"/>
+ <path d="M181 67c15-6 29-4 40 4" stroke="#a76548" stroke-width="7" stroke-linecap="round" fill="none"/>
+ <path d="M98 92c9-16 29-18 45-5-5 18-28 26-43 15Z" fill="#fff8e9" stroke="#b77262" stroke-width="2"/>
+ <path d="M180 88c12-17 32-18 45-4 3 14-22 30-40 20Z" fill="#fff8e9" stroke="#b77262" stroke-width="2"/>
+ <ellipse cx="117" cy="93" rx="8" ry="11" fill="#784c2c"/><ellipse cx="195" cy="91" rx="8" ry="11" fill="#65462d"/>
+ <ellipse cx="117" cy="93" rx="4" ry="7" fill="#302b24"/><ellipse cx="195" cy="91" rx="4" ry="7" fill="#302b24"/>
+ <circle cx="114" cy="89" r="2.6" fill="#fff"/><circle cx="192" cy="87" r="2.6" fill="#fff"/>
+ <path d="M102 108c12 7 27 5 38-4m44 4c14 5 28 0 36-6" fill="none" stroke="#bc7b70" stroke-width="3" opacity=".65"/>
+ <path d="M155 88c-2 17-7 31-11 39-2 8 7 12 19 10l10-4" fill="none" stroke="#ce8b75" stroke-width="3" stroke-linecap="round"/>
+ <path d="M145 134c8 6 18 4 25-1" fill="none" stroke="#f6c5a6" stroke-width="3"/>
+ <path d="M130 158c16-7 36-10 54-5l13 6c-17 14-47 17-64 5Z" fill="#ab5f56"/>
+ <path d="M132 159c18-1 38 1 61 0" fill="none" stroke="#743e39" stroke-width="3"/>
+ <path d="M145 169c13 3 26 2 38-3" fill="none" stroke="#e9a696" stroke-width="3" stroke-linecap="round"/>
+ <path d="M110 136c3 17 8 30 16 38 21 21 64 20 84-1 8-8 13-23 15-37 7 21 1 50-18 65-22 16-55 17-78 3-21-14-31-42-19-68Z" fill="url(#hair)" opacity=".95"/>
+ <path d="M119 174c8 4 13 5 16 4m52-2 17-5m-64 20 3 10m13-9 1 12m14-12-1 11m14-14-1 10" stroke="#fff7df" stroke-width="3" stroke-linecap="round" fill="none"/>
+ <path d="M84 71c1-23 15-41 33-44l-1-9 13 6 10-13 9 10 15-15 9 14 15-13 6 15 18-2-4 14 16 1c-17 1-39-3-62-1-22 2-47 12-77 37Z" fill="url(#hair)"/>
+ <path d="m90 71 7-17m11 1 9-16m10 4 6-15m12 9 7-15m14 10 4-16m11 17 6-12m9 17 4-10" fill="none" stroke="#fffbed" stroke-width="4" stroke-linecap="round"/>
+ <path d="M116 217c11 11 25 13 41 11m12 0c15 0 28-4 37-12m-99 23c20 16 51 20 78 10" fill="none" stroke="#fffdf1" stroke-width="5" stroke-linecap="round" opacity=".65"/>
+</g>
+<g fill="#fff5be"><path d="m277 52 3 8 8 3-8 3-3 8-3-8-8-3 8-3Z"/><path d="m38 104 2 6 7 3-7 2-2 7-3-7-6-2 6-3Z"/></g>
+</svg>

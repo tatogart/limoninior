@@ -1,0 +1,54 @@
+// Roles and badges for playing in the owner's game launcher ("Лимон чат" rewards). The admin grants them.
+import { api, errorText } from './api.js';
+import { h, icon, toast } from './ui.js';
+
+let catalog = new Map();
+let d = null; // { me(), setMe(patch) }
+export function initRewards(deps) { d = deps; return loadCatalog(); }
+export async function loadCatalog() {
+  try { const { rewards } = await api.get('/rewards/catalog'); catalog = new Map(rewards.map((r) => [r.id, r])); } catch { /* offline */ }
+}
+export const rewardInfo = (id) => catalog.get(id) || null;
+
+/** Small colored role tag next to a name ("👑 Легенда"). */
+export function roleTag(roleId, cls = '') {
+  const r = roleId && rewardInfo(roleId);
+  if (!r || r.kind !== 'role') return null;
+  return h('span', { class: `role-tag ${cls}`, style: { '--rc': r.color || '#22c55e' }, title: r.desc ? `Роль «${r.name}»: ${r.desc}` : `Роль «${r.name}»` }, h('i', {}, r.emoji), r.name);
+}
+
+/** The "Роли и значки" block for a profile (null when there are none). */
+export async function rewardsBlock(userId) {
+  let list = [];
+  try { list = (await api.get(`/users/${userId}/rewards`)).rewards; } catch { return null; }
+  const items = list.map((x) => rewardInfo(x.id)).filter(Boolean);
+  if (!items.length) return null;
+  return h('div', { class: 'rw-block' },
+    h('div', { class: 'pf-section-title' }, `Роли и значки · ${items.length}`),
+    h('div', { class: 'rw-grid' }, items.map((r) => h('div', { class: `rw-item rw-${r.kind}${r.icon?' rw-profile-badge':''}`, style: { '--rc': r.color || '#22c55e' }, title: r.desc || '' },
+      h('div', { class: 'rw-emoji' }, r.icon?icon(r.icon):r.emoji),
+      h('div', { class: 'grow' }, h('b', {}, r.name), h('span', {}, `${r.kind === 'role' ? 'Роль' : 'Значок'}${r.desc ? ` · ${r.desc}` : ''}`))))));
+}
+
+/** In my own profile: choose which role is shown next to my name. */
+export async function rolePicker() {
+  let list = [];
+  try { list = (await api.get(`/users/${d.me().id}/rewards`)).rewards; } catch { return null; }
+  const roles = list.map((x) => rewardInfo(x.id)).filter((r) => r?.kind === 'role');
+  const badges = list.map((x) => rewardInfo(x.id)).filter((r) => r?.kind === 'badge');
+  const wrap = h('div', { class: 'rw-pick' });
+  const render = () => wrap.replaceChildren(...[
+    h('div', { class: 'field-label' }, 'Роль рядом с именем'),
+    roles.length ? h('div', { class: 'rw-roles' },
+      h('button', { type: 'button', class: `rw-chip ${d.me().role ? '' : 'on'}`, onclick: () => choose(null) }, 'Не показывать'),
+      ...roles.map((r) => h('button', { type: 'button', class: `rw-chip ${d.me().role === r.id ? 'on' : ''}`, style: { '--rc': r.color }, onclick: () => choose(r.id) }, `${r.emoji} ${r.name}`)))
+      : h('div', { class: 'muted small' }, 'Роли и бейджи выдаёт администрация. Полученные бейджи появятся в профиле.'),
+    h('div',{class:'field-label'},'Бейдж рядом с ником'),badges.length?h('div',{class:'rw-badges rw-badge-picker'},h('button',{type:'button',class:'rw-chip '+(!d.me().profileBadge?'on':''),'aria-pressed':String(!d.me().profileBadge),onclick:()=>chooseBadge(null)},'Не показывать'),...badges.map(b=>h('button',{type:'button',class:'rw-chip '+(d.me().profileBadge?.id===b.id?'on':''),style:{'--rc':b.color},'aria-pressed':String(d.me().profileBadge?.id===b.id),title:b.desc||b.name,onclick:()=>chooseBadge(b.id)},b.icon?icon(b.icon):b.emoji,b.name))):h('div',{class:'muted small'},'Пока нет выданных бейджей.')].filter(Boolean));
+  let selecting=false;
+  const chooseBadge=async id=>{if(selecting)return;selecting=true;try{const r=await api.post('/me/badge',{badge:id});d.setMe({profileBadge:r.profileBadge});render();toast(id?'Бейдж выбран':'Бейдж рядом с ником скрыт');}catch(e){toast(errorText(e),'error');}finally{selecting=false;}};
+  const choose = async (id) => {
+    try { await api.post('/me/role', { role: id }); d.setMe({ role: id }); render(); toast(id ? 'Роль показывается рядом с именем' : 'Роль скрыта'); } catch (e) { toast(errorText(e), 'error'); }
+  };
+  render();
+  return wrap;
+}

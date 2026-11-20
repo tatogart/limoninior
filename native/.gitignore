@@ -1,0 +1,9 @@
+**/node_modules/
+**/.gradle/
+**/build/
+**/dist/
+**/local.properties
+**/app_icon.png
+**/icon.ico
+**/*.jks
+**/*.keystore

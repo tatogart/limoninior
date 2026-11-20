@@ -1,0 +1,10 @@
+import test,{after} from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';
+process.env.DATA_DIR=fs.mkdtempSync(path.join(os.tmpdir(),'limo-scam-'));
+const {db,q}=await import('../server/db.js');const {registerScamAdmin}=await import('../server/scam.js');
+after(()=>{db.close();fs.rmSync(process.env.DATA_DIR,{recursive:true,force:true});});
+for(const [id,sub] of [[1,'local:user'],[2,'bot:test']])q("INSERT INTO users(id,google_sub,email,name,created_at,last_seen) VALUES(?,?,'','Тест',0,0)").run(id,sub);
+q("INSERT INTO chats(id,type,title,created_at) VALUES(1,'channel','Канал',0)").run();q("INSERT INTO chats(id,type,title,created_at) VALUES(2,'group','Группа',0)").run();
+const routes=new Map();let refresh=0;registerScamAdmin({post:(p,fn)=>routes.set(p,fn)},{pushMe(){refresh++;},broadcastProfile(){refresh++;},pushChat(){refresh++;}});
+function call(type,id,body){const res={code:200,status(n){this.code=n;return this;},json(v){this.body=v;return this;}};routes.get('/'+type+'/:id/scam')({params:{id},body,user:{id:1},ip:''},res);return res;}
+test('SCAM is available for human users, bots and channels and can be removed',()=>{for(const [type,id,table] of [['users',1,'users'],['users',2,'users'],['channels',1,'chats']]){assert.equal(call(type,id,{enabled:true,reason:'Проверка жалоб'}).code,200);assert.equal(q('SELECT scam FROM '+table+' WHERE id=?').get(id).scam,1);assert.equal(call(type,id,{enabled:false}).code,200);assert.equal(q('SELECT scam_reason FROM '+table+' WHERE id=?').get(id).scam_reason,'');}assert.ok(refresh>=6);assert.equal(q("SELECT COUNT(*) AS n FROM audit_log WHERE action='admin_scam'").get().n,6);});
+test('invalid flags and reasons do not mark accounts; channel endpoint cannot mark groups',()=>{assert.equal(call('users',1,{enabled:'yes',reason:'test'}).code,400);assert.equal(call('users',1,{enabled:true,reason:'x'}).code,400);assert.equal(call('users',1,{enabled:true,reason:'x'.repeat(301)}).code,400);assert.equal(call('channels',2,{enabled:true,reason:'test'}).code,404);assert.equal(q('SELECT scam FROM users WHERE id=1').get().scam,0);});
