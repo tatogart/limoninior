@@ -19,16 +19,17 @@ export function teamApplications({onError}={}){
      if(!await confirmDialog(label+' по заявке #'+app.id+'?'+(action==='confirm'?' '+date(app.proposed_at):''),{ok:label}))return;
      await api.post('/admin/team-applications/'+app.id+'/action',{action,version:app.version,note:note.value});toast('Решение сохранено. Бот отправит уведомления.');await load();
     });
-    const actions=h('div',{class:'ws-actions'});
-    if(['submitted','awaiting_time','time_proposed'].includes(app.status)){
+    const actions=h('div',{class:'ws-actions'}),self=app.user_id===data.myId;
+    if(!self&&['submitted','awaiting_time','time_proposed'].includes(app.status)){
      if(!app.admin_id||app.admin_id===data.myId)actions.append(act('invite',app.status==='submitted'?'Пригласить на созвон':'Попросить другое время'));
      if(app.status==='time_proposed'&&app.admin_id===data.myId)actions.append(act('confirm','Подтвердить время и отправить ссылку'));
      actions.append(act('reject','Отклонить заявку'));
     }
-    if(app.status==='scheduled'&&app.admin_id===data.myId)actions.append(act('complete','Завершить рассмотрение'));
+    if(!self&&app.status==='scheduled'&&app.admin_id===data.myId)actions.append(act('complete','Завершить рассмотрение'));
     const card=h('section',{class:'ws-card'},h('div',{class:'ws-card-body ws-stack'},
      h('strong',{},'Заявка #'+app.id+' · '+app.role),h('span',{},app.name+' · @'+(app.username||'без юзернейма')),
-     h('span',{class:'muted'},names[app.status]||app.status),h('small',{class:'muted'},'Подана: '+date(app.created_at)),
+     h('span',{class:'muted'},names[app.status]||app.status),
+     self?h('p',{class:'muted'},'Это ваша заявка. Её должен рассмотреть другой администратор.'):null,h('small',{class:'muted'},'Подана: '+date(app.created_at)),
      h('p',{style:{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}},app.experience),
      app.admin_name?h('small',{class:'muted'},'Созвон проводит: '+app.admin_name):null,
      app.proposed_at?h('p',{},'Предложенное время: '+date(app.proposed_at)):null,

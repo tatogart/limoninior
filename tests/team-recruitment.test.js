@@ -71,3 +71,15 @@ test('completion closes interview access without granting permissions and reject
  assert.throws(()=>reviewTeamApplication(admin(),app.id,{action:'invite',version:app.version}),/team_changed/);
  assert.throws(()=>submitTeamApplication(1,'Модератор','Новая заявка в тот же день'),/team_application_cooldown/);
 });
+
+test('self review and unavailable candidates have distinct errors and preserve the application',()=>{
+ const app=submitTeamApplication(4,'Модератор','Хочу помогать пользователям мессенджера');
+ const reviewer=q('SELECT * FROM users WHERE id=4').get();
+ assert.throws(()=>reviewTeamApplication(reviewer,app.id,{action:'invite',version:app.version}),/team_self_review/);
+ for(const field of ['banned']){
+  q('UPDATE users SET '+field+'=1 WHERE id=4').run();
+  assert.throws(()=>reviewTeamApplication(admin(),app.id,{action:'invite',version:app.version}),/team_candidate_unavailable/);
+  q('UPDATE users SET '+field+'=0 WHERE id=4').run();
+ }
+ assert.equal(q('SELECT status FROM team_applications WHERE id=?').get(app.id).status,'submitted');
+});
