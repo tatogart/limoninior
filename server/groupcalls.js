@@ -1,3 +1,4 @@
+import {teamCallAllowed} from './team-recruitment.js';
 import {familyCallError} from './family.js';
 // Group calls: a mesh of WebRTC connections (every participant ↔ every participant),
 // signaling relayed over Socket.IO. Rooms belong to a group chat or to an invite link.
@@ -83,13 +84,13 @@ function accessibleRoom({ roomId, token }, userId) {
     const t = String(token);
     if (!TOKEN_RE.test(t)) return { error: 'not_found' };
     const link = q('SELECT * FROM call_links WHERE token = ?').get(t);
-    if (!link) return { error: 'not_found' };
+    if (!link||!teamCallAllowed(t,userId)) return { error: 'not_found' };
     return { room: rooms.get(roomByToken.get(t)) || null, link };
   }
   const room = rooms.get(String(roomId || ''));
   if (!room) return { error: 'call_ended' };
   if (room.chatId && !isChatMember(room.chatId, userId)) return { error: 'not_found' };
-  if (room.token) return { room, link: q('SELECT * FROM call_links WHERE token = ?').get(room.token) };
+  if (room.token) {if(!teamCallAllowed(room.token,userId))return {error:'not_found'};return { room, link: q('SELECT * FROM call_links WHERE token = ?').get(room.token) };}
   return { room };
 }
 

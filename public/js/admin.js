@@ -1,3 +1,4 @@
+import {teamApplications} from './team-admin.js';
 import {markScam,transferInventory} from './admin-gifts-scam.js';
 import {collectibleSettings,grantCollectible} from './collectible-admin.js';
 // Limochat admin panel: a dashboard app of its own (sidebar sections, live pulse, moderation).
@@ -157,6 +158,7 @@ const SECTIONS = [
   ['overview', 'Обзор', 'chart'],
   ['live', 'Пульс', 'live'],
   ['reports', 'Жалобы', 'warning'],
+  ['team', 'Заявки в команду', 'user'],
   ['users', 'Пользователи', 'user'],
   ['channels', 'Каналы', 'megaphone'],
   ['communities', 'Сообщества', 'community'],
@@ -230,7 +232,7 @@ function route() {
   V.title.textContent = SECTIONS.find((s) => s[0] === sec)[1];
   V.main.replaceChildren(spinner());
   window.scrollTo(0, 0);
-  const render = { overview, live, reports, users, channels, communities, rewards: rewardsPage, collectibles:async()=>set(await collectibleSettings()), broadcast, platform: platformPage, security, server, audit }[sec];
+  const render = { team:()=>set(teamApplications({onError:handle})), overview, live, reports, users, channels, communities, rewards: rewardsPage, collectibles:async()=>set(await collectibleSettings()), broadcast, platform: platformPage, security, server, audit }[sec];
   Promise.resolve(render(arg)).catch(handle);
 }
 window.addEventListener('hashchange', () => { if (V.main) { closeTopModal(); route(); } });

@@ -1,3 +1,4 @@
+import {registerTeamApi} from './team-recruitment.js';
 import {registerMultiAccounts} from './multi-accounts.js';
 import {assertAccountCapacity} from './auth.js';
 import {RELEASE_NEWS} from './release-news.js';
@@ -368,6 +369,7 @@ const searchLimiter = rateLimit({
 
 // ---------- auth ----------
 
+registerTeamApi(api,{publicUser,ensurePrivateChat,postMessage});
 api.get('/partners/contact', (req, res) => res.json({ username: sellerUser()?.username || null }));
 
 api.get('/config', (req, res) => {

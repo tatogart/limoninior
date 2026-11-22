@@ -34,4 +34,16 @@ async function loadContact() {
 retry.addEventListener('click', loadContact);
 loadContact();
 
-document.querySelector('#team-form').addEventListener('submit',async e=>{e.preventDefault();const d=new FormData(e.currentTarget),text='Заявка в команду Limochat\nРоль: '+d.get('role')+'\nАккаунт: '+d.get('username')+'\nОпыт: '+d.get('experience');const out=document.querySelector('#team-output');out.value=text;out.hidden=false;try{await navigator.clipboard.writeText(text);document.querySelector('#team-status').textContent='Заявка скопирована. Отправьте её через «Написать команде» выше.';}catch{out.focus();out.select();}});
+
+async function loadTeamBot(){
+ const link=document.querySelector('#team-bot'),status=document.querySelector('#team-bot-status'),retry=document.querySelector('#team-bot-retry');
+ retry.hidden=true;
+ try{
+  const response=await fetch('/api/partners/team-bot',{cache:'no-store',signal:AbortSignal.timeout(10000)});
+  if(!response.ok)throw Error('bot unavailable');
+  const bot=await response.json();if(!/^[a-z][a-z0-9_]{2,31}$/i.test(bot.username))throw Error('bad bot');
+  link.href='/@'+encodeURIComponent(bot.username);link.hidden=false;status.textContent='@'+bot.username+' · Для подачи заявки войдите в Limochat и отправьте боту /apply.';
+ }catch{link.hidden=true;retry.hidden=false;status.textContent='Не удалось загрузить бота. Попробуйте ещё раз.';}
+}
+document.querySelector('#team-bot-retry').addEventListener('click',loadTeamBot);
+loadTeamBot();
