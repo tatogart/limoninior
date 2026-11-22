@@ -15,8 +15,9 @@ test('team recruitment bot works through real messages; admin review requires el
    return {status:response.status,body:await response.json(),cookie:response.headers.get('set-cookie')?.split(';')[0]};
   };
   const candidate=await request('POST','/auth/register',{username:'teamqacandidate',name:'Candidate QA',password:'Team-test-password'});
-  const administrator=await request('POST','/auth/register',{username:'teamqaadmin',name:'Admin QA',password:'Admin-test-password'});
-  assert.equal(candidate.status,200);assert.equal(administrator.status,200);
+  const administrator=await request('POST','/auth/register',{username:'teamqareviewer',name:'Admin QA',password:'Admin-test-password'});
+  assert.equal(candidate.status,200,JSON.stringify(candidate.body));assert.equal(administrator.status,200,JSON.stringify(administrator.body));
+  db.prepare('UPDATE users SET username=? WHERE id=?').run('teamqaadmin',administrator.body.user.id);
   const bot=await request('GET','/partners/team-bot');assert.equal(bot.status,200);assert.ok(bot.body.username.endsWith('Bot'));
   const chat=await request('POST','/chats/private',{userId:bot.body.id},candidate.cookie);assert.equal(chat.status,200,JSON.stringify(chat.body));
   for(const text of ['/apply','Модератор','Я хочу помогать пользователям и умею разбирать жалобы.','/submit']){
