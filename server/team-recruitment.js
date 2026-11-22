@@ -94,7 +94,8 @@ export function reviewTeamApplication(actor,id,{action,version,note=''},time=now
   const app=q('SELECT * FROM team_applications WHERE id=?').get(id);
   if(!app||app.version!==version)fail('team_changed');
   const candidate=q('SELECT * FROM users WHERE id=?').get(app.user_id);
-  if(!candidate||candidate.banned||candidate.deleted_at||actor.id===app.user_id)fail('forbidden');
+  if(actor.id===app.user_id)fail('team_self_review');
+  if(!candidate||candidate.banned||candidate.deleted_at)fail('team_candidate_unavailable');
   let status=app.status,token=app.call_token;
   if(action==='invite'){
    if(!['submitted','awaiting_time','time_proposed'].includes(status))fail('team_changed');
