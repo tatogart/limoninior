@@ -18,6 +18,10 @@ export const STICKER_PACKS = [
       ['think', '🤔', 'tilt'], ['wave', '👋', 'wave'], ['hundred', '💯', 'pop'], ['lemon', '🍋', 'spin'],
     ],
   },
+  {"id": "cats", "title": "Рыжий котик", "type": "svg", "emoji": "🐈", "labels": {"hi": "Привет!", "love": "Люблю", "lol": "Ахаха!", "cool": "Круто!", "ok": "Окей", "thanks": "Спасибо!", "wow": "Ого!", "cry": "Ну вот…", "angry": "Ну всё!", "sleep": "Я спать", "kiss": "Чмок", "think": "Думаю…", "party": "Ура!", "fire": "Огонь!", "bye": "Пока!", "yes": "Да!"}, "stickers": ["hi", "love", "lol", "cool", "ok", "thanks", "wow", "cry", "angry", "sleep", "kiss", "think", "party", "fire", "bye", "yes"]},
+  {"id": "capy", "title": "Капибара", "type": "svg", "emoji": "🦫", "labels": {"hi": "Привет!", "love": "Люблю", "lol": "Ахаха!", "cool": "Круто!", "ok": "Окей", "thanks": "Спасибо!", "wow": "Ого!", "cry": "Ну вот…", "angry": "Ну всё!", "sleep": "Я спать", "kiss": "Чмок", "think": "Думаю…", "party": "Ура!", "fire": "Огонь!", "bye": "Пока!", "yes": "Да!"}, "stickers": ["hi", "love", "lol", "cool", "ok", "thanks", "wow", "cry", "angry", "sleep", "kiss", "think", "party", "fire", "bye", "yes"]},
+  {"id": "robots", "title": "Роболайм", "type": "svg", "emoji": "🤖", "labels": {"hi": "Привет!", "love": "Люблю", "lol": "Ахаха!", "cool": "Круто!", "ok": "Окей", "thanks": "Спасибо!", "wow": "Ого!", "cry": "Ну вот…", "angry": "Ну всё!", "sleep": "Я спать", "kiss": "Чмок", "think": "Думаю…", "party": "Ура!", "fire": "Огонь!", "bye": "Пока!", "yes": "Да!"}, "stickers": ["hi", "love", "lol", "cool", "ok", "thanks", "wow", "cry", "angry", "sleep", "kiss", "think", "party", "fire", "bye", "yes"]},
+
 ];
 
 const VALID_STICKERS = new Set(STICKER_PACKS.flatMap((p) => p.stickers.map((s) => `${p.id}/${Array.isArray(s) ? s[0] : s}`)));
@@ -27,7 +31,7 @@ export function stickerInfo(id) {
   const [packId, key] = String(id).split('/');
   const pack = STICKER_PACKS.find((p) => p.id === packId);
   if (!pack) return null;
-  if (pack.type === 'svg') return pack.stickers.includes(key) ? { type: 'svg', src: `/stickers/${packId}/${key}.svg` } : null;
+  if (pack.type === 'svg') return pack.stickers.includes(key) ? { type: 'svg', src: `/stickers/${packId}/${key}.svg`, emoji: pack.emoji || '🍋', label: pack.labels?.[key] || pack.title } : null;
   const s = pack.stickers.find((x) => x[0] === key);
   return s ? { type: 'emoji', emoji: s[1], anim: s[2] } : null;
 }

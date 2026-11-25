@@ -1892,7 +1892,7 @@ function messageEl(c, m, first, last, read) {
 function stickerNode(id, cls = '') {
   const info = stickerInfo(id);
   if (!info) return h('div', { class: `${cls} sticker-missing` }, '🍋');
-  if (info.type === 'svg') return h('img', { class: cls, src: info.src, alt: 'Стикер', draggable: false, loading: 'lazy' });
+  if (info.type === 'svg') return h('img', { class: cls, src: info.src, alt: info.label || 'Стикер', draggable: false, loading: 'lazy' });
   return h('div', { class: `${cls} anim-emoji anim-${info.anim}` }, info.emoji);
 }
 
@@ -2555,7 +2555,7 @@ function renderPanel() {
       body.append(h('div', { class: 'panel-title' }, pack.title),
         h('div', { class: 'sticker-grid' }, pack.stickers.map((st) => {
           const id = `${pack.id}/${Array.isArray(st) ? st[0] : st}`;
-          return h('button', { class: 'sticker-btn', onclick: () => sendSticker(id) }, stickerNode(id, 'panel-sticker'));
+          return h('button', { class: 'sticker-btn', title: stickerInfo(id)?.label || pack.title, 'aria-label': stickerInfo(id)?.label || pack.title, onclick: () => sendSticker(id) }, stickerNode(id, 'panel-sticker'));
         })));
     }
   } else {
