@@ -1,4 +1,4 @@
-import {betaRouter,betaGrant,requireBeta,setBetaNotifier} from './beta.js';
+import {betaRouter,betaGrant,requireBeta,setBetaNotifier,preferredClient,rememberClient} from './beta.js';
 import {startHousekeeping} from './housekeeping.js';
 import http from 'node:http';
 import path from 'node:path';
@@ -92,7 +92,15 @@ app.get('/about', (req, res) => res.sendFile(path.join(pub, 'about.html')));
 app.get('/.well-known/assetlinks.json',(_req,res)=>{res.set('Cache-Control','public, max-age=300');res.type('application/json').sendFile(path.join(pub,'.well-known','assetlinks.json'),{dotfiles:'allow'});});
 
 // Beta is a separate guarded client; no normal-app fallback may expose its files.
-app.get(['/beta','/beta/'],(req,res)=>{const current=sessionFromCookie(req.headers.cookie);res.set('Cache-Control','no-store');res.sendFile(path.join(config.root,'beta',current&&betaGrant(current.session.id,current.user.id)?'index.html':'gate.html'));});
+app.get(['/beta','/beta/'],(req,res)=>{const current=sessionFromCookie(req.headers.cookie);const access=current&&betaGrant(current.session.id,current.user.id);if(access)rememberClient(current.user.id,'beta');res.set('Cache-Control','no-store');res.sendFile(path.join(config.root,'beta',access?'index.html':'gate.html'));});
+app.get(['/','/index.html'],(req,res)=>{
+ const current=sessionFromCookie(req.headers.cookie);res.set('Cache-Control','no-store');
+ if(current){
+  if(req.query.server==='main')rememberClient(current.user.id,'main');
+  else if(!Object.keys(req.query).length&&preferredClient(current.user.id)==='beta'&&betaGrant(current.session.id,current.user.id))return res.redirect(302,'/beta');
+ }
+ res.sendFile(path.join(pub,'index.html'));
+});
 app.use('/beta/assets',requireAuth,requireBeta,express.static(path.join(config.root,'beta/assets'),{index:false,setHeaders:res=>res.set('Cache-Control','no-store')}));
 app.use('/beta',(_req,res)=>res.status(404).end());
 

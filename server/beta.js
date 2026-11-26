@@ -12,6 +12,10 @@ db.exec(`
 // Access belongs to an account, independently of individual device sessions.
 db.exec(`CREATE TABLE IF NOT EXISTS beta_account_grants(user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,code_id INTEGER NOT NULL REFERENCES beta_codes(id),expires_at INTEGER NOT NULL);
  INSERT OR IGNORE INTO beta_account_grants(user_id,code_id,expires_at) SELECT user_id,code_id,MAX(expires_at) FROM beta_grants GROUP BY user_id;`);
+// Preferred client belongs to the account, like beta access.
+db.exec(`CREATE TABLE IF NOT EXISTS account_client_preferences(user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,client TEXT NOT NULL CHECK(client IN ('main','beta')));`);
+export function preferredClient(userId){return q('SELECT client FROM account_client_preferences WHERE user_id=?').get(userId)?.client||'main';}
+export function rememberClient(userId,client){if(!['main','beta'].includes(client))return;q('INSERT INTO account_client_preferences(user_id,client) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET client=excluded.client').run(userId,client);}
 let notifyAccess=()=>{};
 export function setBetaNotifier(notify){notifyAccess=notify;}
 const digest=code=>crypto.createHash('sha256').update(code).digest('hex');

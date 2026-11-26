@@ -24,17 +24,28 @@ test('beta gate, private assets, admin code lifecycle and proxy keep the normal 
   assert.equal((await request('GET','/api/beta/status',undefined,secondDevice.cookie)).json.access,true);
   assert.equal(db.prepare('SELECT uses FROM beta_codes WHERE id=?').get(created.json.id).uses,1);
   const beta=await request('GET','/beta',undefined,tester.cookie);assert.match(beta.text,/beta\/assets\/app.js/);assert.match(beta.cache,/no-store/);
+  // Preference is shared by sessions, explicit main exit overrides it, deep links stay intact.
+  assert.match((await request('GET','/',undefined,secondDevice.cookie)).text,/beta\/assets\/app.js/);
+  assert.ok(!(await request('GET','/?server=main',undefined,tester.cookie)).text.includes('beta/assets/app.js'));
+  assert.ok(!(await request('GET','/',undefined,secondDevice.cookie)).text.includes('beta/assets/app.js'));
+  await request('GET','/beta',undefined,tester.cookie);
+  assert.ok(!(await request('GET','/@somechannel',undefined,tester.cookie)).text.includes('beta/assets/app.js'));
+
   assert.equal((await request('GET','/beta/assets/app.js',undefined,tester.cookie)).status,200);assert.match((await request('GET','/beta/assets/glass.css',undefined,tester.cookie)).cache,/no-store/);
   assert.equal((await request('GET','/api/beta/app/chats',undefined,tester.cookie)).status,200);
   const saved=await request('POST','/api/beta/app/chats/private',{userId:tester.json.user.id},tester.cookie);assert.equal(saved.status,200,saved.text);
   assert.equal((await request('POST','/api/beta/app/chats/'+saved.json.chat.id+'/messages',{text:'Beta real chat test'},tester.cookie)).status,200);
+  const original=await request('POST','/api/beta/app/chats/'+saved.json.chat.id+'/messages',{text:'Reply target'},tester.cookie);
+  const reply=await request('POST','/api/beta/app/chats/'+saved.json.chat.id+'/messages',{text:'Beta reply',replyTo:original.json.message.id},tester.cookie);
+  assert.equal(reply.status,200);assert.equal(reply.json.message.replyTo.id,original.json.message.id);
+
   assert.equal((await request('POST','/api/beta/feedback',{text:'The draft has readable glass panels.'},tester.cookie)).status,200);
   assert.equal((await request('GET','/api/admin/beta/feedback',undefined,administrator.cookie)).json.feedback.length,1);
   assert.equal((await request('POST','/api/admin/beta/codes/'+created.json.id+'/revoke',{},administrator.cookie)).status,200);
   assert.equal((await request('GET','/api/beta/status',undefined,secondDevice.cookie)).json.access,false);assert.equal((await request('GET','/api/me',undefined,secondDevice.cookie)).json.user.betaAccess,false);
   assert.equal((await request('GET','/beta/assets/app.js',undefined,tester.cookie)).status,403);assert.equal((await request('GET','/api/beta/app/chats',undefined,tester.cookie)).status,403);
   assert.match((await request('GET','/beta',undefined,tester.cookie)).text,/Вход по приглашению/);
-  assert.equal((await request('GET','/api/chats',undefined,tester.cookie)).status,200);assert.equal((await request('GET','/')).status,200);
+  assert.ok(!(await request('GET','/',undefined,tester.cookie)).text.includes('beta/assets/app.js'));assert.equal((await request('GET','/api/chats',undefined,tester.cookie)).status,200);assert.equal((await request('GET','/')).status,200);
   assert.equal(db.prepare("SELECT count(*) n FROM messages WHERE text='Beta real chat test'").get().n,1);
  }finally{db?.close();child.kill();await new Promise(r=>{if(child.exitCode!==null)r();else child.once('exit',r);});rmSync(data,{recursive:true,force:true});}
 });

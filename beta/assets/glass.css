@@ -142,3 +142,29 @@
  .chat-open .center,.focus .center{grid-row:1}
  #beta-toast{bottom:calc(86px + env(safe-area-inset-bottom))}
 }
+
+/* Beta 02: restrained depth and short, directional motion. */
+:root{--motion-ease:cubic-bezier(.22,1,.36,1)}
+[data-theme=dark] .glass{background:linear-gradient(145deg,#202936dc,#151e28e8);border-color:#ffffff12;box-shadow:inset 0 1px 0 #ffffff0a,0 18px 45px #0002}
+[data-theme=dark] .chat-item.active{background:linear-gradient(110deg,#38574d77,#27364088);border-color:#9ad1bd22}
+.beta-header{flex-shrink:0}.beta-wordmark{letter-spacing:-.6px}
+.chat-item .avatar{transition:transform .24s var(--motion-ease)}
+@media(hover:hover){.chat-item:hover .avatar{transform:scale(1.05)}.chat-item:hover{background:color-mix(in srgb,var(--accent) 7%,transparent)}}
+.chat-item:active{transform:scale(.985)}
+.chat-item{transition:background-color .2s,border-color .2s,transform .2s var(--motion-ease)}
+.list-arrive{animation:beta-enter .35s var(--motion-ease) both;animation-delay:var(--arrival,0ms)}
+.conversation{position:relative}
+.message-search{display:flex;align-items:center;gap:5px;padding:8px 12px;border-bottom:1px solid var(--edge);background:var(--surface);flex-wrap:wrap;animation:beta-enter .2s var(--motion-ease)}
+.message-search input{flex:1;min-width:100px;background:transparent;padding:8px;font-size:12px}
+.message-search-count{font-size:10px;color:var(--muted)}
+.message.search-match{outline:2px solid var(--accent);outline-offset:2px;background:color-mix(in srgb,var(--accent) 18%,var(--back))}
+.jump-latest{position:absolute;right:18px;bottom:100px;width:42px;height:42px;display:grid;place-items:center;border-radius:50%;color:var(--accent);background:var(--back);border:1px solid var(--edge);box-shadow:0 6px 20px #0003;z-index:3;animation:beta-message .2s var(--motion-ease)}
+.compose-reply{display:flex;gap:8px;align-items:center;border-left:3px solid var(--accent);padding:4px 8px;margin:0 4px 8px;background:var(--surface);border-radius:8px;font-size:12px;animation:beta-enter .2s var(--motion-ease)}
+.compose-reply>span{flex:1;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
+.composer{transition:border-color .2s,box-shadow .25s,background-color .2s}
+.rail>.selected svg{transition:transform .25s var(--motion-ease)}
+.rail>.selected:active svg{transform:scale(.85)}
+.inspector-tabs button.selected{box-shadow:0 3px 12px #0001}
+@keyframes beta-chat-open{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:translateX(0)}}
+.conversation:not([hidden]){animation:beta-chat-open .32s var(--motion-ease)}
+@media(max-width:640px){.message-search input{font-size:16px}.jump-latest{bottom:92px}.conversation-header .chat-identity{min-width:0}.conversation-header>.icon-button{min-width:30px;padding:6px}}
