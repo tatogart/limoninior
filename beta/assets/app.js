@@ -2,7 +2,7 @@ import {h,icon,avatar,richText,timeHM} from '/js/ui.js';
 import {stickerInfo} from '/js/catalog.js';
 import {errorText} from '/js/api.js';
 const root=document.querySelector('#beta-app');
-const state={me:null,chats:[],current:null,messages:[],filter:'all',query:'',focus:false,inspector:false,tab:'notes',epoch:0,sending:false,drafts:{},settings:{theme:'light',dense:false,quick:false,accent:'mint'},notes:{}};
+const state={me:null,chats:[],current:null,messages:[],filter:'all',query:'',focus:false,inspector:false,tab:'notes',epoch:0,sending:false,drafts:{},settings:{theme:'dark',dense:false,quick:false,accent:'mint'},notes:{}};
 const view={};let timer,polling=false,toastTimer;
 function toast(text){const el=document.querySelector('#beta-toast');el.textContent=text;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),4500);}
 function readLocal(key,fallback){try{return JSON.parse(localStorage.getItem('limo.beta.'+state.me.id+'.'+key))||fallback;}catch{return fallback;}}
@@ -19,7 +19,7 @@ const btn=(ic,label,action,extra={})=>h('button',{type:'button',class:'icon-butt
 const title=chat=>chat?.title||chat?.peer?.name||'Чат';
 const preview=message=>!message?'Начните общение':message.kind==='sticker'?'Стикер':message.kind==='image'?'Фото':message.kind==='file'?'Файл: '+(message.extra?.name||'вложение'):message.kind==='voice'?'Голосовое сообщение':message.text||'Сообщение';
 const chatAvatar=(chat,size=42)=>avatar({...chat.peer,name:title(chat),src:chat.avatar||chat.peer?.avatar,saved:chat.type==='saved',online:false},size);
-function applyLook(){document.documentElement.dataset.theme=state.settings.theme;document.documentElement.dataset.accent=state.settings.accent;root.classList.toggle('dense',state.settings.dense);root.classList.toggle('focus',state.focus);root.classList.toggle('inspector-open',state.inspector);}
+function applyLook(){syncNav();document.documentElement.dataset.theme=state.settings.theme;document.documentElement.dataset.accent=state.settings.accent;root.classList.toggle('dense',state.settings.dense);root.classList.toggle('focus',state.focus);root.classList.toggle('inspector-open',state.inspector);}
 function saveDraft(){if(!state.current||!view.input)return;state.drafts[state.current.id]=view.input.value;saveLocal('drafts',state.drafts);}
 function drawList(){
  const query=state.query.toLocaleLowerCase('ru');
@@ -75,7 +75,13 @@ async function send(file=null){
  }catch(error){toast(errorText(error));}finally{state.sending=false;view.send.disabled=!!state.current&&(state.current.canPost===false||!!state.current.blocked);view.attach.disabled=view.send.disabled;}
 }
 function insert(text){if(view.input.disabled)return;const start=view.input.selectionStart??view.input.value.length,end=view.input.selectionEnd??start;view.input.value=view.input.value.slice(0,start)+text+view.input.value.slice(end);view.input.focus();view.input.setSelectionRange(start+text.length,start+text.length);saveDraft();}
+function syncNav(){
+ const active=state.inspector?(state.tab==='notes'?'notes':state.tab==='look'?'settings':'lab'):'chats';
+ for(const button of view.rail?.querySelectorAll('[data-section]')||[]){const selected=button.dataset.section===active;button.classList.toggle('selected',selected);if(selected)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');}
+}
+function navButton(key,ic,label,action){const button=btn(ic,label,()=>{action();syncNav();},{dataset:{section:key}});button.append(h('span',{class:'nav-label'},label));return button;}
 function drawInspector(){
+ syncNav();
  view.inspector.replaceChildren(h('div',{class:'inspector-head'},h('span',{},'ВАШЕ ПРОСТРАНСТВО'),btn('close','Скрыть панель',()=>{state.inspector=false;applyLook();})),h('div',{class:'inspector-tabs'},...[['notes','Заметки'],['look','Оформление'],['lab','Бета-лаборатория']].map(([id,label])=>h('button',{type:'button',class:state.tab===id?'selected':'',onclick:()=>{state.tab=id;drawInspector();}},label))));
  if(state.tab==='notes'){
   const key=state.current?.id||'home',note=h('textarea',{class:'note-input',placeholder:'Идея, список дел или то, что важно не забыть…',maxLength:6000,'aria-label':'Личная заметка',value:state.notes[key]||'',oninput:event=>{state.notes[key]=event.target.value;saveLocal('notes',state.notes);}});
@@ -95,7 +101,7 @@ function setFocus(value=!state.focus){state.focus=value;applyLook();view.focus?.
 function palette(){if(!view.search)return;setFocus(false);root.classList.remove('chat-open');view.search.focus();view.search.select();}
 function build(){
  if(matchMedia('(max-width:1190px)').matches)state.inspector=false;
- const rail=h('nav',{class:'rail','aria-label':'Разделы'},h('a',{class:'rail-logo',href:'/',title:'Основной сервер'},h('img',{src:'/icons/icon.svg',alt:'Limochat'})),h('span',{class:'rail-separator'}),btn('chat','Чаты',()=>{root.classList.remove('chat-open');setFocus(false);}),btn('search','Найти чат · Ctrl K',palette),btn('pencil','Личные заметки',()=>{state.inspector=true;state.tab='notes';applyLook();drawInspector();}),btn('sparkles','Бета-лаборатория',()=>{state.inspector=true;state.tab='lab';applyLook();drawInspector();}),h('div',{class:'rail-spacer'}),h('a',{class:'icon-button',href:'/',title:'Основной сервер','aria-label':'Основной сервер'},icon('back')),btn('settings','Оформление',()=>{state.inspector=true;state.tab='look';applyLook();drawInspector();}),h('div',{class:'rail-avatar',title:state.me.name},avatar({...state.me,src:state.me.avatar},32)));
+ const rail=view.rail=h('nav',{class:'rail','aria-label':'Разделы'},h('a',{class:'rail-logo',href:'/',title:'Основной сервер'},h('img',{src:'/icons/icon.svg',alt:'Limochat'})),h('span',{class:'rail-separator'}),navButton('chats','chat','Чаты',()=>{state.inspector=false;root.classList.remove('chat-open');setFocus(false);}),btn('search','Найти чат · Ctrl K',palette),navButton('notes','pencil','Заметки',()=>{state.inspector=true;state.tab='notes';applyLook();drawInspector();}),btn('sparkles','Бета-лаборатория',()=>{state.inspector=true;state.tab='lab';applyLook();drawInspector();}),h('div',{class:'rail-spacer'}),h('a',{class:'icon-button nav-main',href:'/',title:'Основной сервер','aria-label':'Основной сервер'},icon('back'),h('span',{class:'nav-label'},'Основной')),navButton('settings','settings','Оформление',()=>{state.inspector=true;state.tab='look';applyLook();drawInspector();}),h('div',{class:'rail-avatar',title:state.me.name},avatar({...state.me,src:state.me.avatar},32)));
  view.search=h('input',{type:'search',placeholder:'Найти чат','aria-label':'Поиск по чатам',oninput:event=>{state.query=event.target.value;drawList();}});
  view.list=h('div',{class:'chat-list'});view.count=h('span',{class:'chat-counter'},'0');
  const filters=h('div',{class:'chat-filters'},... [['all','Все'],['unread','Непрочитанные'],['pinned','Важные']].map(([id,label])=>h('button',{class:id==='all'?'selected':'',onclick:event=>{state.filter=id;filters.querySelectorAll('button').forEach(b=>b.classList.toggle('selected',b===event.currentTarget));drawList();}},label)));
