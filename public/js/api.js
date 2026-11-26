@@ -1,5 +1,6 @@
 let activeAccountId=null;
-export function setAccountId(id){activeAccountId=id;}
+let sessionExpired=false;
+export function setAccountId(id){activeAccountId=id;sessionExpired=false;}
 export class ApiError extends Error {
   constructor(status, code, data = null) {
     super(code);
@@ -27,6 +28,7 @@ async function request(method, url, body) {
   let data = null;
   try { data = await res.json(); } catch { /* empty body */ }
   if(data?.error==='account_changed')window.dispatchEvent(new Event('limochat:account-changed'));
+  if(res.status===401&&data?.error==='unauthorized'&&activeAccountId!=null&&!url.startsWith('/api/auth/')&&!sessionExpired){sessionExpired=true;window.dispatchEvent(new Event('limochat:session-expired'));}
   if (!res.ok) throw new ApiError(res.status, data?.error || 'error', data);
   return data;
 }

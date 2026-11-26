@@ -579,6 +579,7 @@ window.addEventListener('storage',e=>{
     .catch(e=>{if(e.status===401||e.code==='account_changed'){saveDraft();stopTrack();S.socket?.disconnect();location.replace('/');}});
 });
 window.addEventListener('limochat:account-changed',()=>{saveDraft();stopTrack();S.socket?.disconnect();location.replace('/');});
+window.addEventListener('limochat:session-expired',()=>{saveDraft();stopTrack();S.socket?.disconnect();setAccountId(null);location.replace('/?login=expired');});
 
 // ============================================================ main layout
 
@@ -810,15 +811,17 @@ function connectSocket() {
     renderChatList();
     if (S.current) renderHeader();
   });
-  s.on('disconnect', () => {
+  s.on('disconnect', (reason) => {
     S.connected = false;
     V.conn.classList.remove('hidden');
+    // Server revocation disables Socket.IO auto-reconnect; recheck the session.
+    if(reason==='io server disconnect')api.get('/me').then(()=>s.connect()).catch(()=>{});
   });
   s.on('connect_error', async (err) => {
     V.conn.classList.remove('hidden');
     if(err?.message==='account_changed'){saveDraft();stopTrack();location.replace('/');return;}
     if (err?.message === 'unauthorized') {
-      try { await api.get('/me'); } catch (e) { if (e.status === 401) location.reload(); }
+      try { await api.get('/me'); } catch { /* session-expired handles recovery */ }
     }
   });
 
@@ -2101,7 +2104,7 @@ function markRead() {
 }
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) saveDraft();
-  else { markRead(); checkVersion(); }
+  else { if(S.me)api.get('/me').catch(()=>{});markRead(); checkVersion(); }
 });
 window.addEventListener('pagehide', saveDraft);
 
