@@ -23,7 +23,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== location.origin) return;
   // Never cache API, realtime, media (private) or the admin page.
-  if (/^\/(api|socket\.io|media|admin)/.test(url.pathname)) return;
+  if (/^\/(api|beta|socket\.io|media|admin)/.test(url.pathname)) return;
 
   // Network-first (server sends ETags, so this is cheap): always fresh online, cached shell offline.
   e.respondWith(

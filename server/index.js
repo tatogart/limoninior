@@ -1,3 +1,4 @@
+import {betaRouter,betaGrant,requireBeta,setBetaNotifier} from './beta.js';
 import {startHousekeeping} from './housekeeping.js';
 import http from 'node:http';
 import path from 'node:path';
@@ -7,13 +8,14 @@ import rateLimit from 'express-rate-limit';
 import { config } from './config.js';
 import { q, now } from './db.js';
 import { checkOrigin, requireAuth, sessionFromCookie, isAdminUser } from './auth.js';
-import { api, officialNewsChannel, announceReleasedUpdates } from './api.js';
+import { api, pushMe, officialNewsChannel, announceReleasedUpdates } from './api.js';
 import { botApi } from './bots.js';
 import { admin,consumeAdminEntry } from './admin.js';
 import { serveMedia } from './media.js';
 import { initRealtime } from './realtime.js';
 import { ipBanGuard } from './ipban.js';
 
+setBetaNotifier(pushMe);
 const app = express();
 startHousekeeping();
 const pub = path.join(config.root, 'public');
@@ -64,6 +66,7 @@ app.use('/api', globalLimiter, checkOrigin, express.json({ limit: '64kb' }), (re
   next();
 });
 app.use('/api/admin', admin);
+app.use('/api/beta',betaRouter(api));
 app.use('/api', api);
 app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));
 
@@ -87,6 +90,11 @@ app.get('/news',(_req,res)=>{const channel=officialNewsChannel();res.redirect(30
 app.get('/about', (req, res) => res.sendFile(path.join(pub, 'about.html')));
 
 app.get('/.well-known/assetlinks.json',(_req,res)=>{res.set('Cache-Control','public, max-age=300');res.type('application/json').sendFile(path.join(pub,'.well-known','assetlinks.json'),{dotfiles:'allow'});});
+
+// Beta is a separate guarded client; no normal-app fallback may expose its files.
+app.get(['/beta','/beta/'],(req,res)=>{const current=sessionFromCookie(req.headers.cookie);res.set('Cache-Control','no-store');res.sendFile(path.join(config.root,'beta',current&&betaGrant(current.session.id,current.user.id)?'index.html':'gate.html'));});
+app.use('/beta/assets',requireAuth,requireBeta,express.static(path.join(config.root,'beta/assets'),{index:false,setHeaders:res=>res.set('Cache-Control','no-store')}));
+app.use('/beta',(_req,res)=>res.status(404).end());
 
 app.use(express.static(pub, {
   index: 'index.html',

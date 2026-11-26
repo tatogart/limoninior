@@ -1,3 +1,4 @@
+import {registerBetaAdmin} from './beta.js';
 import {registerTeamAdmin} from './team-recruitment.js';
 import {registerScamAdmin} from './scam.js';
 import {registerCollectiblesAdmin} from './collectibles.js';
@@ -468,5 +469,6 @@ admin.post('/vacuum', (req, res) => {
 });
 
 registerTeamAdmin(admin);
+registerBetaAdmin(admin);
 registerRewardsAdmin(admin, { pushMe, broadcastUser: broadcastProfile, notify: (...a) => notifyOwner(...a) });
 registerAdminPro(admin, { targetUser, anyUser, deviceInfo, notifyOwner, protectedIps });

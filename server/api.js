@@ -1,3 +1,4 @@
+import {betaGrant} from './beta.js';
 import {registerTeamApi} from './team-recruitment.js';
 import {registerMultiAccounts} from './multi-accounts.js';
 import {assertAccountCapacity} from './auth.js';
@@ -119,6 +120,7 @@ export function meUser(u) {
     email: u.email,
     isAdmin: isAdminUser(u),
     isModerator: isModerator(u.id),
+    betaAccess: !!betaGrant(null,u.id),
     needsProfile: !u.username,
     coins: u.coins,
     hasPassword: !!u.password_hash,
