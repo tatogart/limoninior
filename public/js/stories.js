@@ -396,9 +396,10 @@ export function openComposer() {
 /** Small preview of a story inside a chat message (reply / reaction). */
 export function storyQuote(x, onOpen) {
   const expired = !x.expiresAt || x.expiresAt < Date.now();
-  const thumb = x.kind === 'image' && !expired
-    ? h('div', { class: 'sq-thumb', style: { backgroundImage: `url("${x.file}")` } })
-    : h('div', { class: 'sq-thumb', style: { background: bgCss(x.bg) } }, x.kind === 'image' ? icon('image') : h('span', {}, (x.text || 'Aa').slice(0, 2)));
+  const fallback=()=>x.kind==='image'?icon('image'):h('span',{},[...new Intl.Segmenter('ru',{granularity:'grapheme'}).segment(x.text||'Aa')].slice(0,2).map(part=>part.segment).join(''));
+  const thumb=h('div',{class:'sq-thumb',style:{background:bgCss(x.bg)}});
+  if(x.kind==='image'&&!expired&&x.file)thumb.append(h('img',{src:x.file,alt:'Фото истории',loading:'lazy',onerror:()=>thumb.replaceChildren(icon('image'))}));
+  else thumb.append(fallback());
   return h('button', { class: `story-quote ${expired ? 'expired' : ''}`, onclick: (e) => { e.stopPropagation(); if (expired) toast('История больше недоступна'); else onOpen(); } },
     thumb, h('div', { class: 'sq-body' }, h('b', {}, 'История'), h('span', {}, expired ? 'больше недоступна' : x.text || (x.kind === 'image' ? 'Фото' : ''))));
 }

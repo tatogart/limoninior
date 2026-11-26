@@ -1,9 +1,13 @@
-import {h,icon,avatar,richText,timeHM,contextMenu} from '/js/ui.js';
+import {h,icon,avatar,richText,timeHM,contextMenu,handleBack,afterHistory,openModal,closeTopModal,closeMenu} from '/js/ui.js';
 import {stickerInfo} from '/js/catalog.js';
-import {errorText} from '/js/api.js';
+import {errorText,setAccountId} from '/js/api.js';
+import {io} from '/vendor/socket.io.esm.min.js';
+import {initCalls,startCall,inCall} from '/js/calls.js';
+import {showProfile} from './profiles.js';
+import {storyQuote} from '/js/stories.js';
 const root=document.querySelector('#beta-app');
 const state={me:null,chats:[],current:null,messages:[],filter:'all',query:'',focus:false,inspector:false,tab:'notes',epoch:0,sending:false,drafts:{},settings:{theme:'dark',dense:false,quick:false,accent:'mint'},notes:{},reply:null,searchText:''};
-const view={};let timer,polling=false,toastTimer;
+const view={};let socket;let timer,polling=false,toastTimer;
 function toast(text){const el=document.querySelector('#beta-toast');el.textContent=text;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),4500);}
 function readLocal(key,fallback){try{return JSON.parse(localStorage.getItem('limo.beta.'+state.me.id+'.'+key))||fallback;}catch{return fallback;}}
 function saveLocal(key,value){try{localStorage.setItem('limo.beta.'+state.me.id+'.'+key,JSON.stringify(value));}catch{toast('Браузер не разрешает сохранять данные на устройстве.');}}
@@ -36,7 +40,8 @@ function drawList(){
 function messageNode(message){
  const mine=message.senderId===state.me.id;
  const body=h('div',{class:'message-content'});
- if(message.replyTo)body.append(h('div',{class:'reply-preview'},message.replyTo.deleted?'Сообщение удалено':preview(message.replyTo)));
+ if(message.replyTo)body.append(h('button',{class:'reply-preview',type:'button',onclick:()=>{const node=[...view.messages.children].find(n=>n.dataset.messageId===String(message.replyTo.id));if(node)node.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'instant':'smooth'});else toast('Сообщение находится выше. Загрузите предыдущие сообщения.');}},h('b',{},message.replyTo.deleted?'Сообщение удалено':'Ответ на сообщение'),h('span',{},message.replyTo.deleted?'':preview(message.replyTo))));
+ if(message.extra?.story)body.append(storyQuote(message.extra.story,()=>showQuotedStory(message.extra.story)));
  if(message.kind==='image'&&message.file)body.append(h('a',{href:message.file,target:'_blank',rel:'noopener'},h('img',{class:'message-image',src:message.file,alt:'Фото из чата',loading:'lazy'})));
  if(message.kind==='sticker'){
   const info=stickerInfo(message.text);
@@ -65,7 +70,8 @@ function drawMessages({bottom=false}={}){
 async function markRead(){if(!state.current||!state.messages.length||document.hidden)return;const id=state.current.id,mid=state.messages.at(-1).id;try{await request('/chats/'+id+'/read',{method:'POST',body:{messageId:mid}});const chat=state.chats.find(c=>c.id===id);if(chat){chat.unread=0;drawList();}}catch{}}
 async function openChat(chat){
  saveDraft();state.reply=null;state.searchText='';view.messageSearch.value='';view.searchBar.hidden=true;drawReply();const turn=++state.epoch;state.current=chat;state.messages=[];root.classList.add('chat-open');drawList();view.chat.hidden=false;view.welcome.hidden=true;
- view.chatIdentity.replaceChildren(chatAvatar(chat,40),h('div',{},h('strong',{},title(chat)),h('small',{},chat.type==='private'?(chat.peer?.online?'В сети':'Личный чат'):chat.type==='saved'?'Только для вас':chat.membersCount+' участников')));
+ view.voice.hidden=view.video.hidden=chat.type!=='private'||!chat.peer||chat.peer.bot||chat.peer.id===state.me.id||!!chat.blocked;
+ view.chatIdentity.disabled=!chat.peer;view.chatIdentity.replaceChildren(chatAvatar(chat,40),h('div',{},h('strong',{},title(chat)),h('small',{},chat.type==='private'?(chat.peer?.online?'В сети':'Личный чат'):chat.type==='saved'?'Только для вас':chat.membersCount+' участников')));
  view.input.value=state.drafts[chat.id]||'';view.input.disabled=chat.canPost===false||!!chat.blocked;view.send.disabled=view.input.disabled;view.attach.disabled=view.input.disabled;view.input.placeholder=view.input.disabled?'Отправка сообщений недоступна':'Написать сообщение…';view.messages.replaceChildren(h('div',{class:'list-empty'},'Загружаем переписку…'));
  try{const result=await request('/chats/'+chat.id+'/messages');if(turn!==state.epoch)return;state.messages=result.messages;view.older.hidden=!result.hasMore;drawMessages({bottom:true});drawInspector();markRead();view.input.focus();}catch(error){if(turn===state.epoch)view.messages.replaceChildren(h('div',{class:'list-empty'},errorText(error)));}
 }
@@ -113,12 +119,13 @@ function setFocus(value=!state.focus){state.focus=value;applyLook();view.focus?.
 function palette(){if(!view.search)return;setFocus(false);root.classList.remove('chat-open');view.search.focus();view.search.select();}
 function build(){
  if(matchMedia('(max-width:1190px)').matches)state.inspector=false;
- const rail=view.rail=h('nav',{class:'rail','aria-label':'Разделы'},h('a',{class:'rail-logo',href:'/?server=main',title:'Основной сервер'},h('img',{src:'/icons/icon.svg',alt:'Limochat'})),h('span',{class:'rail-separator'}),navButton('chats','chat','Чаты',()=>{state.inspector=false;root.classList.remove('chat-open');setFocus(false);}),btn('search','Найти чат · Ctrl K',palette),navButton('notes','pencil','Заметки',()=>{state.inspector=true;state.tab='notes';applyLook();drawInspector();}),btn('sparkles','Бета-лаборатория',()=>{state.inspector=true;state.tab='lab';applyLook();drawInspector();}),h('div',{class:'rail-spacer'}),h('a',{class:'icon-button nav-main',href:'/?server=main',title:'Основной сервер','aria-label':'Основной сервер'},icon('back'),h('span',{class:'nav-label'},'Основной')),navButton('settings','settings','Оформление',()=>{state.inspector=true;state.tab='look';applyLook();drawInspector();}),h('div',{class:'rail-avatar',title:state.me.name},avatar({...state.me,src:state.me.avatar},32)));
+ const rail=view.rail=h('nav',{class:'rail','aria-label':'Разделы'},h('a',{class:'rail-logo',href:'/?server=main',title:'Основной сервер'},h('img',{src:'/icons/icon.svg',alt:'Limochat'})),h('span',{class:'rail-separator'}),navButton('chats','chat','Чаты',()=>{state.inspector=false;root.classList.remove('chat-open');setFocus(false);}),btn('search','Найти чат · Ctrl K',palette),navButton('notes','pencil','Заметки',()=>{state.inspector=true;state.tab='notes';applyLook();drawInspector();}),btn('sparkles','Бета-лаборатория',()=>{state.inspector=true;state.tab='lab';applyLook();drawInspector();}),h('div',{class:'rail-spacer'}),h('a',{class:'icon-button nav-main',href:'/?server=main',title:'Основной сервер','aria-label':'Основной сервер'},icon('back'),h('span',{class:'nav-label'},'Основной')),btn('user','Профиль',()=>profile(state.me.id),{class:'icon-button nav-profile'}),navButton('settings','settings','Оформление',()=>{state.inspector=true;state.tab='look';applyLook();drawInspector();}),h('div',{class:'rail-avatar',title:state.me.name},avatar({...state.me,src:state.me.avatar},32)));
  view.search=h('input',{type:'search',placeholder:'Найти чат','aria-label':'Поиск по чатам',oninput:event=>{state.query=event.target.value;drawList();}});
  view.list=h('div',{class:'chat-list'});view.count=h('span',{class:'chat-counter'},'0');
  const filters=h('div',{class:'chat-filters'},... [['all','Все'],['unread','Непрочитанные'],['pinned','Важные']].map(([id,label])=>h('button',{class:id==='all'?'selected':'',onclick:event=>{state.filter=id;filters.querySelectorAll('button').forEach(b=>b.classList.toggle('selected',b===event.currentTarget));drawList();}},label)));
  const sidebar=h('aside',{class:'sidebar glass'},h('div',{class:'sidebar-title'},h('h1',{},'Чаты'),view.count),h('label',{class:'search'},icon('search'),view.search),filters,view.list);
- view.chatIdentity=h('div',{class:'chat-identity'});view.messages=h('div',{class:'messages',role:'log','aria-label':'Сообщения'});
+ view.rail.querySelector('.nav-profile').append(h('span',{class:'nav-label'},'Профиль'));
+ view.chatIdentity=h('button',{type:'button',class:'chat-identity','aria-label':'Открыть профиль',onclick:()=>{if(state.current?.peer)profile(state.current.peer.id);}});view.messages=h('div',{class:'messages',role:'log','aria-label':'Сообщения'});
  view.input=h('textarea',{rows:1,maxLength:4096,placeholder:'Написать сообщение…','aria-label':'Сообщение',oninput:saveDraft,onkeydown:event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();send();}}});
  view.send=btn('send','Отправить сообщение',()=>send(),{class:'send-button'});
  const fileInput=h('input',{type:'file',hidden:true,onchange:event=>{const file=event.target.files[0];event.target.value='';if(file)send(file);}});
@@ -134,7 +141,8 @@ function build(){
  view.searchBar=h('div',{class:'message-search',hidden:true},view.messageSearch,view.searchCount,btn('down','Следующее совпадение',nextSearch),btn('close','Закрыть поиск',()=>{view.searchBar.hidden=true;view.messageSearch.value='';state.searchText='';updateMessageSearch();}));
  view.jump=btn('down','К новым сообщениям',()=>{view.messages.scrollTo({top:view.messages.scrollHeight,behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'instant':'smooth'});},{class:'jump-latest',hidden:true});
  view.messages.addEventListener('scroll',updateJump,{passive:true});
- view.chat=h('section',{class:'conversation',hidden:true},h('header',{class:'conversation-header'},btn('back','К списку чатов',()=>{saveDraft();root.classList.remove('chat-open');}),view.chatIdentity,btn('search','Поиск сообщений',()=>{view.searchBar.hidden=!view.searchBar.hidden;if(!view.searchBar.hidden)view.messageSearch.focus();}),view.focus,btn('info','Панель чата',()=>{state.inspector=!state.inspector;applyLook();drawInspector();})),view.searchBar,view.older,view.messages,view.jump,h('div',{class:'composer-wrap'},view.reply,view.quick,view.emoji,h('form',{class:'composer',onsubmit:event=>{event.preventDefault();send();}},view.attach,emoji,view.input,view.send,fileInput),null));
+ view.voice=btn('phone','Аудиозвонок',()=>callCurrent(false),{hidden:true});view.video=btn('video','Видеозвонок',()=>callCurrent(true),{hidden:true});
+ view.chat=h('section',{class:'conversation',hidden:true},h('header',{class:'conversation-header'},btn('back','К списку чатов',()=>{saveDraft();root.classList.remove('chat-open');}),view.chatIdentity,view.voice,view.video,btn('search','Поиск сообщений',()=>{view.searchBar.hidden=!view.searchBar.hidden;if(!view.searchBar.hidden)view.messageSearch.focus();}),view.focus,btn('info','Панель чата',()=>{state.inspector=!state.inspector;applyLook();drawInspector();})),view.searchBar,view.older,view.messages,view.jump,h('div',{class:'composer-wrap'},view.reply,view.quick,view.emoji,h('form',{class:'composer',onsubmit:event=>{event.preventDefault();send();}},view.attach,emoji,view.input,view.send,fileInput),null));
  view.welcome=h('div',{class:'welcome'},h('div',{class:'welcome-symbol'},icon('chat')),h('h2',{},'Выберите чат'),h('p',{},'Начните или продолжите разговор.'));
 
  const center=h('main',{class:'center glass'},view.welcome,view.chat);
@@ -148,10 +156,17 @@ async function refresh(){
   if(state.current){const chat=state.chats.find(c=>c.id===state.current.id);if(!chat){state.current=null;view.chat.hidden=true;view.welcome.hidden=false;root.classList.remove('chat-open');return;}state.current=chat;const turn=state.epoch,result=await request('/chats/'+chat.id+'/messages');if(turn===state.epoch){const before=JSON.stringify(state.messages.slice(-result.messages.length));if(before!==JSON.stringify(result.messages)){const oldest=result.messages[0]?.id;state.messages=[...state.messages.filter(m=>m.id<oldest),...result.messages];drawMessages();}markRead();}}
  }catch(error){if(error.status!==401&&error.code!=='beta_access_required')toast(errorText(error));}finally{polling=false;}
 }
+async function showQuotedStory(quote){try{const {feed}=await request('/stories');const story=feed.flatMap(group=>group.stories).find(item=>item.id===quote.id);if(!story||story.expiresAt<Date.now())return toast('История больше недоступна');openModal({title:'История',body:story.kind==='image'?h('img',{class:'beta-story-photo',src:story.file,alt:story.text||'Фото истории'}):h('p',{class:'profile-bio'},story.text)});request('/stories/'+story.id+'/view',{method:'POST',body:{}}).catch(()=>{});}catch(error){toast(errorText(error));}}
+function profile(id){return showProfile(id,{request,me:state.me,onUpdate:user=>{state.me=user;toast('Профиль обновлён');},onChat:user=>afterHistory(()=>openPrivate(user)),onCall:(user,video)=>afterHistory(()=>callUser(user,video))});}
+async function openPrivate(user){try{const {chat}=await request('/chats/private',{method:'POST',body:{userId:user.id}});const existing=state.chats.findIndex(c=>c.id===chat.id);if(existing<0)state.chats.push(chat);else state.chats[existing]=chat;await openChat(chat);return chat;}catch(error){toast(errorText(error));}}
+async function callUser(user,video){if(inCall())return toast('Сначала завершите текущий звонок');if(!socket?.connected)return toast('Нет соединения. Подождите подключения.');const chat=await openPrivate(user);if(chat&&!chat.blocked&&!user.bot)startCall(chat,user,video);}
+function callCurrent(video){const chat=state.current;if(chat?.type!=='private'||!chat.peer||chat.peer.bot||chat.blocked)return;if(!socket?.connected)return toast('Нет соединения. Подождите подключения.');startCall(chat,chat.peer,video);}
+function connectCalls(){socket=io({transports:['websocket','polling'],withCredentials:true,auth:{accountId:state.me.id}});initCalls({socket,userById:id=>id===state.me.id?state.me:state.chats.find(c=>c.peer?.id===id)?.peer});socket.on('message',()=>refresh());socket.on('me',user=>{if(user.id===state.me.id)state.me=user;});socket.on('family:changed',()=>location.reload());socket.on('connect',()=>refresh());socket.on('connect_error',error=>{if(/account_changed|unauthorized/.test(error.message)){socket.disconnect();location.replace('/beta');}});}
+window.addEventListener('popstate',()=>handleBack());
 async function boot(){
- try{state.me=(await request('/me')).user;state.settings={...state.settings,...readLocal('settings',{})};state.notes=readLocal('notes',{});state.drafts=readLocal('drafts',{});state.chats=(await request('/chats')).chats;build();timer=setInterval(refresh,8000);}catch(error){root.replaceChildren(h('div',{class:'fatal'},h('h2',{},'Не удалось открыть бету'),h('p',{},errorText(error)),h('button',{onclick:()=>location.reload()},'Повторить'),h('a',{href:'/?server=main'},'Обычный Limochat')));}
+ try{state.me=(await request('/me')).user;setAccountId(state.me.id);state.settings={...state.settings,...readLocal('settings',{})};state.notes=readLocal('notes',{});state.drafts=readLocal('drafts',{});state.chats=(await request('/chats')).chats;build();connectCalls();timer=setInterval(refresh,8000);}catch(error){root.replaceChildren(h('div',{class:'fatal'},h('h2',{},'Не удалось открыть бету'),h('p',{},errorText(error)),h('button',{onclick:()=>location.reload()},'Повторить'),h('a',{href:'/?server=main'},'Обычный Limochat')));}
 }
-window.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='k'){event.preventDefault();palette();}if(event.key==='Escape'){setFocus(false);if(view.emoji)view.emoji.hidden=true;}});
+window.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='k'){event.preventDefault();palette();}if(event.key==='Escape'){closeMenu();if(closeTopModal())return;setFocus(false);if(view.emoji)view.emoji.hidden=true;}});
 window.addEventListener('beforeunload',saveDraft);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
 window.addEventListener('storage',event=>{if(event.key==='limoninior.account-change'){saveDraft();location.replace('/beta');}});
 // Follow the visible viewport when mobile browser chrome or the keyboard changes.

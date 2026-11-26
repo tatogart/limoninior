@@ -33,6 +33,12 @@ test('beta gate, private assets, admin code lifecycle and proxy keep the normal 
 
   assert.equal((await request('GET','/beta/assets/app.js',undefined,tester.cookie)).status,200);assert.match((await request('GET','/beta/assets/glass.css',undefined,tester.cookie)).cache,/no-store/);
   assert.equal((await request('GET','/api/beta/app/chats',undefined,tester.cookie)).status,200);
+  const edited=await request('PATCH','/api/beta/app/me',{name:'Beta Profile Edited',bio:'Saved from beta'},tester.cookie);assert.equal(edited.status,200);assert.equal(edited.json.user.bio,'Saved from beta');
+  const publicProfile=await request('GET','/api/users/'+tester.json.user.id,undefined,administrator.cookie);assert.equal(publicProfile.json.user.name,'Beta Profile Edited');
+  assert.equal((await request('GET','/api/beta/app/users/'+administrator.json.user.id,undefined,tester.cookie)).status,200);
+  assert.equal((await request('GET','/api/beta/app/users/'+tester.json.user.id+'/gifts',undefined,tester.cookie)).status,200);
+  assert.equal((await request('GET','/api/beta/app/calls/ice',undefined,tester.cookie)).status,200);
+
   const saved=await request('POST','/api/beta/app/chats/private',{userId:tester.json.user.id},tester.cookie);assert.equal(saved.status,200,saved.text);
   assert.equal((await request('POST','/api/beta/app/chats/'+saved.json.chat.id+'/messages',{text:'Beta real chat test'},tester.cookie)).status,200);
   const original=await request('POST','/api/beta/app/chats/'+saved.json.chat.id+'/messages',{text:'Reply target'},tester.cookie);
