@@ -139,4 +139,9 @@ async function boot(){
 window.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='k'){event.preventDefault();palette();}if(event.key==='Escape'){setFocus(false);if(view.emoji)view.emoji.hidden=true;}});
 window.addEventListener('beforeunload',saveDraft);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
 window.addEventListener('storage',event=>{if(event.key==='limoninior.account-change'){saveDraft();location.replace('/beta');}});
+// Follow the visible viewport when mobile browser chrome or the keyboard changes.
+function fitViewport(){document.documentElement.style.setProperty('--beta-viewport-height',(window.visualViewport?.height||window.innerHeight)+'px');}
+window.visualViewport?.addEventListener('resize',fitViewport);
+window.addEventListener('resize',fitViewport);
+fitViewport();
 boot();
