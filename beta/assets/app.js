@@ -2,7 +2,7 @@ import {h,icon,avatar,richText,timeHM} from '/js/ui.js';
 import {stickerInfo} from '/js/catalog.js';
 import {errorText} from '/js/api.js';
 const root=document.querySelector('#beta-app');
-const state={me:null,chats:[],current:null,messages:[],filter:'all',query:'',focus:false,inspector:true,tab:'notes',epoch:0,sending:false,drafts:{},settings:{theme:'light',dense:false,quick:true,accent:'mint'},notes:{}};
+const state={me:null,chats:[],current:null,messages:[],filter:'all',query:'',focus:false,inspector:false,tab:'notes',epoch:0,sending:false,drafts:{},settings:{theme:'light',dense:false,quick:false,accent:'mint'},notes:{}};
 const view={};let timer,polling=false,toastTimer;
 function toast(text){const el=document.querySelector('#beta-toast');el.textContent=text;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),4500);}
 function readLocal(key,fallback){try{return JSON.parse(localStorage.getItem('limo.beta.'+state.me.id+'.'+key))||fallback;}catch{return fallback;}}
@@ -87,7 +87,7 @@ function drawInspector(){
  }else{
   const feedback=h('textarea',{class:'note-input',maxLength:2000,placeholder:'Что понравилось? Что мешает?','aria-label':'Отзыв о бете'}),status=h('p',{class:'feedback-status',role:'status'});
   const submit=h('button',{class:'wide-button',onclick:async()=>{if(feedback.value.trim().length<3){status.textContent='Напишите хотя бы несколько слов.';return;}submit.disabled=true;try{await request('/feedback',{method:'POST',body:{text:feedback.value},beta:true});feedback.value='';status.textContent='Отзыв отправлен администратору. Спасибо!';}catch(e){status.textContent=e.code==='beta_bad_feedback'?'Отзыв должен содержать от 3 до 2000 символов.':errorText(e);}finally{submit.disabled=false;}}},'Отправить отзыв');
-  view.inspector.append(h('div',{class:'inspector-card lab-card'},h('span',{class:'card-eyebrow'},'BETA / 01'),h('h3',{},'Создаём следующую версию'),h('p',{},'Здесь можно оставить отзыв об интерфейсе. Сообщения в чатах настоящие и видны в основной версии.'),feedback,submit,status,h('a',{class:'main-link',href:'/'},'Основной сервер ↗')));
+  view.inspector.append(h('div',{class:'inspector-card lab-card'},h('span',{class:'card-eyebrow'},'BETA / 01'),h('h3',{},'Создаём следующую версию'),h('p',{},'Здесь можно оставить отзыв об интерфейсе. Сообщения в чатах настоящие и видны в основной версии.'),feedback,submit,status,h('a',{class:'main-link',href:'/'},'Основной сервер')));
  }
 }
 function drawQuick(){view.quick.hidden=!state.settings.quick;}
@@ -99,7 +99,7 @@ function build(){
  view.search=h('input',{type:'search',placeholder:'Найти чат','aria-label':'Поиск по чатам',oninput:event=>{state.query=event.target.value;drawList();}});
  view.list=h('div',{class:'chat-list'});view.count=h('span',{class:'chat-counter'},'0');
  const filters=h('div',{class:'chat-filters'},... [['all','Все'],['unread','Непрочитанные'],['pinned','Важные']].map(([id,label])=>h('button',{class:id==='all'?'selected':'',onclick:event=>{state.filter=id;filters.querySelectorAll('button').forEach(b=>b.classList.toggle('selected',b===event.currentTarget));drawList();}},label)));
- const sidebar=h('aside',{class:'sidebar glass'},h('div',{class:'sidebar-title'},h('h1',{},'Сообщения'),view.count),h('label',{class:'search'},icon('search'),view.search,h('kbd',{},'⌘ K')),filters,view.list,h('footer',{class:'sidebar-footer'},h('span',{},'Limochat'),h('span',{},'Liquid Glass · Beta 01')));
+ const sidebar=h('aside',{class:'sidebar glass'},h('div',{class:'sidebar-title'},h('h1',{},'Чаты'),view.count),h('label',{class:'search'},icon('search'),view.search,h('kbd',{},'⌘ K')),filters,view.list);
  view.chatIdentity=h('div',{class:'chat-identity'});view.messages=h('div',{class:'messages',role:'log','aria-label':'Сообщения'});
  view.input=h('textarea',{rows:1,maxLength:4096,placeholder:'Написать сообщение…','aria-label':'Сообщение',oninput:saveDraft,onkeydown:event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();send();}}});
  view.send=btn('send','Отправить сообщение',()=>send(),{class:'send-button'});
@@ -110,11 +110,12 @@ function build(){
  view.quick=h('div',{class:'quick-replies'},h('span',{},'Быстрый ответ'),...['Привет! 👋','Спасибо 💚','Скоро отвечу','Договорились 🤝'].map(text=>h('button',{onclick:()=>insert(text)},text)));
  view.focus=btn('eye','Режим фокуса',()=>setFocus(),{'aria-pressed':'false'});
  view.older=h('button',{class:'load-older',hidden:true,onclick:older},'Загрузить предыдущие сообщения');
- view.chat=h('section',{class:'conversation',hidden:true},h('header',{class:'conversation-header'},btn('back','К списку чатов',()=>{saveDraft();root.classList.remove('chat-open');}),view.chatIdentity,view.focus,btn('info','Панель чата',()=>{state.inspector=!state.inspector;applyLook();drawInspector();})),view.older,view.messages,h('div',{class:'composer-wrap'},view.quick,view.emoji,h('form',{class:'composer',onsubmit:event=>{event.preventDefault();send();}},view.attach,emoji,view.input,view.send,fileInput),h('small',{class:'composer-foot'},'Enter — отправить · Shift + Enter — новая строка')));
- view.welcome=h('div',{class:'welcome'},h('div',{class:'welcome-symbol'},icon('chat')),h('span',{class:'welcome-kicker'},'ВАШЕ МЕСТО ДЛЯ ОБЩЕНИЯ'),h('h2',{},'Всё начинается\nс разговора.'),h('p',{},'Выберите чат слева. Остальное — просто.'),h('div',{class:'welcome-chips'},h('span',{},'Прозрачность'),h('span',{},'Фокус'),h('span',{},'Ваш ритм')),h('button',{class:'wide-button',onclick:palette},'Найти разговор ↗'));
+ view.chat=h('section',{class:'conversation',hidden:true},h('header',{class:'conversation-header'},btn('back','К списку чатов',()=>{saveDraft();root.classList.remove('chat-open');}),view.chatIdentity,view.focus,btn('info','Панель чата',()=>{state.inspector=!state.inspector;applyLook();drawInspector();})),view.older,view.messages,h('div',{class:'composer-wrap'},view.quick,view.emoji,h('form',{class:'composer',onsubmit:event=>{event.preventDefault();send();}},view.attach,emoji,view.input,view.send,fileInput),null));
+ view.welcome=h('div',{class:'welcome'},h('div',{class:'welcome-symbol'},icon('chat')),h('h2',{},'Выберите чат'),h('p',{},'Начните или продолжите разговор.'));
+
  const center=h('main',{class:'center glass'},view.welcome,view.chat);
  view.inspector=h('aside',{class:'inspector glass','aria-label':'Личная панель'});
- const status=h('div',{class:'beta-header'},h('span',{class:'beta-wordmark'},'Limochat',h('b',{},'beta / 01')),h('span',{class:'live-label'},h('i'),'Тестовый интерфейс · ваш аккаунт'),h('a',{href:'/'},'Основной сервер ↗'));
+ const status=h('div',{class:'beta-header'},h('span',{class:'beta-wordmark'},'Limochat',h('b',{},'beta')),h('a',{href:'/'},'Основной сервер ↗'));
  root.replaceChildren(status,h('div',{class:'workspace'},rail,sidebar,center,view.inspector));applyLook();drawList();drawInspector();drawQuick();
 }
 async function refresh(){
