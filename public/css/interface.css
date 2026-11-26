@@ -127,7 +127,7 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible {
 .pf-status {font-size:14px;}
 .pf-actions {padding:0 16px;gap:8px;}
 .pf-action {flex:1;min-width:54px;max-width:130px;width:auto;border:0;background:var(--shell-pill);color:var(--text);padding:12px 6px;border-radius:22px;min-height:76px;gap:6px;}
-.pf-action-ic {background:transparent;border-radius:0;width:28px;height:28px;}
+.pf-action-ic,.pf-action.primary .pf-action-ic {background:transparent;border-radius:0;width:28px;height:28px;}
 .pf-action-ic .ic {width:25px;height:25px;}
 .pf-action.primary {background:var(--shell-active);color:var(--accent);background-image:none;}
 .pf-own-actions .pf-action {max-width:none;}
