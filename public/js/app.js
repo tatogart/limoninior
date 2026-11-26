@@ -213,7 +213,7 @@ function messagePreview(m) {
     const on = m.extra?.status === 'active';
     return m.extra?.live ? (on ? '🔴 Прямой эфир' : '📡 Эфир завершён') : on ? '📞 Идёт групповой звонок' : '📞 Групповой звонок';
   }
-  return m.text.replace(/\s+/g, ' ');
+  return String(m.text ?? '').replace(/\s+/g, ' ');
 }
 
 function typingUsers(chatId) {
@@ -2928,11 +2928,12 @@ function renderPinBar() {
   V.pinBar.classList.toggle('hidden', !pm);
   V.view?.classList.toggle('has-pin', !!pm);
   if (!pm) return V.pinBar.replaceChildren();
-  V.pinBar.replaceChildren(
+  const children = [
     h('button', { class: 'pin-main', onclick: () => jumpTo(pm.id) },
       h('span', { class: 'pin-line' }),
       h('div', { class: 'pin-text' }, h('b', {}, 'Закреплённое сообщение'), h('span', { class: 'ellipsis' }, messagePreview(pm)))),
-    canPinIn(c) ? h('button', { class: 'icon-btn pin-close', 'aria-label': 'Открепить', onclick: () => pinMessage(c, null) }, icon('close')) : null);
+    canPinIn(c) ? h('button', { class: 'icon-btn pin-close', 'aria-label': 'Открепить', onclick: () => pinMessage(c, null) }, icon('close')) : null];
+  V.pinBar.replaceChildren(...children.filter(Boolean));
 }
 
 async function pinMessage(c, m) {

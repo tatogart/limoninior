@@ -499,7 +499,7 @@ export function contextMenu(x, y, items, { above = false } = {}) {
   const menu = h('div', { class: 'ctx-menu', role: 'menu' }, items.filter(Boolean).map((it) => it.node || h('button', {
     class: `ctx-item ${it.danger ? 'danger' : ''}`,
     role: 'menuitem',
-    onclick: () => { closeMenu(); it.onClick(); },
+    onclick: () => { closeMenu(); afterHistory(() => it.onClick()); },
   }, icon(it.icon), it.label)));
   document.body.append(menu);
   const vv = window.visualViewport;
