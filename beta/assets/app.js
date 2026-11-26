@@ -28,7 +28,7 @@ function drawList(){
  view.list.replaceChildren(...sorted.map(chat=>h('button',{type:'button',class:'chat-item'+(state.current?.id===chat.id?' active':''),onclick:()=>openChat(chat)},
   h('span',{class:'avatar-wrap'},chatAvatar(chat),chat.peer?.online?h('i',{class:'online-dot'}):null),h('span',{class:'chat-item-content'},h('span',{class:'chat-item-top'},h('strong',{},title(chat)),h('small',{},chat.lastMessage?timeHM(chat.lastMessage.createdAt):'')),h('span',{class:'chat-item-bottom'},h('span',{},state.drafts[chat.id]?'Черновик: '+state.drafts[chat.id]:preview(chat.lastMessage)),chat.unread?h('b',{class:'unread-badge'},Math.min(chat.unread,99)):chat.pinnedAt?icon('pin'):null)))));
  if(!sorted.length)view.list.append(h('div',{class:'list-empty'},icon('search'),h('p',{},query?'Ничего не найдено':'Здесь пока пусто'),h('small',{},'Чаты, созданные в Limochat, появятся здесь.')));
- view.count.textContent=state.chats.reduce((n,c)=>n+c.unread,0)||'0';
+ const unread=state.chats.reduce((n,c)=>n+c.unread,0);view.count.textContent=unread;view.count.hidden=!unread;
 }
 function messageNode(message){
  const mine=message.senderId===state.me.id;
@@ -49,9 +49,12 @@ function messageNode(message){
  return h('article',{class:'message '+(mine?'mine':'theirs')+(message.kind==='system'?' system':''),dataset:{messageId:message.id}},body,reactions,h('div',{class:'message-meta'},timeHM(message.createdAt),mine?' ✓':''));
 }
 function drawMessages({bottom=false}={}){
+ const previousIds=new Set([...view.messages.querySelectorAll('[data-message-id]')].map(node=>node.dataset.messageId));
+ const previousLast=view.messages.lastElementChild?.dataset.messageId;
+ const animateNew=previousIds.size>0;
  const nearBottom=view.messages.scrollHeight-view.messages.scrollTop-view.messages.clientHeight<100;
  const oldTop=view.messages.scrollTop;
- view.messages.replaceChildren(...state.messages.map(messageNode));
+ view.messages.replaceChildren(...state.messages.map(message=>{const node=messageNode(message);if(animateNew&&!previousIds.has(String(message.id))&&Number(message.id)>Number(previousLast))node.classList.add('message-new');return node;}));
  if(!state.messages.length)view.messages.append(h('div',{class:'conversation-start'},icon('chat'),h('h2',{},'Начните с «Привет»'),h('p',{},'Иногда одного сообщения достаточно.')));
  if(bottom||nearBottom)view.messages.scrollTop=view.messages.scrollHeight;else view.messages.scrollTop=oldTop;
 }
@@ -82,18 +85,18 @@ function syncNav(){
 function navButton(key,ic,label,action){const button=btn(ic,label,()=>{action();syncNav();},{dataset:{section:key}});button.append(h('span',{class:'nav-label'},label));return button;}
 function drawInspector(){
  syncNav();
- view.inspector.replaceChildren(h('div',{class:'inspector-head'},h('span',{},'ВАШЕ ПРОСТРАНСТВО'),btn('close','Скрыть панель',()=>{state.inspector=false;applyLook();})),h('div',{class:'inspector-tabs'},...[['notes','Заметки'],['look','Оформление'],['lab','Бета-лаборатория']].map(([id,label])=>h('button',{type:'button',class:state.tab===id?'selected':'',onclick:()=>{state.tab=id;drawInspector();}},label))));
+ view.inspector.replaceChildren(h('div',{class:'inspector-head'},h('span',{},'Панель чата'),btn('close','Скрыть панель',()=>{state.inspector=false;applyLook();})),h('div',{class:'inspector-tabs'},...[['notes','Заметки'],['look','Оформление'],['lab','Бета-лаборатория']].map(([id,label])=>h('button',{type:'button',class:state.tab===id?'selected':'',onclick:()=>{state.tab=id;drawInspector();}},label))));
  if(state.tab==='notes'){
   const key=state.current?.id||'home',note=h('textarea',{class:'note-input',placeholder:'Идея, список дел или то, что важно не забыть…',maxLength:6000,'aria-label':'Личная заметка',value:state.notes[key]||'',oninput:event=>{state.notes[key]=event.target.value;saveLocal('notes',state.notes);}});
-  view.inspector.append(h('div',{class:'inspector-card'},h('span',{class:'card-eyebrow'},'ТОЛЬКО ДЛЯ ВАС'),h('h3',{},state.current?'Заметка к чату':'Мысли под рукой'),h('p',{},'Не отправляется собеседнику. Сохраняется на этом устройстве для вашего аккаунта.'),note));
+  view.inspector.append(h('div',{class:'inspector-card'},h('h3',{},state.current?'Заметка к чату':'Заметки'),h('p',{},'Не отправляется собеседнику. Сохраняется на этом устройстве для вашего аккаунта.'),note));
   if(state.current){const media=state.messages.filter(m=>m.kind==='image'&&m.file).slice(-6);view.inspector.append(h('div',{class:'inspector-card'},h('h3',{},'Фото из открытой истории'),h('div',{class:'media-grid'},...media.map(m=>h('a',{href:m.file,target:'_blank',rel:'noopener'},h('img',{src:m.file,alt:'Фото из чата',loading:'lazy'})))),!media.length?h('p',{},'Здесь появятся фотографии из загруженных сообщений.'):null));}
  }else if(state.tab==='look'){
   const toggle=(key,label)=>h('label',{class:'setting-row'},label,h('input',{type:'checkbox',checked:state.settings[key],onchange:event=>{state.settings[key]=event.target.checked;saveLocal('settings',state.settings);applyLook();drawQuick();}}));
-  view.inspector.append(h('div',{class:'inspector-card'},h('h3',{},'В вашем стиле'),h('p',{},'Эти настройки относятся только к бете.'),h('div',{class:'swatches'},...['mint','blue','rose','amber'].map(accent=>h('button',{type:'button',class:'swatch '+accent+(state.settings.accent===accent?' active':''),'aria-label':{mint:'Мятный',blue:'Синий',rose:'Розовый',amber:'Янтарный'}[accent],onclick:()=>{state.settings.accent=accent;saveLocal('settings',state.settings);applyLook();drawInspector();}}))),toggle('dense','Компактные чаты'),toggle('quick','Быстрые ответы'),h('button',{class:'wide-button',onclick:()=>{state.settings.theme=state.settings.theme==='light'?'dark':'light';saveLocal('settings',state.settings);applyLook();}},'Светлая / тёмная тема')));
+  view.inspector.append(h('div',{class:'inspector-card'},h('h3',{},'Оформление'),h('div',{class:'swatches'},...['mint','blue','rose','amber'].map(accent=>h('button',{type:'button',class:'swatch '+accent+(state.settings.accent===accent?' active':''),'aria-label':{mint:'Мятный',blue:'Синий',rose:'Розовый',amber:'Янтарный'}[accent],onclick:()=>{state.settings.accent=accent;saveLocal('settings',state.settings);applyLook();drawInspector();}}))),toggle('dense','Компактные чаты'),toggle('quick','Быстрые ответы'),h('button',{class:'wide-button',onclick:()=>{state.settings.theme=state.settings.theme==='light'?'dark':'light';saveLocal('settings',state.settings);applyLook();}},'Светлая / тёмная тема')));
  }else{
   const feedback=h('textarea',{class:'note-input',maxLength:2000,placeholder:'Что понравилось? Что мешает?','aria-label':'Отзыв о бете'}),status=h('p',{class:'feedback-status',role:'status'});
   const submit=h('button',{class:'wide-button',onclick:async()=>{if(feedback.value.trim().length<3){status.textContent='Напишите хотя бы несколько слов.';return;}submit.disabled=true;try{await request('/feedback',{method:'POST',body:{text:feedback.value},beta:true});feedback.value='';status.textContent='Отзыв отправлен администратору. Спасибо!';}catch(e){status.textContent=e.code==='beta_bad_feedback'?'Отзыв должен содержать от 3 до 2000 символов.':errorText(e);}finally{submit.disabled=false;}}},'Отправить отзыв');
-  view.inspector.append(h('div',{class:'inspector-card lab-card'},h('span',{class:'card-eyebrow'},'BETA / 01'),h('h3',{},'Создаём следующую версию'),h('p',{},'Здесь можно оставить отзыв об интерфейсе. Сообщения в чатах настоящие и видны в основной версии.'),feedback,submit,status,h('a',{class:'main-link',href:'/'},'Основной сервер')));
+  view.inspector.append(h('div',{class:'inspector-card lab-card'},h('h3',{},'Отзыв о бете'),h('p',{},'Здесь можно оставить отзыв об интерфейсе. Сообщения в чатах настоящие и видны в основной версии.'),feedback,submit,status));
  }
 }
 function drawQuick(){view.quick.hidden=!state.settings.quick;}
@@ -105,7 +108,7 @@ function build(){
  view.search=h('input',{type:'search',placeholder:'Найти чат','aria-label':'Поиск по чатам',oninput:event=>{state.query=event.target.value;drawList();}});
  view.list=h('div',{class:'chat-list'});view.count=h('span',{class:'chat-counter'},'0');
  const filters=h('div',{class:'chat-filters'},... [['all','Все'],['unread','Непрочитанные'],['pinned','Важные']].map(([id,label])=>h('button',{class:id==='all'?'selected':'',onclick:event=>{state.filter=id;filters.querySelectorAll('button').forEach(b=>b.classList.toggle('selected',b===event.currentTarget));drawList();}},label)));
- const sidebar=h('aside',{class:'sidebar glass'},h('div',{class:'sidebar-title'},h('h1',{},'Чаты'),view.count),h('label',{class:'search'},icon('search'),view.search,h('kbd',{},'⌘ K')),filters,view.list);
+ const sidebar=h('aside',{class:'sidebar glass'},h('div',{class:'sidebar-title'},h('h1',{},'Чаты'),view.count),h('label',{class:'search'},icon('search'),view.search),filters,view.list);
  view.chatIdentity=h('div',{class:'chat-identity'});view.messages=h('div',{class:'messages',role:'log','aria-label':'Сообщения'});
  view.input=h('textarea',{rows:1,maxLength:4096,placeholder:'Написать сообщение…','aria-label':'Сообщение',oninput:saveDraft,onkeydown:event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();send();}}});
  view.send=btn('send','Отправить сообщение',()=>send(),{class:'send-button'});
@@ -121,7 +124,7 @@ function build(){
 
  const center=h('main',{class:'center glass'},view.welcome,view.chat);
  view.inspector=h('aside',{class:'inspector glass','aria-label':'Личная панель'});
- const status=h('div',{class:'beta-header'},h('span',{class:'beta-wordmark'},'Limochat',h('b',{},'beta')),h('a',{href:'/'},'Основной сервер ↗'));
+ const status=h('div',{class:'beta-header'},h('span',{class:'beta-wordmark'},'Limochat',h('b',{},'beta')));
  root.replaceChildren(status,h('div',{class:'workspace'},rail,sidebar,center,view.inspector));applyLook();drawList();drawInspector();drawQuick();
 }
 async function refresh(){

@@ -98,3 +98,29 @@
  [data-theme=dark] .rail>.icon-button.selected{background:#35463f;color:#b1e3d1;border-color:#ffffff0d}
  [data-theme=dark] .inspector{background:#141d28f5}
 }
+
+/* Quiet chrome, responsive motion. Only fresh messages animate on refresh. */
+.rail-logo,.rail-separator,.rail-avatar{display:none}
+.beta-header{min-height:20px}
+.welcome-symbol{width:58px;height:58px;margin-bottom:18px;transform:none}
+.welcome h2{font-size:28px;letter-spacing:-1px}
+.welcome p{display:none}
+.inspector-head>span{letter-spacing:0;font-size:11px;color:var(--muted)}
+.chat-counter[hidden]{display:none}
+@keyframes beta-enter{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes beta-panel{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:translateX(0)}}
+@keyframes beta-message{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+.workspace{animation:beta-enter .38s cubic-bezier(.2,.8,.2,1) both}
+.conversation:not([hidden]){animation:beta-enter .26s ease-out both}
+.inspector-open .inspector{animation:beta-panel .26s cubic-bezier(.2,.8,.2,1) both}
+.inspector-card{animation:beta-enter .24s ease-out both}
+.emoji-popover:not([hidden]){animation:beta-enter .18s ease-out both}
+.message-new{animation:beta-message .24s cubic-bezier(.2,.8,.2,1) both}
+.icon-button,.send-button,.wide-button,.chat-filters button,.inspector-tabs button,.swatch,.quick-replies button{transition:background-color .2s,color .2s,border-color .2s,box-shadow .2s,transform .18s cubic-bezier(.2,.8,.2,1)}
+.chat-item{transition:background-color .2s,border-color .2s,box-shadow .2s}
+.icon-button:active,.send-button:active,.wide-button:active,.chat-filters button:active,.inspector-tabs button:active,.quick-replies button:active{transform:scale(.95)}
+.swatch:active{transform:scale(.88)}
+.search,.composer{transition:border-color .2s,box-shadow .2s,background-color .2s}
+.search:focus-within,.composer:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 12%,transparent)}
+@media(hover:hover){.send-button:hover{transform:translateY(-2px);box-shadow:0 5px 16px color-mix(in srgb,var(--accent) 28%,transparent)}.rail>.selected:hover{transform:translateY(-1px)}}
+@media(max-width:760px){.rail{animation:beta-enter .4s cubic-bezier(.2,.8,.2,1) both}}
