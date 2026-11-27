@@ -359,3 +359,6 @@ addColumn('chats', 'community_id', 'INTEGER REFERENCES communities(id) ON DELETE
 addColumn('chats', 'position', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('chats', 'ckind', 'TEXT');
 db.exec('CREATE INDEX IF NOT EXISTS chats_community ON chats(community_id, position)');
+
+// A private dialog can be removed from one account without deleting its peer’s copy.
+addColumn('chat_members','hidden_at','INTEGER NOT NULL DEFAULT 0');

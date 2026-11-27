@@ -242,7 +242,7 @@ function isMember(chatId, userId) {
 
 /** Push fresh chat state to every member (each gets their own view). */
 export function pushChat(chatId) {
-  for (const uid of memberIds(chatId)) emitToUser(uid, 'chat', chatForUser(chatId, uid));
+  for (const uid of memberIds(chatId)) if(!q('SELECT hidden_at FROM chat_members WHERE chat_id=? AND user_id=?').get(chatId,uid)?.hidden_at)emitToUser(uid, 'chat', chatForUser(chatId, uid));
 }
 
 function insertMessage(chatId, senderId, fields) {
@@ -254,6 +254,7 @@ function insertMessage(chatId, senderId, fields) {
       fields.width || null, fields.height || null, fields.replyTo || null, t, fields.extra ? JSON.stringify(fields.extra) : null);
   const id = Number(r.lastInsertRowid);
   q('UPDATE chats SET last_msg_id = ? WHERE id = ?').run(id, chatId);
+  q('UPDATE chat_members SET hidden_at=0 WHERE chat_id=?').run(chatId);
   if (senderId) q('UPDATE chat_members SET last_read_id = ? WHERE chat_id = ? AND user_id = ?').run(id, chatId, senderId);
   return q('SELECT * FROM messages WHERE id = ?').get(id);
 }
@@ -331,7 +332,7 @@ export function ensurePrivateChat(a, b) {
   const saved = a === b;
   const key = saved ? `saved:${a}` : `${Math.min(a, b)}:${Math.max(a, b)}`;
   const c = q('SELECT id FROM chats WHERE pair_key = ?').get(key);
-  if (c) return c.id;
+  if (c) { q('UPDATE chat_members SET hidden_at=0 WHERE chat_id=? AND user_id=?').run(c.id,a);return c.id; }
   return tx(() => {
     const r = q('INSERT INTO chats (type, pair_key, created_at) VALUES (?, ?, ?)').run(saved ? 'saved' : 'private', key, now());
     const id = Number(r.lastInsertRowid);
@@ -795,9 +796,17 @@ api.get('/users/:id', (req, res) => {
 // ---------- chats ----------
 
 api.get('/chats', (req, res) => {
-  const ids = q(`SELECT c.id FROM chats c JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = ?
+  const ids = q(`SELECT c.id FROM chats c JOIN chat_members cm ON cm.chat_id = c.id AND cm.user_id = ? AND cm.hidden_at=0
                  ORDER BY cm.pinned_at DESC, c.last_msg_id DESC, c.id DESC`).all(req.user.id);
   res.json({ chats: ids.map((r) => chatForUser(r.id, req.user.id)) });
+});
+
+api.delete('/chats/:id', (req,res)=>{
+ const id=int(req.params.id),chat=id&&chatForUser(id,req.user.id);
+ if(!chat)return bad(res,'not_found',404);
+ if(chat.type!=='private')return bad(res,'bad_type');
+ q('UPDATE chat_members SET hidden_at=? WHERE chat_id=? AND user_id=?').run(now(),id,req.user.id);
+ emitToUser(req.user.id,'chat:removed',{chatId:id});res.json({ok:true});
 });
 
 api.get('/chats/:id', (req, res) => {
@@ -839,6 +848,7 @@ api.post('/chats/private', (req, res) => {
       return { id };
     });
   }
+  q('UPDATE chat_members SET hidden_at=0 WHERE chat_id=? AND user_id=?').run(c.id,me);
   res.json({ chat: chatForUser(c.id, me) });
 });
 

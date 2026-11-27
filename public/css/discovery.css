@@ -14,7 +14,7 @@
 :root[data-panel-density="compact"] .chat-item .avatar { width:42px!important; height:42px!important; }
 :root[data-send-side="left"] .composer-row > .send-btn { order:-1; }
 :root[data-lab-focus="true"] .discovery-shortcuts,:root[data-lab-focus="true"] .ws-bar { display:none; }
-:root[data-lab-still="true"] .blob,:root[data-lab-still="true"] .bubble,:root[data-lab-still="true"] .msg-row { animation:none!important; transition:none!important; }
+:root[data-lab-still="true"] .bubble,:root[data-lab-still="true"] .msg-row { animation:none!important; transition:none!important; }
 :root[data-lab-feed="true"] .discovery-post { padding:9px 12px; border-radius:10px; }:root[data-lab-feed="true"] .discovery-feed { gap:7px; }
 @media(min-width:761px) {
  :root[data-panel-side] .layout { grid-template-columns:var(--custom-sidebar-width,340px) minmax(0,1fr); }

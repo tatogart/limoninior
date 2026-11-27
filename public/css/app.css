@@ -3018,3 +3018,16 @@ button, input, textarea, select { font-family: inherit; }
 .sq-thumb>.ic{width:18px;height:18px;min-width:18px;flex:none}
 .bubble:has(>.story-quote){min-width:min(190px,75vw)}
 .story-quote{width:100%;min-width:0}.sq-body{flex:1;min-width:0}
+
+/* Login has its own motion layer; authenticated layout experiments must not freeze it. */
+.login{isolation:isolate}
+.login>.blob{position:absolute;z-index:-1;will-change:transform}
+.login-card{z-index:1}
+@keyframes login-ambient-drift{0%,100%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(30px,-24px,0) scale(1.06)}}
+@keyframes login-logo-bob{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-6px) rotate(-3deg)}}
+@media(prefers-reduced-motion:no-preference){
+ :root:not([data-motion="reduced"]) .login>.blob{animation-name:login-ambient-drift}
+ :root:not([data-motion="reduced"]) .login .login-logo{animation-name:login-logo-bob}
+}
+:root[data-motion="reduced"] .login .blob,:root[data-motion="reduced"] .login .login-logo{animation:none;will-change:auto}
+@media(prefers-reduced-motion:reduce){.login .blob,.login .login-logo,.login-card{animation:none;will-change:auto}}

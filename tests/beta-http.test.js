@@ -39,7 +39,19 @@ test('beta gate, private assets, admin code lifecycle and proxy keep the normal 
   assert.equal((await request('GET','/api/beta/app/users/'+tester.json.user.id+'/gifts',undefined,tester.cookie)).status,200);
   assert.equal((await request('GET','/api/beta/app/calls/ice',undefined,tester.cookie)).status,200);
 
-  const saved=await request('POST','/api/beta/app/chats/private',{userId:tester.json.user.id},tester.cookie);assert.equal(saved.status,200,saved.text);
+  const dialog=await request('POST','/api/chats/private',{userId:administrator.json.user.id},tester.cookie);const dialogId=dialog.json.chat.id;
+  assert.equal((await request('POST','/api/chats/'+dialogId+'/messages',{text:'Keep peer history'},tester.cookie)).status,200);
+  assert.equal((await request('DELETE','/api/chats/'+dialogId,undefined,tester.cookie,'https://attacker.invalid')).status,403);
+  assert.equal((await request('DELETE','/api/chats/'+dialogId,undefined,tester.cookie)).status,200);
+  assert.ok(!(await request('GET','/api/chats',undefined,tester.cookie)).json.chats.some(c=>c.id===dialogId));
+  assert.ok((await request('GET','/api/chats',undefined,administrator.cookie)).json.chats.some(c=>c.id===dialogId));
+  assert.equal((await request('GET','/api/chats/'+dialogId+'/messages',undefined,administrator.cookie)).json.messages[0].text,'Keep peer history');
+  await request('POST','/api/chats/'+dialogId+'/messages',{text:'New message restores dialog'},administrator.cookie);
+  assert.ok((await request('GET','/api/chats',undefined,tester.cookie)).json.chats.some(c=>c.id===dialogId));
+  await request('DELETE','/api/chats/'+dialogId,undefined,tester.cookie);
+  await request('POST','/api/chats/private',{userId:administrator.json.user.id},tester.cookie);
+  assert.ok((await request('GET','/api/chats',undefined,tester.cookie)).json.chats.some(c=>c.id===dialogId));
+  const saved=await request('POST','/api/beta/app/chats/private',{userId:tester.json.user.id},tester.cookie);assert.equal(saved.status,200,saved.text);assert.equal((await request('DELETE','/api/chats/'+saved.json.chat.id,undefined,administrator.cookie)).status,404);assert.equal((await request('DELETE','/api/chats/'+saved.json.chat.id,undefined,tester.cookie)).status,400);
   assert.equal((await request('POST','/api/beta/app/chats/'+saved.json.chat.id+'/messages',{text:'Beta real chat test'},tester.cookie)).status,200);
   const original=await request('POST','/api/beta/app/chats/'+saved.json.chat.id+'/messages',{text:'Reply target'},tester.cookie);
   const reply=await request('POST','/api/beta/app/chats/'+saved.json.chat.id+'/messages',{text:'Beta reply',replyTo:original.json.message.id},tester.cookie);

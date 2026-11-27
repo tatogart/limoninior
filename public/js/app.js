@@ -1085,6 +1085,7 @@ function chatItem(c) {
         ...workspaceChatItems(c),
         { icon: c.pinnedAt ? 'unpin' : 'pin', label: c.pinnedAt ? 'Открепить' : 'Закрепить', onClick: () => togglePinChat(c) },
         c.type !== 'saved' ? { icon: 'bell', label: c.muted ? 'Включить уведомления' : 'Выключить уведомления', onClick: () => toggleMute(c) } : null,
+        c.type==='private'?{icon:'trash',label:'Удалить чат',danger:true,onClick:()=>removePrivateChat(c)}:null,
         isGroup(c) ? { icon: 'leave', label: 'Покинуть группу', danger: true, onClick: () => leaveGroup(c) } : null,
         isChannel(c) && c.role !== 'owner' ? { icon: 'leave', label: 'Отписаться', danger: true, onClick: () => leaveChannel(c) } : null,
       ]);
@@ -2917,9 +2918,17 @@ function chatMoreMenu(anchor) {
     c.type !== 'saved' && !c.preview ? { icon: c.muted ? 'bell' : 'mute', label: c.muted ? 'Включить уведомления' : 'Выключить уведомления', onClick: () => toggleMute(c) } : null,
     peer && !peer.official ? { icon: 'block', label: c.blocked === 'me' ? 'Разблокировать' : 'Заблокировать', danger: c.blocked !== 'me', onClick: () => setBlocked(peer, c.blocked !== 'me') } : null,
     streakMenuItem(c),
+    !c.preview&&c.type==='private'?{icon:'trash',label:'Удалить чат',danger:true,onClick:()=>removePrivateChat(c)}:null,
+    !c.preview&&!communityOf(c)&&isGroup(c)?{icon:'leave',label:'Покинуть группу',danger:true,onClick:()=>leaveGroup(c)}:null,
+    !c.preview&&!communityOf(c)&&isChannel(c)&&c.role!=='owner'?{icon:'leave',label:'Отписаться от канала',danger:true,onClick:()=>leaveChannel(c)}:null,
     communityOf(c) && communityOf(c).role !== 'owner' ? { icon: 'warning', label: 'Пожаловаться на сообщество', danger: true, onClick: () => reportModal('community', c.communityId, `Жалоба на сообщество «${communityOf(c).title}»`) } : null,
     !communityOf(c) && (isGroup(c) || isChannel(c)) && c.role !== 'owner' ? { icon: 'warning', label: 'Пожаловаться', danger: true, onClick: () => reportModal('chat', c.id, `Жалоба на «${chatTitle(c)}»`) } : null,
   ]);
+}
+
+async function removePrivateChat(c){
+ if(!(await confirmDialog('Удалить чат из вашего списка? У собеседника он останется. При новом сообщении или повторном открытии переписка вернётся.',{ok:'Удалить',danger:true})))return;
+ try{await api.del('/chats/'+c.id);S.chats.delete(c.id);S.msgs.delete(c.id);if(S.current===c.id)closeChat();S.drafts.delete(c.id);persistDrafts(S.me.id,S.drafts);renderChatList();updateBadge();}catch(error){toast(errorText(error),'error');}
 }
 
 // ---------- pinned message
