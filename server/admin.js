@@ -1,3 +1,4 @@
+import {serializeCommunity} from './communities.js';
 import {registerBetaAdmin} from './beta.js';
 import {registerTeamAdmin} from './team-recruitment.js';
 import {registerScamAdmin} from './scam.js';
@@ -9,10 +10,10 @@ import os from 'node:os';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import { config } from './config.js';
-import { db, q, now, audit, kvGet, kvSet } from './db.js';
+import { db, q, now, tx, audit, kvGet, kvSet } from './db.js';
 import { requireAuth, isAdminUser } from './auth.js';
 import { verifyTotp } from './totp.js';
-import { isOnline, disconnectUser, disconnectSession, sessionOnline, disconnectIp } from './realtime.js';
+import { isOnline, disconnectUser, disconnectSession, sessionOnline, disconnectIp, emitToUser } from './realtime.js';
 import { banIp, unbanIp, listIpBans, userIps, normIp, validIp } from './ipban.js';
 import { ensurePrivateChat, postMessage, broadcastNewMessage, broadcastProfile, pushMe, pushChat, deleteChat, OFFICIAL_SUB, sellerUser, activePlan, officialUser, removeMessage } from './api.js';
 import { registerAdminPro } from './admin-pro.js';
@@ -314,6 +315,7 @@ admin.get('/channels', (req, res) => {
   const search = String(req.query.q || '').trim().slice(0, 64);
   const like = `%${search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
   const rows = q(`SELECT c.*, u.username AS owner_username, u.name AS owner_name,
+                    (SELECT title FROM communities WHERE id=c.community_id) AS community_title,
                     (SELECT COUNT(*) FROM chat_members WHERE chat_id = c.id) AS subs,
                     (SELECT COUNT(*) FROM messages WHERE chat_id = c.id AND kind != 'system') AS posts
                   FROM chats c LEFT JOIN users u ON u.id = c.owner_id
@@ -323,7 +325,7 @@ admin.get('/channels', (req, res) => {
     channels: rows.map((c) => ({
       id: c.id, title: c.title, username: c.username, description: c.description, verified: !!c.verified,scam:!!c.scam,scamReason:c.scam_reason||null,
       verifyRequested: c.verify_requested && !c.verified ? c.verify_requested : 0, subscribers: c.subs, posts: c.posts,
-      owner: c.owner_username ? `@${c.owner_username}` : c.owner_name || '—', createdAt: c.created_at,
+      owner: c.owner_username ? `@${c.owner_username}` : c.owner_name || '—', createdAt: c.created_at,communityId:c.community_id||null,communityTitle:c.community_title||null,
       avatar: c.avatar ? `/media/${c.avatar}` : null,
     })),
   });
@@ -340,7 +342,20 @@ function anyChannel(req, res) {
 admin.post('/channels/:id/join', (req, res) => {
   const c = anyChannel(req, res);
   if (!c) return;
-  if (c.community_id) return res.status(400).json({ error: 'community_chat' });
+  if (c.community_id) {
+    const community=q('SELECT * FROM communities WHERE id=?').get(c.community_id);
+    if(!community)return res.status(404).json({error:'not_found'});
+    const joined=tx(()=>{
+      const result=q("INSERT OR IGNORE INTO community_members(community_id,user_id,role,joined_at) VALUES(?,?,'member',?)").run(community.id,req.user.id,now());
+      const role=q('SELECT role FROM community_members WHERE community_id=? AND user_id=?').get(community.id,req.user.id).role;
+      for(const channel of q('SELECT id,last_msg_id FROM chats WHERE community_id=?').all(community.id))q('INSERT OR IGNORE INTO chat_members(chat_id,user_id,role,joined_at,last_read_id) VALUES(?,?,?,?,?)').run(channel.id,req.user.id,role,now(),channel.last_msg_id);
+      return !!result.changes;
+    });
+    audit(req.user.id,req.ip,'admin_channel_join',{chatId:c.id,communityId:community.id,private:!c.username,joined});
+    emitToUser(req.user.id,'community',serializeCommunity(community,req.user.id));
+    for(const channel of q('SELECT id FROM chats WHERE community_id=?').all(community.id))pushChat(channel.id);
+    return res.json({ok:true,url:'/?chat='+c.id,communityId:community.id});
+  }
   const result = q("INSERT OR IGNORE INTO chat_members (chat_id,user_id,role,joined_at,last_read_id) VALUES (?,?,'member',?,?)").run(c.id,req.user.id,now(),c.last_msg_id);
   audit(req.user.id,req.ip,'admin_channel_join',{chatId:c.id,private:!c.username,joined:!!result.changes});
   pushChat(c.id);

@@ -29,5 +29,19 @@ test('only an elevated administrator can join private channels; roles and invita
   const after=db.prepare('SELECT * FROM chats WHERE id=?').get(cid);assert.equal(after.owner_id,before.owner_id);assert.equal(after.invite_token,before.invite_token);assert.equal(after.username,null);
   assert.equal(db.prepare("SELECT count(*) n FROM audit_log WHERE action='admin_channel_join'").get().n,2);
   assert.equal((await request('POST','/admin/channels/999999/join',{},admin.cookie)).status,404);
+  const community=await request('POST','/communities',{title:'Private community QA'},owner.cookie);assert.equal(community.status,200);
+  const communityId=community.body.community.id;
+  const news=db.prepare("SELECT id FROM chats WHERE community_id=? AND ckind='news'").get(communityId).id;
+  const joinCommunity='/admin/channels/'+news+'/join';
+  assert.equal((await request('POST',joinCommunity,{},owner.cookie)).status,404);
+  const joinedCommunity=await request('POST',joinCommunity,{role:'owner'},admin.cookie);assert.equal(joinedCommunity.status,200);assert.equal(joinedCommunity.body.communityId,communityId);
+  assert.equal(db.prepare('SELECT role FROM community_members WHERE community_id=? AND user_id=?').get(communityId,admin.body.user.id).role,'member');
+  const channels=db.prepare('SELECT id FROM chats WHERE community_id=?').all(communityId);
+  for(const ch of channels){assert.equal(db.prepare('SELECT role FROM chat_members WHERE chat_id=? AND user_id=?').get(ch.id,admin.body.user.id).role,'member');assert.equal((await request('GET','/chats/'+ch.id,null,admin.cookie)).status,200);}
+  assert.equal((await request('POST','/chats/'+news+'/messages',{text:'Not a publisher'},admin.cookie)).status,403);
+  assert.equal((await request('POST',joinCommunity,{},admin.cookie)).status,200);
+  assert.equal(db.prepare('SELECT count(*) n FROM community_members WHERE community_id=? AND user_id=?').get(communityId,admin.body.user.id).n,1);
+  assert.equal(db.prepare('SELECT owner_id FROM communities WHERE id=?').get(communityId).owner_id,owner.body.user.id);
+
  }finally{db?.close();child.kill();await new Promise(r=>child.exitCode!==null?r():child.once('exit',r));rmSync(dir,{recursive:true,force:true});}
 });

@@ -576,10 +576,10 @@ async function channels() {
           avatar({ id: c.id, name: c.title, src: c.avatar }, 44),
           h('div', { class: 'user-info' },
             h('div', { class: 'row-main' }, nameWithBadge(c.title, c), c.verifyRequested ? h('span', { class: 'pill warn' }, 'заявка на галочку') : null),
-            h('div', { class: 'row-sub' }, `${c.username ? `@${c.username}` : '🔒 приватный'} · владелец ${c.owner}`),
+            h('div', { class: 'row-sub' }, `${c.username ? `@${c.username}` : '🔒 приватный'} · владелец ${c.owner}${c.communityTitle?' · сообщество «'+c.communityTitle+'»':''}`),
             h('div', { class: 'row-sub' }, `${fmt(c.subscribers)} подписчиков · ${fmt(c.posts)} постов · создан ${dayLabel(c.createdAt)}`)),
           h('div', { class: 'user-actions' },
-            act('Войти в канал', async () => {
+            act(c.communityId?'Войти через сообщество':'Войти в канал', async () => {
               const result=await call(() => api.post(`/admin/channels/${c.id}/join`));
               if(result?.url)location.assign(result.url);
             }, 'btn-primary'),
