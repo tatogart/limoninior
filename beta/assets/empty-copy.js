@@ -12,13 +12,13 @@ const greetings=[
  ['Можно начать с улыбки','Для приветствия подойдёт и эмодзи.'],
  ['На связи','Здесь появится ваша переписка.'],
 ];
-export function emptyChatCopy(chat){
- if(chat?.blocked)return {title:'Переписка пока пуста',text:'Отправка сообщений в этом чате недоступна.',list:'Переписка пуста'};
- if(chat?.type==='saved')return {title:'Всё важное — под рукой',text:'Сохраняйте здесь заметки, ссылки и файлы для себя.',list:'Сохраните первую заметку'};
- if(chat?.type==='channel')return {title:'Публикации впереди',text:chat.canPost===false?'Здесь появятся новые записи канала.':'Опубликуйте первую запись для подписчиков.',list:'Публикаций пока нет'};
- if(chat?.type==='group')return {title:'Соберите разговор',text:chat.canPost===false?'Здесь появятся сообщения участников.':'Поздоровайтесь с участниками или предложите тему.',list:'Сообщений пока нет'};
- if(chat?.peer?.bot)return {title:'Бот готов к общению',text:'Отправьте /start, чтобы начать.',list:'Начните с /start'};
- if(chat?.canPost===false)return {title:'Здесь появится переписка',text:'Отправка сообщений пока недоступна.',list:'Переписка пуста'};
+export function emptyChatCopy(chat,t=text=>text){
+ if(chat?.blocked)return {title:t("Переписка пока пуста"),text:t("Отправка сообщений в этом чате недоступна."),list:t("Переписка пуста")};
+ if(chat?.type==='saved')return {title:t("Всё важное — под рукой"),text:t("Сохраняйте здесь заметки, ссылки и файлы для себя."),list:t("Сохраните первую заметку")};
+ if(chat?.type==='channel')return {title:t("Публикации впереди"),text:chat.canPost===false?t("Здесь появятся новые записи канала."):t("Опубликуйте первую запись для подписчиков."),list:t("Публикаций пока нет")};
+ if(chat?.type==='group')return {title:t("Соберите разговор"),text:chat.canPost===false?t("Здесь появятся сообщения участников."):t("Поздоровайтесь с участниками или предложите тему."),list:t("Сообщений пока нет")};
+ if(chat?.peer?.bot)return {title:t("Бот готов к общению"),text:t("Отправьте /start, чтобы начать."),list:t("Начните с /start")};
+ if(chat?.canPost===false)return {title:t("Здесь появится переписка"),text:t("Отправка сообщений пока недоступна."),list:t("Переписка пуста")};
  const index=Math.abs(Number(chat?.id)||0)%greetings.length;
- const [title,text]=greetings[index];return {title,text,list:'Начните разговор'};
+ const [title,text]=greetings[index];return {title:t(title),text:t(text),list:t("Начните разговор")};
 }

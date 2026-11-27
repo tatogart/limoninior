@@ -9,3 +9,5 @@ h1 em{color:#9fbeb7}.intro>p,.entry>p{color:#abb8c7}.eyebrow{color:#8eaca4}
 .preview{background:#25333d66;border-color:#ffffff1c;box-shadow:0 20px 50px #0003,inset 0 1px 0 #ffffff0a}.mini-sidebar{border-color:#ffffff16}.mini-sidebar i{background:#ffffff0c}.mini-chat>*{background:#33414e80;border-color:#ffffff12}.mini-chat b{background:#37554c;color:#c3e5d7}.float-pill{background:#293c3ae0;color:#d3e9df;border-color:#ffffff1a}.features,footer{color:#92a2b2}
 input{background:#131e28;color:#e6edf5;border-color:#ffffff16}input::placeholder{color:#72879b}input:focus{border-color:#85b4a5;box-shadow:0 0 0 3px #85b4a51f}.hint,.entry .disclaimer{color:#99aaba}
 button,.login{background:#91cbb7;color:#14251e;border-color:#b2e6d12b}.entry-bottom,.entry .disclaimer{border-color:#ffffff12}.entry-bottom{color:#91a8b2}.lab-tag{color:#9bb2c0}#result{color:#f1a9b7}
+
+.gate-language{color:#e8f0f5;background:#202934;border:1px solid #ffffff26;border-radius:12px;padding:9px 12px;font:inherit;max-width:130px;margin-left:12px}nav{flex-wrap:wrap;gap:10px}

@@ -8,14 +8,16 @@ let call = null; // current call state
 let overlay = null;
 let ring = null;
 
+const tr=(text,params)=>ctx?.translate?ctx.translate(text,params):text;
+
 const END_TEXT = {
-  declined: 'Звонок отклонён',
-  missed: 'Нет ответа',
-  busy: 'Абонент занят',
-  cancelled: 'Звонок отменён',
-  ended: 'Звонок завершён',
-  elsewhere: 'Ответили на другом устройстве',
-  unavailable: 'Пользователь недоступен',
+  declined: tr("Звонок отклонён"),
+  missed: tr("Нет ответа"),
+  busy: tr("Абонент занят"),
+  cancelled: tr("Звонок отменён"),
+  ended: tr("Звонок завершён"),
+  elsewhere: tr("Ответили на другом устройстве"),
+  unavailable: tr("Пользователь недоступен"),
 };
 
 export function initCalls(options) {
@@ -33,7 +35,7 @@ export function initCalls(options) {
   });
   s.on('call:ended', (p) => {
     if (!call || p.callId !== call.id) return;
-    finish(END_TEXT[p.status] || 'Звонок завершён');
+    finish(END_TEXT[p.status] || tr("Звонок завершён"));
   });
 }
 
@@ -56,11 +58,11 @@ async function getMedia(video) {
     if (video) {
       // No camera / denied — fall back to voice.
       try {
-        toast('Камера недоступна — звонок будет голосовым');
+        toast(tr("Камера недоступна — звонок будет голосовым"));
         return await navigator.mediaDevices.getUserMedia({ audio: true });
       } catch { /* fall through */ }
     }
-    toast(e?.name === 'NotAllowedError' ? 'Разрешите доступ к микрофону в настройках браузера' : 'Нет доступа к микрофону', 'error');
+    toast(e?.name === 'NotAllowedError' ? tr("Разрешите доступ к микрофону в настройках браузера") : tr("Нет доступа к микрофону"), 'error');
     return null;
   }
 }
@@ -88,7 +90,7 @@ async function createPeer() {
       render();
     }
     if (pc.connectionState === 'failed') {
-      toast('Не удалось соединиться. Проверьте интернет', 'error');
+      toast(tr("Не удалось соединиться. Проверьте интернет"), 'error');
       hangup();
     }
   };
@@ -100,8 +102,8 @@ const signal = (data) => ctx.socket.emit('call:signal', { callId: call?.id, data
 // ---------------------------------------------------------------- outgoing
 
 export async function startCall(chat, peer, video) {
-  if (call || ctx?.busy?.()) return toast('Сначала завершите текущий звонок');
-  if (!window.RTCPeerConnection || !navigator.mediaDevices?.getUserMedia) return toast('Браузер не поддерживает звонки', 'error');
+  if (call || ctx?.busy?.()) return toast(tr("Сначала завершите текущий звонок"));
+  if (!window.RTCPeerConnection || !navigator.mediaDevices?.getUserMedia) return toast(tr("Браузер не поддерживает звонки"), 'error');
   call = { id: null, chatId: chat.id, peer, video, role: 'caller', status: 'calling', mic: true, cam: video, peerMic: true, peerCam: video, speaker: true, loud: video || !isPhone() };
   render();
   const local = await getMedia(video);
@@ -114,8 +116,8 @@ export async function startCall(chat, peer, video) {
   ctx.socket.emit('call:invite', { chatId: chat.id, video: call.video }, (r) => {
     if (!call) { if (r?.callId) ctx.socket.emit('call:end', { callId: r.callId }); return; }
     if (r?.error) {
-      finish(r.error === 'busy' ? 'Абонент занят' : r.error === 'busy_self' ? 'У вас уже идёт звонок'
-        : r.error === 'calls_disabled' ? 'Пользователь ограничил входящие звонки' : END_TEXT[r.error] || errorText({ code: r.error }));
+      finish(r.error === 'busy' ? tr("Абонент занят") : r.error === 'busy_self' ? tr("У вас уже идёт звонок")
+        : r.error === 'calls_disabled' ? tr("Пользователь ограничил входящие звонки") : END_TEXT[r.error] || errorText({ code: r.error }));
       return;
     }
     call.id = r.callId;
@@ -142,12 +144,12 @@ function onIncoming({ callId, chatId, from, video }) {
     if (call.id === callId) return;
     return; // already in a call; the server marks us busy
   }
-  const peer = ctx.userById(from) || { id: from, name: 'Пользователь' };
+  const peer = ctx.userById(from) || { id: from, name: tr("Пользователь") };
   call = { id: callId, chatId, peer, video, role: 'callee', status: 'incoming', mic: true, cam: video, peerMic: true, peerCam: video, speaker: true, loud: video || !isPhone() };
   startTone('ring');
   render();
   if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-    try { new Notification(`${video ? '📹 Видеозвонок' : '📞 Звонок'} от ${peer.name}`, { tag: `call${callId}`, icon: '/icons/icon-192.png' }); } catch { /* ignore */ }
+    try { new Notification(tr('{type} от {name}',{type:tr(video?'📹 Видеозвонок':'📞 Звонок'),name:peer.name}), { tag: `call${callId}`, icon: '/icons/icon-192.png' }); } catch { /* ignore */ }
   }
 }
 
@@ -228,7 +230,7 @@ async function renegotiate() {
 }
 
 async function toggleScreen() {
-  if (!call?.pc || !call.connectedAt) return toast('Дождитесь соединения');
+  if (!call?.pc || !call.connectedAt) return toast(tr("Дождитесь соединения"));
   if (call.screen) return stopScreen();
   let track;
   try { track = await getScreenTrack(); } catch { return; } // cancelled by the user
@@ -239,7 +241,7 @@ async function toggleScreen() {
   if (tr) await tr.sender.replaceTrack(track);
   else { call.pc.addTrack(track, call.local); await renegotiate(); }
   sendState();
-  toast('Вы показываете экран');
+  toast(tr("Вы показываете экран"));
   render();
 }
 
@@ -270,7 +272,7 @@ function toggleMic() {
 
 function toggleCam() {
   const tracks = call?.local?.getVideoTracks() || [];
-  if (!tracks.length) return toast('В голосовом звонке камера недоступна');
+  if (!tracks.length) return toast(tr("В голосовом звонке камера недоступна"));
   call.cam = !call.cam;
   tracks.forEach((t) => { t.enabled = call.cam; });
   sendState();
@@ -315,7 +317,7 @@ function toggleLoud() {
   applyRoute();
   if (!call.outputs && !call.loud && !toggleLoud.told) {
     toggleLoud.told = true;
-    toast('Звук тише — поднесите телефон к уху');
+    toast(tr("Звук тише — поднесите телефон к уху"));
   }
   navigator.vibrate?.(10);
   render();
@@ -325,7 +327,7 @@ function toggleSpeaker() {
   if (!call) return;
   call.speaker = !call.speaker;
   if (call.remoteEl) call.remoteEl.muted = !call.speaker;
-  toast(call.speaker ? 'Звук собеседника включён' : 'Звук собеседника выключен 🔇');
+  toast(call.speaker ? tr("Звук собеседника включён") : tr("Звук собеседника выключен 🔇"));
   render();
 }
 
@@ -334,12 +336,12 @@ const canPickOutput = () => 'setSinkId' in HTMLMediaElement.prototype && navigat
 async function pickOutput(e) {
   const r = e.currentTarget.getBoundingClientRect();
   const outs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audiooutput');
-  if (outs.length < 2) return toast('Другие устройства вывода не найдены');
+  if (outs.length < 2) return toast(tr("Другие устройства вывода не найдены"));
   contextMenu(r.left, r.top - 8 - outs.length * 42, outs.map((d, i) => ({
     icon: d.deviceId === call?.sinkId ? 'check' : 'volume',
-    label: d.label || `Устройство ${i + 1}`,
+    label: d.label || tr('Устройство {number}',{number:i+1}),
     onClick: async () => {
-      try { await call.remoteEl?.setSinkId(d.deviceId); call.sinkId = d.deviceId; toast(`Звук: ${d.label || 'устройство'}`); } catch { toast('Не удалось переключить устройство', 'error'); }
+      try { await call.remoteEl?.setSinkId(d.deviceId); call.sinkId = d.deviceId; toast(tr('Звук: {name}',{name:d.label||tr('устройство')})); } catch { toast(tr("Не удалось переключить устройство"), 'error'); }
     },
   })));
 }
@@ -357,12 +359,12 @@ async function flipCam() {
     old.stop();
     call.local.addTrack(track);
     render();
-  } catch { toast('Не удалось переключить камеру'); }
+  } catch { toast(tr("Не удалось переключить камеру")); }
 }
 
 function finish(text) {
   stopTone();
-  if (text) toast(text);
+  if (text) toast(tr(text));
   cleanup();
 }
 
@@ -403,9 +405,9 @@ const fmt = (sec) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0'
 
 function statusText() {
   if (!call) return '';
-  if (call.status === 'incoming') return call.video ? 'Входящий видеозвонок…' : 'Входящий звонок…';
-  if (call.status === 'calling') return 'Вызов…';
-  if (!call.connectedAt) return 'Соединение…';
+  if (call.status === 'incoming') return call.video ? tr("Входящий видеозвонок…") : tr("Входящий звонок…");
+  if (call.status === 'calling') return tr("Вызов…");
+  if (!call.connectedAt) return tr("Соединение…");
   return fmt(Math.round((Date.now() - call.connectedAt) / 1000));
 }
 
@@ -445,14 +447,14 @@ function render() {
       h('div', { class: `call-avatar ${call.status === 'incoming' || call.status === 'calling' ? 'pulse' : ''}` }, avatar({ id: peer.id, name: peer.name, src: peer.avatar }, 132)),
       h('div', { class: 'call-name' }, peer.name),
       h('div', { class: 'call-status' }, statusText()),
-      call.connectedAt && !call.peerMic ? h('div', { class: 'call-note' }, '🔇 Микрофон собеседника выключен') : null));
+      call.connectedAt && !call.peerMic ? h('div', { class: 'call-note' }, tr("🔇 Микрофон собеседника выключен")) : null));
   } else {
     stage.append(h('div', { class: 'call-top' }, h('div', { class: 'call-name small' }, peer.name), h('div', { class: 'call-status' }, statusText())));
   }
   if (call.screen || (call.peerScreen && remoteVideo)) {
     stage.append(h('div', { class: 'screen-badge' }, icon('screen'),
-      call.screen ? 'Вы показываете экран' : `${peer.name} показывает экран`,
-      call.screen ? h('button', { onclick: stopScreen }, 'Остановить') : null));
+      call.screen ? tr("Вы показываете экран") : tr('{name} показывает экран',{name:peer.name}),
+      call.screen ? h('button', { onclick: stopScreen }, tr("Остановить")) : null));
   }
   if (call.local && call.local.getVideoTracks().length && call.cam) {
     if (!call.localEl) {
@@ -465,32 +467,32 @@ function render() {
 
   const controls = call.status === 'incoming'
     ? h('div', { class: 'call-controls' },
-      btn('red', 'phoneDown', 'Отклонить', reject),
-      btn('green', call.video ? 'video' : 'phone', 'Ответить', accept))
+      btn('red', 'phoneDown', tr("Отклонить"), reject),
+      btn('green', call.video ? 'video' : 'phone', tr("Ответить"), accept))
     : h('div', { class: 'call-controls' },
       isPhone()
-        ? btn(`glass ${call.loud ? 'lit' : ''}`, 'volume', 'Динамик', toggleLoud)
-        : btn('glass', call.speaker ? 'volume' : 'volumeOff', call.speaker ? 'Звук' : 'Звук выкл.', toggleSpeaker, call.speaker),
-      btn('glass', call.mic ? 'mic' : 'micOff', call.mic ? 'Микрофон' : 'Микр. выкл.', toggleMic, call.mic),
-      call.local?.getVideoTracks().length ? btn('glass', call.cam ? 'video' : 'videoOff', 'Камера', toggleCam, call.cam) : null,
-      canShareScreen() && call.status !== 'calling' ? btn(`glass ${call.screen ? 'lit' : ''}`, 'screen', call.screen ? 'Остановить' : 'Экран', toggleScreen) : null,
-      call.local?.getVideoTracks().length && /Android|iPhone|iPad/i.test(navigator.userAgent) ? btn('glass', 'refresh', 'Повернуть', flipCam) : null,
-      canPickOutput() && !/Android|iPhone|iPad/i.test(navigator.userAgent) ? btn('glass', 'devices', 'Вывод', pickOutput) : null,
-      btn('red', 'phoneDown', 'Завершить', hangup));
+        ? btn(`glass ${call.loud ? 'lit' : ''}`, 'volume', tr("Динамик"), toggleLoud)
+        : btn('glass', call.speaker ? 'volume' : 'volumeOff', call.speaker ? tr("Звук") : tr("Звук выкл."), toggleSpeaker, call.speaker),
+      btn('glass', call.mic ? 'mic' : 'micOff', call.mic ? tr("Микрофон") : tr("Микр. выкл."), toggleMic, call.mic),
+      call.local?.getVideoTracks().length ? btn('glass', call.cam ? 'video' : 'videoOff', tr("Камера"), toggleCam, call.cam) : null,
+      canShareScreen() && call.status !== 'calling' ? btn(`glass ${call.screen ? 'lit' : ''}`, 'screen', call.screen ? tr("Остановить") : tr("Экран"), toggleScreen) : null,
+      call.local?.getVideoTracks().length && /Android|iPhone|iPad/i.test(navigator.userAgent) ? btn('glass', 'refresh', tr("Повернуть"), flipCam) : null,
+      canPickOutput() && !/Android|iPhone|iPad/i.test(navigator.userAgent) ? btn('glass', 'devices', tr("Вывод"), pickOutput) : null,
+      btn('red', 'phoneDown', tr("Завершить"), hangup));
 
   const mini = h('div', { class: 'call-mini-bar' },
-    h('button', { class: 'call-mini-open', 'aria-label': 'Развернуть звонок', onclick: expand },
+    h('button', { class: 'call-mini-open', 'aria-label': tr("Развернуть звонок"), onclick: expand },
       avatar({ id: peer.id, name: peer.name, src: peer.avatar }, 36),
       h('span', { class: 'call-mini-info' }, h('b', {}, peer.name), h('span', { class: 'call-status' }, statusText())), icon('up')),
     call.status === 'incoming'
-      ? h('button', { class: 'call-mini-action accept', 'aria-label': 'Ответить', onclick: accept }, icon('phone'))
-      : h('button', { class: 'call-mini-action', 'aria-label': call.mic ? 'Выключить микрофон' : 'Включить микрофон', onclick: toggleMic }, icon(call.mic ? 'mic' : 'micOff')),
-    h('button', { class: 'call-mini-action end', 'aria-label': call.status === 'incoming' ? 'Отклонить' : 'Завершить звонок', onclick: call.status === 'incoming' ? reject : hangup }, icon('phoneDown')));
+      ? h('button', { class: 'call-mini-action accept', 'aria-label': tr("Ответить"), onclick: accept }, icon('phone'))
+      : h('button', { class: 'call-mini-action', 'aria-label': call.mic ? tr("Выключить микрофон") : tr("Включить микрофон"), onclick: toggleMic }, icon(call.mic ? 'mic' : 'micOff')),
+    h('button', { class: 'call-mini-action end', 'aria-label': call.status === 'incoming' ? tr("Отклонить") : tr("Завершить звонок"), onclick: call.status === 'incoming' ? reject : hangup }, icon('phoneDown')));
   overlay.replaceChildren(
-    h('button', { class: 'call-minimize', 'aria-label': 'Свернуть звонок', onclick: minimize }, icon('down'), h('span', {}, 'Свернуть')),
+    h('button', { class: 'call-minimize', 'aria-label': tr("Свернуть звонок"), onclick: minimize }, icon('down'), h('span', {}, tr("Свернуть"))),
     mini,
     h('div', { class: 'call-bg', style: peer.avatar ? { backgroundImage: `url("${peer.avatar}")` } : null }),
     stage,
-    h('div', { class: 'call-secure' }, '🔒 Звонок шифруется'),
+    h('div', { class: 'call-secure' }, tr("🔒 Звонок шифруется")),
     controls);
 }

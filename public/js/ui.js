@@ -427,7 +427,7 @@ export function handleBack() {
 }
 
 let modalStack = [];
-export function openModal({ title, body, actions = [], className = '', onClose } = {}) {
+export function openModal({ title, body, actions = [], className = '', onClose, translate = text=>text } = {}) {
   const root = document.getElementById('modals');
   let release = null;
   const close = (fromBack = false) => {
@@ -441,7 +441,7 @@ export function openModal({ title, body, actions = [], className = '', onClose }
   const header = title !== undefined
     ? h('div', { class: 'modal-header' },
       h('div', { class: 'modal-title' }, title),
-      h('button', { class: 'icon-btn', 'aria-label': 'Закрыть', onclick: () => close() }, icon('close')))
+      h('button', { class: 'icon-btn', 'aria-label': translate('Закрыть'), onclick: () => close() }, icon('close')))
     : null;
   const footer = actions.length
     ? h('div', { class: 'modal-actions' }, actions.map((a) => h('button', {
