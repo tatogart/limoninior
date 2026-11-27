@@ -1,0 +1,69 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {spawn} from 'node:child_process';import {mkdtempSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import path from 'node:path';import net from 'node:net';import {DatabaseSync} from 'node:sqlite';
+test('beta gate, private assets, admin code lifecycle and proxy keep the normal app available',async()=>{
+ const data=mkdtempSync(path.join(tmpdir(),'limo-beta-http-')),probe=net.createServer();await new Promise(r=>probe.listen(0,'127.0.0.1',r));const port=probe.address().port;await new Promise(r=>probe.close(r));const origin='http://127.0.0.1:'+port;
+ const child=spawn(process.execPath,['server/index.js'],{env:{...process.env,PORT:String(port),APP_ORIGIN:origin,DATA_DIR:data,NODE_ENV:'development',ADMIN_USERNAMES:'betaadmin',ADMIN_EMAILS:'admin@example.test',ADMIN_TOTP_SECRET:'JBSWY3DPEHPK3PXP'},stdio:['ignore','pipe','pipe']});let logs='',db;
+ try{
+  await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(Error('Startup '+logs)),15000);child.stdout.on('data',c=>{logs+=c;if(logs.includes('listening on')){clearTimeout(timeout);resolve();}});child.stderr.on('data',c=>logs+=c);child.on('exit',code=>{clearTimeout(timeout);reject(Error('Exit '+code+' '+logs));});});
+  const request=async(method,url,body,cookie='',reqOrigin=origin)=>{const response=await fetch(origin+url,{method,headers:{origin:reqOrigin,cookie,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});const text=await response.text();let json;try{json=JSON.parse(text);}catch{}return {status:response.status,text,json,cookie:response.headers.get('set-cookie')?.split(';')[0],cache:response.headers.get('cache-control')};};
+  assert.match((await request('GET','/beta')).text,/Вход по приглашению/);assert.equal((await request('GET','/beta/assets/app.js')).status,401);assert.equal((await request('GET','/api/beta/app/chats')).status,401);
+  for(const path of ['/beta/index.html','/beta/assets/../../index.html','/%62eta/index.html','/%62eta/assets/app.js'])assert.ok(!(await request('GET',path)).text.includes('beta/assets/app.js'),path);
+  const tester=await request('POST','/api/auth/register',{username:'betatesterqa',name:'Beta Tester',password:'Beta-password-123'});const administrator=await request('POST','/api/auth/register',{username:'betareviewerqa',name:'Beta Admin',password:'Beta-admin-password-123'});assert.equal(tester.status,200);assert.equal(administrator.status,200);
+  db=new DatabaseSync(path.join(data,'limoninior.db'));db.prepare('UPDATE users SET username=? WHERE id=?').run('betaadmin',administrator.json.user.id);db.prepare('UPDATE sessions SET admin_until=? WHERE user_id=?').run(Date.now()+3600000,administrator.json.user.id);
+  assert.equal((await request('POST','/api/admin/beta/codes',{},tester.cookie)).status,404);
+  assert.equal((await request('GET','/api/beta/app/chats',undefined,tester.cookie)).status,403);
+  const created=await request('POST','/api/admin/beta/codes',{label:'Draft QA',maxUses:1,days:2},administrator.cookie);assert.equal(created.status,200,created.text);const code=created.json.code;
+  const listing=await request('GET','/api/admin/beta/codes',undefined,administrator.cookie);assert.ok(!listing.text.includes(code));assert.ok(!listing.text.includes('token_hash'));
+  assert.equal((await request('POST','/api/beta/redeem',{code},tester.cookie,'https://attacker.invalid')).status,403);
+  assert.equal((await request('POST','/api/beta/redeem',{code},tester.cookie)).status,200);
+  const secondDevice=await request('POST','/api/auth/login',{username:'betatesterqa',password:'Beta-password-123'});assert.equal(secondDevice.status,200);
+  assert.equal((await request('GET','/api/beta/status',undefined,secondDevice.cookie)).json.access,true);
+  assert.equal((await request('GET','/api/me',undefined,secondDevice.cookie)).json.user.betaAccess,true);
+  assert.equal((await request('GET','/beta/assets/app.js',undefined,secondDevice.cookie)).status,200);
+  assert.equal((await request('GET','/api/beta/status',undefined,administrator.cookie)).json.access,false);
+  assert.equal((await request('POST','/api/beta/leave',{},secondDevice.cookie)).status,200);
+  assert.equal((await request('GET','/api/beta/status',undefined,secondDevice.cookie)).json.access,true);
+  assert.equal(db.prepare('SELECT uses FROM beta_codes WHERE id=?').get(created.json.id).uses,1);
+  const beta=await request('GET','/beta',undefined,tester.cookie);assert.match(beta.text,/beta\/assets\/app.js/);assert.match(beta.cache,/no-store/);
+  // Preference is shared by sessions, explicit main exit overrides it, deep links stay intact.
+  assert.match((await request('GET','/',undefined,secondDevice.cookie)).text,/beta\/assets\/app.js/);
+  assert.ok(!(await request('GET','/?server=main',undefined,tester.cookie)).text.includes('beta/assets/app.js'));
+  assert.ok(!(await request('GET','/',undefined,secondDevice.cookie)).text.includes('beta/assets/app.js'));
+  await request('GET','/beta',undefined,tester.cookie);
+  assert.ok(!(await request('GET','/@somechannel',undefined,tester.cookie)).text.includes('beta/assets/app.js'));
+
+  assert.equal((await request('GET','/beta/assets/app.js',undefined,tester.cookie)).status,200);assert.match((await request('GET','/beta/assets/glass.css',undefined,tester.cookie)).cache,/no-store/);
+  assert.equal((await request('GET','/api/beta/app/chats',undefined,tester.cookie)).status,200);
+  const edited=await request('PATCH','/api/beta/app/me',{name:'Beta Profile Edited',bio:'Saved from beta'},tester.cookie);assert.equal(edited.status,200);assert.equal(edited.json.user.bio,'Saved from beta');
+  const publicProfile=await request('GET','/api/users/'+tester.json.user.id,undefined,administrator.cookie);assert.equal(publicProfile.json.user.name,'Beta Profile Edited');
+  assert.equal((await request('GET','/api/beta/app/users/'+administrator.json.user.id,undefined,tester.cookie)).status,200);
+  assert.equal((await request('GET','/api/beta/app/users/'+tester.json.user.id+'/gifts',undefined,tester.cookie)).status,200);
+  assert.equal((await request('GET','/api/beta/app/calls/ice',undefined,tester.cookie)).status,200);
+
+  const dialog=await request('POST','/api/chats/private',{userId:administrator.json.user.id},tester.cookie);const dialogId=dialog.json.chat.id;
+  assert.equal((await request('POST','/api/chats/'+dialogId+'/messages',{text:'Keep peer history'},tester.cookie)).status,200);
+  assert.equal((await request('DELETE','/api/chats/'+dialogId,undefined,tester.cookie,'https://attacker.invalid')).status,403);
+  assert.equal((await request('DELETE','/api/chats/'+dialogId,undefined,tester.cookie)).status,200);
+  assert.ok(!(await request('GET','/api/chats',undefined,tester.cookie)).json.chats.some(c=>c.id===dialogId));
+  assert.ok((await request('GET','/api/chats',undefined,administrator.cookie)).json.chats.some(c=>c.id===dialogId));
+  assert.equal((await request('GET','/api/chats/'+dialogId+'/messages',undefined,administrator.cookie)).json.messages[0].text,'Keep peer history');
+  await request('POST','/api/chats/'+dialogId+'/messages',{text:'New message restores dialog'},administrator.cookie);
+  assert.ok((await request('GET','/api/chats',undefined,tester.cookie)).json.chats.some(c=>c.id===dialogId));
+  await request('DELETE','/api/chats/'+dialogId,undefined,tester.cookie);
+  await request('POST','/api/chats/private',{userId:administrator.json.user.id},tester.cookie);
+  assert.ok((await request('GET','/api/chats',undefined,tester.cookie)).json.chats.some(c=>c.id===dialogId));
+  const saved=await request('POST','/api/beta/app/chats/private',{userId:tester.json.user.id},tester.cookie);assert.equal(saved.status,200,saved.text);assert.equal((await request('DELETE','/api/chats/'+saved.json.chat.id,undefined,administrator.cookie)).status,404);assert.equal((await request('DELETE','/api/chats/'+saved.json.chat.id,undefined,tester.cookie)).status,400);
+  assert.equal((await request('POST','/api/beta/app/chats/'+saved.json.chat.id+'/messages',{text:'Beta real chat test'},tester.cookie)).status,200);
+  const original=await request('POST','/api/beta/app/chats/'+saved.json.chat.id+'/messages',{text:'Reply target'},tester.cookie);
+  const reply=await request('POST','/api/beta/app/chats/'+saved.json.chat.id+'/messages',{text:'Beta reply',replyTo:original.json.message.id},tester.cookie);
+  assert.equal(reply.status,200);assert.equal(reply.json.message.replyTo.id,original.json.message.id);
+
+  assert.equal((await request('POST','/api/beta/feedback',{text:'The draft has readable glass panels.'},tester.cookie)).status,200);
+  assert.equal((await request('GET','/api/admin/beta/feedback',undefined,administrator.cookie)).json.feedback.length,1);
+  assert.equal((await request('POST','/api/admin/beta/codes/'+created.json.id+'/revoke',{},administrator.cookie)).status,200);
+  assert.equal((await request('GET','/api/beta/status',undefined,secondDevice.cookie)).json.access,false);assert.equal((await request('GET','/api/me',undefined,secondDevice.cookie)).json.user.betaAccess,false);
+  assert.equal((await request('GET','/beta/assets/app.js',undefined,tester.cookie)).status,403);assert.equal((await request('GET','/api/beta/app/chats',undefined,tester.cookie)).status,403);
+  assert.match((await request('GET','/beta',undefined,tester.cookie)).text,/Вход по приглашению/);
+  assert.ok(!(await request('GET','/',undefined,tester.cookie)).text.includes('beta/assets/app.js'));assert.equal((await request('GET','/api/chats',undefined,tester.cookie)).status,200);assert.equal((await request('GET','/')).status,200);
+  assert.equal(db.prepare("SELECT count(*) n FROM messages WHERE text='Beta real chat test'").get().n,1);
+ }finally{db?.close();child.kill();await new Promise(r=>{if(child.exitCode!==null)r();else child.once('exit',r);});rmSync(data,{recursive:true,force:true});}
+});

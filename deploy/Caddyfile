@@ -1,0 +1,9 @@
+# Замените chat.example.ru на свой домен. Caddy сам получит HTTPS-сертификат.
+chat.example.ru {
+	encode zstd gzip
+	request_body {
+		max_size 210MB
+	}
+	header -Server
+	reverse_proxy 127.0.0.1:3000
+}

@@ -1,0 +1,43 @@
+{
+  "name": "limochat-desktop",
+  "version": "1.1.0",
+  "description": "Limochat for Windows",
+  "author": "Limochat",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis --x64"
+  },
+  "devDependencies": {
+    "electron": "45.3.3",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "io.limochat.desktop",
+    "productName": "Limochat",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.cjs",
+      "policy.cjs",
+      "package.json",
+      "icon.ico",
+      "preload.cjs"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "icon.ico",
+      "artifactName": "Limochat-Setup-${version}-${arch}.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

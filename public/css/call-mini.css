@@ -1,0 +1,17 @@
+.call-minimize { position:absolute; z-index:3; top:calc(12px + env(safe-area-inset-top)); left:16px; display:flex; align-items:center; gap:8px; border:1px solid #ffffff30; border-radius:24px; padding:10px 14px; background:#17212bba; color:white; cursor:pointer; font:inherit; }
+.call-mini-bar { display:none; }
+.call-overlay.call-minimized { inset:calc(12px + env(safe-area-inset-top)) 12px auto auto; width:min(360px,calc(100vw - 24px)); height:64px; border:1px solid #ffffff30; border-radius:20px; box-shadow:0 8px 28px #0005; overflow:hidden; transform:none; }
+.call-minimized > .call-bg, .call-minimized > .call-secure, .call-minimized > .call-controls, .call-minimized > .call-minimize { display:none; }
+/* Keep the same remote media node alive, including its audio, while using chats. */
+.call-minimized > .call-stage { position:absolute; width:1px; height:1px; flex:none; overflow:hidden; opacity:0; pointer-events:none; }
+.call-minimized .call-mini-bar { position:relative; display:flex; align-items:center; gap:6px; padding:8px; min-width:0; height:100%; box-sizing:border-box; }
+.call-mini-open { display:flex; align-items:center; gap:9px; flex:1; min-width:0; border:0; background:none; color:inherit; cursor:pointer; text-align:left; padding:0; font:inherit; }
+.call-mini-info { display:grid; min-width:0; gap:3px; }
+.call-mini-info b { font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.call-mini-info .call-status { font-size:12px; opacity:.75; }
+.call-mini-open > .icon { width:18px; flex-shrink:0; }
+.call-mini-action { display:grid; place-items:center; flex-shrink:0; width:38px; height:38px; border:0; border-radius:50%; background:#ffffff20; color:white; cursor:pointer; }
+.call-mini-action.end { background:#dc3949; }
+.call-mini-action.accept { background:#238b57; }
+.call-minimize:focus-visible, .call-mini-open:focus-visible, .call-mini-action:focus-visible { outline:2px solid #67d7ff; outline-offset:2px; }
+@media (prefers-reduced-motion:reduce) { .call-overlay { transition:none; } }

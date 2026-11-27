@@ -1,0 +1,5 @@
+import fs from 'node:fs';import path from 'node:path';import {config} from './config.js';import {db,q,now,kvGet,kvSet} from './db.js';
+const INTERVAL=3*86400000;
+export function sweepTemporary(dir,cutoff){let removed=0,bytes=0;if(!fs.existsSync(dir))return {removed,bytes};for(const name of fs.readdirSync(dir)){const file=path.join(dir,name);try{const s=fs.lstatSync(file);if(!s.isFile()||s.mtimeMs>=cutoff)continue;fs.unlinkSync(file);removed++;bytes+=s.size;}catch{}}return {removed,bytes};}
+export function housekeeping(){const t=now();if(t-Number(kvGet('housekeeping:last')||0)<INTERVAL)return null;const result=sweepTemporary(path.join(config.dataDir,'tmp'),t-86400000);q('DELETE FROM sessions WHERE expires_at<?').run(t);q('DELETE FROM bot_updates WHERE created_at<?').run(t-3*86400000);db.exec('PRAGMA wal_checkpoint(PASSIVE)');db.exec('PRAGMA optimize');kvSet('housekeeping:last',String(t));kvSet('housekeeping:result',JSON.stringify({...result,at:t}));return result;}
+export function startHousekeeping(){const run=()=>{try{housekeeping();}catch(e){console.error('housekeeping failed',e.message);}};setTimeout(run,30000).unref();setInterval(run,INTERVAL).unref();}
