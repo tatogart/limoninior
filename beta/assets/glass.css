@@ -168,3 +168,12 @@
 @keyframes beta-chat-open{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:translateX(0)}}
 .conversation:not([hidden]){animation:beta-chat-open .32s var(--motion-ease)}
 @media(max-width:640px){.message-search input{font-size:16px}.jump-latest{bottom:92px}.conversation-header .chat-identity{min-width:0}.conversation-header>.icon-button{min-width:30px;padding:6px}}
+
+/* Carry the conversation surface into the chat list. */
+.sidebar-heading{min-width:0;flex:1}.sidebar-heading p{font-size:11px;color:var(--muted);line-height:1.5;margin:5px 0 0}
+.sidebar-title{align-items:center;gap:12px}
+[data-theme=dark] .sidebar{background:linear-gradient(145deg,#202936dc,#151e28e8)}
+.sidebar .search{border-radius:17px;min-height:44px;border-color:var(--edge);background:color-mix(in srgb,var(--back) 65%,transparent)}
+.chat-list{padding-top:4px}.chat-item{border-radius:16px}.chat-item-content{gap:6px}
+.conversation-start{max-width:380px;line-height:1.6;padding:24px 16px}.conversation-start h2{font-size:22px;line-height:1.3;letter-spacing:-.5px}.conversation-start p{font-size:13px;line-height:1.7;margin:12px 0 0;color:var(--muted)}
+@media(max-width:640px){.sidebar{padding-top:16px}.sidebar-title{margin-bottom:14px}.sidebar-heading p{font-size:11px}.chat-item{padding:12px 9px}.chat-item-top strong{font-size:14px}.chat-item-bottom>span{font-size:12px}.chat-item .avatar{width:42px!important;height:42px!important}.conversation-start{max-width:100%;padding-inline:12px}}

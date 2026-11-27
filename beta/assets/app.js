@@ -4,6 +4,7 @@ import {errorText,setAccountId} from '/js/api.js';
 import {io} from '/vendor/socket.io.esm.min.js';
 import {initCalls,startCall,inCall} from '/js/calls.js';
 import {showProfile} from './profiles.js';
+import {emptyChatCopy} from './empty-copy.js';
 import {storyQuote} from '/js/stories.js';
 const root=document.querySelector('#beta-app');
 const state={me:null,chats:[],current:null,messages:[],filter:'all',query:'',focus:false,inspector:false,tab:'notes',epoch:0,sending:false,drafts:{},settings:{theme:'dark',dense:false,quick:false,accent:'mint'},notes:{},reply:null,searchText:''};
@@ -32,9 +33,9 @@ function drawList(){
  const items=state.chats.filter(chat=>(state.filter!=='unread'||chat.unread>0)&&(state.filter!=='pinned'||chat.pinnedAt)&&(!query||(title(chat)+' '+(chat.peer?.username||'')+' '+preview(chat.lastMessage)).toLocaleLowerCase('ru').includes(query)));
  const sorted=[...items].sort((a,b)=>Number(!!b.pinnedAt)-Number(!!a.pinnedAt)||(b.lastMessage?.createdAt||b.createdAt)-(a.lastMessage?.createdAt||a.createdAt));
  view.list.replaceChildren(...sorted.map(chat=>h('button',{type:'button',class:'chat-item'+(state.current?.id===chat.id?' active':''),onclick:()=>openChat(chat)},
-  h('span',{class:'avatar-wrap'},chatAvatar(chat),chat.peer?.online?h('i',{class:'online-dot'}):null),h('span',{class:'chat-item-content'},h('span',{class:'chat-item-top'},h('strong',{},title(chat)),h('small',{},chat.lastMessage?timeHM(chat.lastMessage.createdAt):'')),h('span',{class:'chat-item-bottom'},h('span',{},state.drafts[chat.id]?'Черновик: '+state.drafts[chat.id]:preview(chat.lastMessage)),chat.unread?h('b',{class:'unread-badge'},Math.min(chat.unread,99)):chat.pinnedAt?icon('pin'):null)))));
+  h('span',{class:'avatar-wrap'},chatAvatar(chat),chat.peer?.online?h('i',{class:'online-dot'}):null),h('span',{class:'chat-item-content'},h('span',{class:'chat-item-top'},h('strong',{},title(chat)),h('small',{},chat.lastMessage?timeHM(chat.lastMessage.createdAt):'')),h('span',{class:'chat-item-bottom'},h('span',{},state.drafts[chat.id]?'Черновик: '+state.drafts[chat.id]:(chat.lastMessage?preview(chat.lastMessage):emptyChatCopy(chat).list)),chat.unread?h('b',{class:'unread-badge'},Math.min(chat.unread,99)):chat.pinnedAt?icon('pin'):null)))));
  if(arrive&&!matchMedia('(prefers-reduced-motion:reduce)').matches)[...view.list.children].slice(0,12).forEach((node,index)=>{node.classList.add('list-arrive');node.style.setProperty('--arrival',Math.min(index*22,180)+'ms');});
- if(!sorted.length)view.list.append(h('div',{class:'list-empty'},icon('search'),h('p',{},query?'Ничего не найдено':'Здесь пока пусто'),h('small',{},'Чаты, созданные в Limochat, появятся здесь.')));
+ if(!sorted.length)view.list.append(h('div',{class:'list-empty'},icon('search'),h('p',{},query?'Чат не найден':state.filter==='unread'?'Всё прочитано':state.filter==='pinned'?'Важные чаты — здесь':'Ваши разговоры впереди'),h('small',{},query?'Попробуйте другое имя или @юзернейм.':state.filter==='unread'?'Новые сообщения появятся в этой вкладке.':state.filter==='pinned'?'Закреплённые чаты появятся в этой вкладке.':'Чаты, созданные в Limochat, появятся здесь.')));
  const unread=state.chats.reduce((n,c)=>n+c.unread,0);view.count.textContent=unread;view.count.hidden=!unread;
 }
 function messageNode(message){
@@ -63,7 +64,7 @@ function drawMessages({bottom=false}={}){
  const nearBottom=view.messages.scrollHeight-view.messages.scrollTop-view.messages.clientHeight<100;
  const oldTop=view.messages.scrollTop;
  view.messages.replaceChildren(...state.messages.map(message=>{const node=messageNode(message);if(animateNew&&!previousIds.has(String(message.id))&&Number(message.id)>Number(previousLast))node.classList.add('message-new');return node;}));
- if(!state.messages.length)view.messages.append(h('div',{class:'conversation-start'},icon('chat'),h('h2',{},'Начните с «Привет»'),h('p',{},'Иногда одного сообщения достаточно.')));
+ if(!state.messages.length){const copy=emptyChatCopy(state.current);view.messages.append(h('div',{class:'conversation-start'},icon('chat'),h('h2',{},copy.title),h('p',{},copy.text)));}
  if(bottom||nearBottom)view.messages.scrollTop=view.messages.scrollHeight;else view.messages.scrollTop=oldTop;
  updateMessageSearch();updateJump();
 }
@@ -123,7 +124,7 @@ function build(){
  view.search=h('input',{type:'search',placeholder:'Найти чат','aria-label':'Поиск по чатам',oninput:event=>{state.query=event.target.value;drawList();}});
  view.list=h('div',{class:'chat-list'});view.count=h('span',{class:'chat-counter'},'0');
  const filters=h('div',{class:'chat-filters'},... [['all','Все'],['unread','Непрочитанные'],['pinned','Важные']].map(([id,label])=>h('button',{class:id==='all'?'selected':'',onclick:event=>{state.filter=id;filters.querySelectorAll('button').forEach(b=>b.classList.toggle('selected',b===event.currentTarget));drawList();}},label)));
- const sidebar=h('aside',{class:'sidebar glass'},h('div',{class:'sidebar-title'},h('h1',{},'Чаты'),view.count),h('label',{class:'search'},icon('search'),view.search),filters,view.list);
+ const sidebar=h('aside',{class:'sidebar glass'},h('div',{class:'sidebar-title'},h('div',{class:'sidebar-heading'},h('h1',{},'Чаты'),h('p',{},'Все разговоры в одном месте')),view.count),h('label',{class:'search'},icon('search'),view.search),filters,view.list);
  view.rail.querySelector('.nav-profile').append(h('span',{class:'nav-label'},'Профиль'));
  view.chatIdentity=h('button',{type:'button',class:'chat-identity','aria-label':'Открыть профиль',onclick:()=>{if(state.current?.peer)profile(state.current.peer.id);}});view.messages=h('div',{class:'messages',role:'log','aria-label':'Сообщения'});
  view.input=h('textarea',{rows:1,maxLength:4096,placeholder:'Написать сообщение…','aria-label':'Сообщение',oninput:saveDraft,onkeydown:event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();send();}}});
